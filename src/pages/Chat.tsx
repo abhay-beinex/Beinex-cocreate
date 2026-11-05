@@ -33,13 +33,14 @@ export default function Chat() {
   // threads with messages, or the current one
   const list = useMemo(() => threads.filter((t) => (chats[`thread:${t.id}`]?.length ?? 0) > 0 || t.id === threadId).filter((t) => t.title.toLowerCase().includes(filter.toLowerCase())).sort((a, b) => b.updatedAt - a.updatedAt), [threads, chats, threadId, filter])
   const thread = threads.find((t) => t.id === threadId)
-  const newThread = (aid = 'assistant', model?: string) => { const t: ThreadT = { id: uid(), agentId: aid, title: 'New chat', createdAt: Date.now(), updatedAt: Date.now(), model }; upsertThread(t); setParams({ t: t.id }, { replace: true }); return t }
+  const keepQ = (t: string): Record<string, string> => { const q = params.get('q'); return q ? { t, q } : { t } }
+  const newThread = (aid = 'assistant', model?: string) => { const t: ThreadT = { id: uid(), agentId: aid, title: 'New chat', createdAt: Date.now(), updatedAt: Date.now(), model }; upsertThread(t); setParams(keepQ(t.id), { replace: true }); return t }
 
   // /chat/:agentId opens (or starts) a thread with that agent; ?q= sends a first message to the assistant
   const booted = useRef<string | null>(null)
   useEffect(() => {
     if (agentId) { const existing = threads.find((t) => t.agentId === agentId && (chats[`thread:${t.id}`]?.length ?? 0) === 0); const t = existing ?? { id: uid(), agentId, title: 'New chat', createdAt: Date.now(), updatedAt: Date.now() }; if (!existing) upsertThread(t); nav(`/chat?t=${t.id}`, { replace: true }); return }
-    if (!thread) { const empty = threads.find((t) => (chats[`thread:${t.id}`]?.length ?? 0) === 0); if (empty) setParams({ t: empty.id }, { replace: true }); else newThread() }
+    if (!thread) { const empty = threads.find((t) => (chats[`thread:${t.id}`]?.length ?? 0) === 0); if (empty) setParams(keepQ(empty.id), { replace: true }); else newThread() }
   }, [agentId, threadId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const current = useMemo(() => agents.find((a) => a.id === thread?.agentId), [agents, thread?.agentId])
