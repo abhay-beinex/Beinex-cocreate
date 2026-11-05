@@ -27,7 +27,7 @@ export type Autonomy = 1 | 2 | 3
 export type AgentSnapshot = { version: number; at: string; by: string; data: Omit<Agent, 'history'> }
 export type Agent = {
   id: string; name: string; description: string; instructions: string; model: string; tools: string[]; knowledge: string[]
-  autonomy: Autonomy; status: 'live' | 'draft'; version: number; samplePrompts: string[]; updatedAt: string; createdBy: string; history?: AgentSnapshot[]; icon?: string; color?: string
+  autonomy: Autonomy; status: 'live' | 'draft'; version: number; samplePrompts: string[]; updatedAt: string; createdBy: string; history?: AgentSnapshot[]; icon?: string; color?: string; tones?: string[]; testedAt?: string
 }
 
 export const GOVERNED = 'You never take an external action yourself: drafts, emails and approvals go to a person. If you are unsure or information is missing, say so and ask rather than guessing.'

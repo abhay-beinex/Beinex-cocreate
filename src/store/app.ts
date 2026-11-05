@@ -47,6 +47,7 @@ type State = {
   setModels: (m: ORModel[]) => void
   upsertAgent: (a: Agent, note?: string) => void
   rollbackAgent: (id: string, version: number) => void
+  touchAgentTested: (id: string) => void
   deleteAgent: (id: string) => void
   upsertCouncil: (c: Council) => void
   deleteCouncil: (id: string) => void
@@ -132,6 +133,7 @@ export const useApp = create<State>()(
           const next = { ...a, history }
           set({ agents: prev ? get().agents.map((x) => (x.id === a.id ? next : x)) : [next, ...get().agents] }); log(prev ? (note ?? 'Saved agent') : 'Created agent', `${a.name} v${a.version}`)
         },
+        touchAgentTested: (id) => set({ agents: get().agents.map((a) => (a.id === id && !a.testedAt ? { ...a, testedAt: now() } : a)) }),
         rollbackAgent: (id, version) => {
           const a = get().agents.find((x) => x.id === id); const snap = a?.history?.find((h) => h.version === version); if (!a || !snap) return
           get().upsertAgent({ ...snap.data, id, version: a.version + 1, updatedAt: today(), history: a.history }, `Rolled back agent to v${version}`)

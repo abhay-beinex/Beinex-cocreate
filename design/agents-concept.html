@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agents concept v2</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+<style>
+:root{--bg:#e7ecf4;--bg-2:#dfe6ef;--surface:#eef2f8;--surface-2:#f6f8fb;--text:#0f2a44;--muted:#6b7f97;--line:rgba(16,56,91,.09);--accent:#04bbf2;--accent-ink:#0074d9;--ok:#16a34a;--warn:#e59e0b;--clay-light:rgba(255,255,255,.95);--clay-dark:rgba(16,56,91,.09);--clay-drop:rgba(16,56,91,.14);--glass-bg:rgba(255,255,255,.5);--glass-line:rgba(255,255,255,.7);--tint:color-mix(in srgb,var(--accent) 12%,transparent)}
+*{box-sizing:border-box}html,body{height:100%}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+svg.lucide{width:16px;height:16px;stroke-width:2}
+.ambient{position:fixed;inset:0;pointer-events:none;background:radial-gradient(40% 44% at 6% 0%,rgba(4,187,242,.24),transparent 65%),radial-gradient(34% 40% at 100% 8%,rgba(0,116,217,.18),transparent 65%),radial-gradient(38% 38% at 60% 110%,rgba(139,92,246,.12),transparent 65%);filter:blur(12px)}
+.clay{background:var(--surface);border-radius:24px;box-shadow:inset 5px 5px 12px var(--clay-light),inset -5px -7px 14px var(--clay-dark),0 18px 34px -20px var(--clay-drop)}
+.clay-sm{background:var(--surface);border-radius:18px;box-shadow:inset 3px 3px 8px var(--clay-light),inset -3px -4px 9px var(--clay-dark),0 10px 20px -14px var(--clay-drop)}
+.pressed{background:var(--bg-2);box-shadow:inset 3px 3px 8px var(--clay-dark),inset -2px -2px 6px var(--clay-light)}
+.glass{background:var(--glass-bg);border:1px solid var(--glass-line);backdrop-filter:blur(22px) saturate(150%);box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 16px 40px -24px rgba(16,56,91,.35)}
+.flat{background:var(--surface-2);border:1px solid var(--line);border-radius:16px}
+.display{font-family:Manrope,Inter,sans-serif;letter-spacing:-.02em}.muted{color:var(--muted)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:44px;padding:0 18px;border-radius:14px;font-weight:600;font-size:13.5px;border:1px solid var(--line);background:var(--surface-2);transition:transform .12s}
+.btn:active{transform:scale(.97)}
+.btn-primary{color:#fff;border:0;background:linear-gradient(145deg,#22c7f8,#0b8fdf);box-shadow:inset 2px 3px 6px rgba(255,255,255,.4),inset -3px -5px 10px rgba(0,74,140,.4),0 12px 22px -12px rgba(4,150,220,.7)}
+.btn-ghost{background:transparent;border-color:transparent;color:var(--muted)}
+.icon-btn{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;color:var(--muted)}
+.icon-btn:hover{background:var(--clay-dark);color:var(--text)}
+.tile{display:grid;place-items:center;color:#fff;flex:none;box-shadow:inset 2px 2px 5px rgba(255,255,255,.3),inset -3px -4px 8px rgba(0,0,0,.16),0 10px 18px -12px rgba(16,56,91,.55)}
+.seg{display:inline-flex;gap:3px;padding:4px;border-radius:15px;background:var(--clay-dark)}
+.seg button{height:36px;padding:0 14px;border-radius:11px;font-size:13px;font-weight:600;color:var(--muted);display:inline-flex;align-items:center;gap:7px}
+.seg button.on{background:var(--surface-2);color:var(--text);box-shadow:0 1px 2px rgba(16,24,40,.08)}
+.seg .n{font-size:11px;padding:1px 7px;border-radius:99px;background:var(--clay-dark)}
+
+/* shell */
+.app{position:relative;z-index:1;height:100vh;display:flex;gap:12px;padding:12px}
+aside{width:212px;border-radius:22px;padding:10px;display:flex;flex-direction:column;flex:none}
+.brand{display:flex;align-items:center;gap:10px;height:48px;padding:0 6px;margin-bottom:12px}
+.navi{display:flex;align-items:center;gap:10px;height:38px;border-radius:11px;padding:0 10px;font-size:13px;font-weight:500;color:var(--muted)}
+.navi.on{background:var(--surface-2);color:var(--text);font-weight:600;box-shadow:0 1px 2px rgba(16,24,40,.06)}
+main{flex:1;min-width:0;overflow:auto;border-radius:22px}
+.inner{max-width:1120px;margin:0 auto;padding:26px 18px 120px}
+.screen{display:none}.screen.on{display:block;animation:up .4s cubic-bezier(.2,.8,.2,1)}
+@keyframes up{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.concept{position:fixed;z-index:20;left:24px;bottom:24px;flex-direction:column;align-items:stretch!important;width:188px;border-radius:18px;padding:6px;display:flex;gap:4px;align-items:center}
+.concept .seg{flex-direction:column}.concept .seg button{justify-content:flex-start}
+.concept .lbl{padding:6px 10px!important;font-size:11px;font-weight:700;color:#7c3aed;padding:0 10px}
+
+/* library */
+.hero{padding:28px 30px;display:grid;grid-template-columns:1fr 280px;gap:24px;align-items:center}
+.ask{display:flex;align-items:center;gap:10px;padding:8px 8px 8px 18px;border-radius:20px;margin-top:18px}
+.ask input{flex:1;border:0;background:transparent;outline:0;font:15px Inter;color:var(--text);min-width:0}
+.send{width:48px;height:48px;border-radius:15px;display:grid;place-items:center;color:#fff;background:linear-gradient(145deg,#1a4a73,#10385b);box-shadow:inset 2px 2px 5px rgba(255,255,255,.18),inset -3px -4px 8px rgba(0,0,0,.35)}
+.starts{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.start{height:44px;display:inline-flex;align-items:center;gap:10px;padding:0 16px 0 6px;border-radius:14px;font-size:13px;font-weight:600}
+.start .tile{width:32px;height:32px;border-radius:10px}
+.start .tile svg{width:15px;height:15px}
+.stack{position:relative;height:170px}
+.stack .mini{position:absolute;width:210px;padding:14px;border-radius:18px;display:flex;gap:10px;align-items:center}
+.toolbar{display:flex;align-items:center;gap:10px;margin:22px 0 16px;flex-wrap:wrap}
+.search{height:44px;border-radius:14px;display:flex;align-items:center;gap:8px;padding:0 14px;width:220px;color:var(--muted);font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+.card{position:relative;overflow:hidden;padding:20px;display:flex;flex-direction:column;gap:14px;min-height:226px;cursor:pointer;transition:transform .2s}
+.card:hover{transform:translateY(-3px)}
+.card:active{transform:scale(.985)}
+.glow{position:absolute;right:-50px;top:-50px;width:170px;height:170px;border-radius:99px;pointer-events:none}
+.top{display:flex;align-items:flex-start;gap:12px;position:relative}
+.top .tile{width:50px;height:50px;border-radius:15px}
+.top .tile svg{width:22px;height:22px}
+.nm{font-weight:700;font-size:15px}
+.st{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin-top:2px}
+.st b{width:7px;height:7px;border-radius:99px}
+.desc{font-size:13px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;position:relative}
+.wells{display:flex;gap:6px;flex-wrap:wrap;position:relative}
+.well{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;color:var(--text)}
+.well svg{width:15px;height:15px;opacity:.75}
+.cfoot{margin-top:auto;display:flex;align-items:center;gap:8px;position:relative}
+.bars{display:inline-flex;gap:2px;align-items:flex-end;margin-right:2px}.bars i{width:4px;border-radius:2px;background:var(--clay-dark)}.bars i.f{background:var(--accent-ink)}
+.chat-btn{height:40px;padding:0 14px;border-radius:13px;font-size:12.5px;font-weight:600;display:inline-flex;align-items:center;gap:7px}
+.add{border-radius:24px;border:1.5px dashed rgba(16,56,91,.16);display:grid;place-items:center;text-align:center;min-height:226px;color:var(--muted);transition:all .2s}
+.add:hover{border-color:var(--accent);background:var(--tint);color:var(--accent-ink)}
+.add .tile{width:54px;height:54px;border-radius:17px;margin:0 auto 12px;background:var(--surface-2);color:var(--accent-ink)}
+.tpl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:14px}
+.tpl{padding:18px;border-radius:20px;text-align:left;display:flex;flex-direction:column;gap:12px;min-height:150px;transition:transform .15s}
+.tpl:hover{transform:translateY(-2px)}
+
+/* studio */
+.studio{display:grid;grid-template-columns:320px 1fr;gap:16px;align-items:start}
+.preview{position:sticky;top:0;padding:22px}
+.step-rail{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap}
+.step{height:44px;display:inline-flex;align-items:center;gap:9px;padding:0 14px 0 6px;border-radius:14px;font-size:13px;font-weight:600;color:var(--muted)}
+.step .num{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;font-size:12px;background:var(--clay-dark)}
+.step.on{background:var(--surface-2);color:var(--text);box-shadow:0 1px 2px rgba(16,24,40,.08)}
+.step.on .num{background:linear-gradient(145deg,#22c7f8,#0b8fdf);color:#fff}
+.step.done .num{background:var(--tint);color:var(--accent-ink)}
+.panel{padding:28px 30px}
+.q{font-size:24px;margin:0 0 4px;font-weight:800}
+.abilities{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:20px}
+.ab{position:relative;text-align:left;padding:16px;border-radius:20px;min-height:128px;display:flex;flex-direction:column;gap:10px;border:1.5px solid transparent;transition:all .18s}
+.ab .well{width:44px;height:44px;border-radius:14px}
+.ab .well svg{width:19px;height:19px}
+.ab b{font-size:13.5px}.ab small{font-size:11.5px;color:var(--muted);margin-top:-6px}
+.ab.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--surface-2))}
+.ab.on .well{background:linear-gradient(145deg,#22c7f8,#0b8fdf);box-shadow:none;color:#fff}
+.ab.on .well svg{opacity:1}
+.ab .mark{position:absolute;top:12px;right:12px;width:24px;height:24px;border-radius:99px;display:none;place-items:center}
+.ab .mark svg{width:13px;height:13px}
+.ab.on .mark{display:grid;background:var(--accent);color:#fff}
+.lock{position:absolute;top:14px;right:14px;color:var(--muted)}.lock svg{width:14px;height:14px}.ab.on .lock{display:none}
+.choices{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}
+.choice{padding:20px 18px;border-radius:20px;text-align:left;border:1.5px solid transparent;display:flex;flex-direction:column;gap:12px;min-height:150px}
+.choice.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--surface-2))}
+.choice b{font-size:14.5px}.choice small{color:var(--muted);font-size:12px;margin-top:-8px}
+.meter{display:inline-flex;gap:5px;align-items:flex-end;height:40px}
+.meter i{width:12px;border-radius:4px;background:var(--clay-dark)}.meter i.f{background:linear-gradient(180deg,#22c7f8,#0b8fdf)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.chip{height:44px;padding:0 18px;border-radius:14px;font-size:13.5px;font-weight:600;border:1.5px solid transparent;display:inline-flex;align-items:center;gap:8px}
+.chip.on{border-color:var(--accent);color:var(--accent-ink);background:color-mix(in srgb,var(--accent) 9%,var(--surface-2))}
+.sub{margin-top:30px}.sub h3{font-size:16px;margin:0}
+.bigask{width:100%;min-height:120px;border-radius:20px;padding:18px;border:0;outline:0;resize:none;font:15px/1.5 Inter;color:var(--text);margin-top:18px}
+.swatches{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.sw{width:44px;height:44px;border-radius:14px}
+.sw.on{outline:3px solid var(--surface-2);box-shadow:0 0 0 5px var(--accent)}
+.icons{display:grid;grid-template-columns:repeat(8,44px);gap:8px;margin-top:12px}
+.icons button{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;color:var(--muted)}
+.icons button.on{background:var(--tint);color:var(--accent-ink);box-shadow:inset 0 0 0 1.5px var(--accent)}
+.input{width:100%;height:48px;border-radius:14px;border:1px solid var(--line);background:var(--surface-2);padding:0 16px;font:15px Inter;color:var(--text);outline:0}
+.dock{position:sticky;bottom:12px;margin-top:20px;border-radius:20px;padding:10px;display:flex;align-items:center;gap:10px}
+.pv-card{padding:20px;border-radius:22px;margin-top:14px}
+.pv-lines{margin-top:18px;display:flex;flex-direction:column;gap:12px}
+.pv-line{display:flex;align-items:center;gap:10px;font-size:12.5px}
+.pv-line .well{width:32px;height:32px;border-radius:10px}
+
+/* agent page */
+.ahead{padding:16px 18px;display:flex;align-items:center;gap:14px;position:relative;overflow:hidden}
+.ahead .tile{width:56px;height:56px;border-radius:17px}.ahead .tile svg{width:24px;height:24px}
+.split{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:16px;margin-top:16px;align-items:start}
+.tchat{display:flex;flex-direction:column;min-height:600px;position:sticky;top:0}
+.tchat .hd{height:56px;display:flex;align-items:center;gap:10px;padding:0 18px;border-bottom:1px solid var(--line);font-size:13px}
+.msg{max-width:86%;padding:11px 14px;border-radius:16px;font-size:13px;margin:6px 0}
+.me{align-self:flex-end;background:var(--surface-2);border:1px solid var(--line)}
+.toolpill{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;padding:6px 11px;border-radius:12px;background:var(--tint);color:var(--accent-ink)}
+.toolpill svg{width:13px;height:13px}
+.ready{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:18px;margin-top:16px}
+.ring{width:48px;height:48px;border-radius:99px;display:grid;place-items:center;background:conic-gradient(var(--accent) 0 75%,var(--clay-dark) 0)}
+.ring i{width:38px;height:38px;border-radius:99px;background:var(--surface-2);display:grid;place-items:center;font:700 11.5px Inter;font-style:normal}
+.suggest{display:flex;flex-direction:column;gap:8px;margin-top:20px}
+.suggest button{height:44px;border-radius:14px;padding:0 14px;text-align:left;font-size:13px;font-weight:500;display:flex;align-items:center;gap:10px}
+</style>
+</head>
+<body>
+<div class="ambient"></div>
+<div class="app">
+  <aside class="glass">
+    <div class="brand"><div class="tile" style="width:36px;height:36px;border-radius:12px;background:linear-gradient(145deg,#1a4a73,#10385b)"><i data-lucide="sparkle"></i></div><div style="line-height:1.15"><div class="display" style="font-weight:800;font-size:14.5px">Co-Create</div><div class="muted" style="font-size:10.5px;font-weight:500">by Beinex</div></div></div>
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <span class="navi"><i data-lucide="home"></i>Home</span><span class="navi"><i data-lucide="message-square"></i>Chat</span>
+      <span style="height:10px"></span>
+      <span class="navi on"><i data-lucide="sparkles"></i>Agents</span><span class="navi"><i data-lucide="workflow"></i>Workflows</span><span class="navi"><i data-lucide="wrench"></i>Tools</span><span class="navi"><i data-lucide="book-open"></i>Knowledge</span>
+      <span style="height:10px"></span>
+      <span class="navi"><i data-lucide="list-checks"></i>Runs</span><span class="navi"><i data-lucide="cpu"></i>Models</span><span class="navi"><i data-lucide="settings"></i>Settings</span>
+    </div>
+  </aside>
+
+  <main id="main"><div class="inner">
+
+  <!-- LIBRARY -->
+  <section class="screen on" id="lib">
+    <div class="clay hero">
+      <div>
+        <div class="muted" style="font-size:12.5px;font-weight:600" id="count">4 agents · 2 live</div>
+        <h1 class="display" style="font-size:28px;margin:4px 0 0;font-weight:800">What should your next agent do?</h1>
+        <div class="ask flat">
+          <i data-lucide="wand-2" class="muted"></i>
+          <input placeholder="Answer IT questions from our handbook and escalate the rest" />
+          <button class="send" data-go="studio" aria-label="Create"><i data-lucide="arrow-up"></i></button>
+        </div>
+        <div class="starts">
+          <button class="start flat" data-go="studio"><span class="tile" style="background:#0ea5e9"><i data-lucide="search"></i></span>Research</button>
+          <button class="start flat" data-go="studio"><span class="tile" style="background:#8b5cf6"><i data-lucide="pen-line"></i></span>Writing</button>
+          <button class="start flat" data-go="studio"><span class="tile" style="background:#10b981"><i data-lucide="bar-chart-3"></i></span>Data</button>
+          <button class="start flat" data-go="studio"><span class="tile" style="background:#f59e0b"><i data-lucide="life-buoy"></i></span>Support</button>
+          <button class="start flat" data-go="studio"><span class="tile" style="background:#64748b"><i data-lucide="sliders-horizontal"></i></span>Step by step</button>
+        </div>
+      </div>
+      <div class="stack" aria-hidden="true">
+        <div class="mini glass" style="left:30px;top:6px;transform:rotate(-4deg)"><span class="tile" style="width:36px;height:36px;border-radius:11px;background:#6366f1"><i data-lucide="telescope"></i></span><div><b style="font-size:12.5px">Market Scout</b><div class="muted" style="font-size:11px">Live</div></div></div>
+        <div class="mini glass" style="left:60px;top:62px;transform:rotate(2deg)"><span class="tile" style="width:36px;height:36px;border-radius:11px;background:#0ea5e9"><i data-lucide="life-buoy"></i></span><div><b style="font-size:12.5px">IT Helpdesk</b><div class="muted" style="font-size:11px">Live</div></div></div>
+        <div class="mini glass" style="left:20px;top:118px;transform:rotate(-1deg)"><span class="tile" style="width:36px;height:36px;border-radius:11px;background:#10b981"><i data-lucide="bar-chart-3"></i></span><div><b style="font-size:12.5px">Number Cruncher</b><div class="muted" style="font-size:11px">Draft</div></div></div>
+      </div>
+    </div>
+
+    <div id="filled">
+      <div class="toolbar">
+        <div class="seg"><button class="on">All <span class="n">4</span></button><button>Live <span class="n">2</span></button><button>Drafts <span class="n">2</span></button></div>
+        <div class="seg"><button><i data-lucide="users"></i> Councils <span class="n">1</span></button></div>
+        <span style="flex:1"></span>
+        <div class="search flat"><i data-lucide="search"></i> Search agents</div>
+        <div class="seg"><button class="on" aria-label="Cards"><i data-lucide="layout-grid"></i></button><button aria-label="List"><i data-lucide="list"></i></button></div>
+      </div>
+      <div class="grid" id="cards"></div>
+    </div>
+
+    <div id="empty" style="display:none">
+      <h3 class="display" style="margin:28px 0 0;font-size:17px">Or start from a template</h3>
+      <div class="muted" style="font-size:13px">Ready-made agents you can change afterwards.</div>
+      <div class="tpl-grid" id="tpls"></div>
+    </div>
+  </section>
+
+  <!-- STUDIO -->
+  <section class="screen" id="studio">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+      <button class="icon-btn flat" data-go="lib" aria-label="Back"><i data-lucide="arrow-left"></i></button>
+      <h1 class="display" style="font-size:22px;margin:0;font-weight:800">New agent</h1>
+      <span style="flex:1"></span>
+      <div class="step-rail" id="rail" style="margin:0"></div>
+    </div>
+    <div class="studio">
+      <div class="clay preview">
+        <div class="muted" style="font-size:11px;font-weight:700;letter-spacing:.06em">PREVIEW</div>
+        <div class="pv-card flat" id="pvcard"></div>
+        <div class="pv-lines" id="pvlines"></div>
+      </div>
+      <div>
+        <div class="clay panel" id="stepbody"></div>
+        <div class="dock glass">
+          <button class="btn btn-ghost" id="back"><i data-lucide="arrow-left"></i> Back</button>
+          <span style="flex:1"></span>
+          <span class="muted" style="font-size:12.5px" id="hint"></span>
+          <button class="btn btn-primary" id="next">Next <i data-lucide="arrow-right"></i></button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- AGENT PAGE -->
+  <section class="screen" id="page">
+    <div class="clay ahead">
+      <div class="glow" style="background:radial-gradient(circle,rgba(14,165,233,.22),transparent 70%);right:auto;left:-40px;top:-70px;width:240px;height:240px"></div>
+      <button class="icon-btn" data-go="lib" aria-label="Back" style="position:relative"><i data-lucide="arrow-left"></i></button>
+      <span class="tile" style="background:#0ea5e9;position:relative"><i data-lucide="life-buoy"></i></span>
+      <div style="position:relative;min-width:0">
+        <div class="display" style="font-size:20px;font-weight:800">IT Helpdesk</div>
+        <div class="st"><b style="background:var(--ok)"></b>Live · v4 · used in 2 workflows</div>
+      </div>
+      <span style="flex:1"></span>
+      <button class="btn" style="position:relative"><i data-lucide="message-square"></i> Open in Chat</button>
+      <button class="btn btn-primary" style="position:relative">Save</button>
+      <button class="icon-btn" style="position:relative" aria-label="More"><i data-lucide="more-horizontal"></i></button>
+    </div>
+    <div style="margin-top:16px" class="seg" id="ptabs"></div>
+    <div class="split">
+      <div class="clay panel" id="pbody"></div>
+      <div class="clay tchat">
+        <div class="hd"><span class="well pressed" style="width:32px;height:32px;border-radius:10px"><i data-lucide="flask-conical"></i></span><b>Test drive</b><span class="muted">Balanced</span><span style="flex:1"></span><button class="icon-btn" aria-label="Reset"><i data-lucide="rotate-ccw"></i></button></div>
+        <div style="flex:1;padding:14px 18px;display:flex;flex-direction:column;gap:2px">
+          <div class="msg me">How do I reset my VPN password?</div>
+          <div><span class="toolpill"><i data-lucide="book-open"></i> Searched Company knowledge · 3 results</span></div>
+          <div class="msg" style="padding-left:0">Open <b>Self-service → Credentials</b>, pick VPN and follow the reset link. If you're locked out, I can ask IT to help.</div>
+          <div><span class="toolpill" style="background:color-mix(in srgb,var(--warn) 14%,transparent);color:#b45309"><i data-lucide="shield-check"></i> Waiting for approval · escalate to IT</span></div>
+          <span style="flex:1"></span>
+          <div class="suggest"><button class="flat"><i data-lucide="corner-down-right" class="muted"></i> Who approves new laptops?</button><button class="flat"><i data-lucide="corner-down-right" class="muted"></i> My Outlook keeps crashing</button></div>
+        </div>
+        <div style="padding:12px"><div class="flat" style="display:flex;align-items:center;gap:8px;padding:6px 6px 6px 16px;border-radius:18px"><span class="muted" style="flex:1;font-size:13.5px">Message IT Helpdesk…</span><button class="send" style="width:44px;height:44px;border-radius:14px" aria-label="Send"><i data-lucide="arrow-up"></i></button></div></div>
+      </div>
+    </div>
+  </section>
+
+  </div></main>
+</div>
+
+<div class="concept glass">
+  <span class="lbl">CONCEPT v2</span>
+  <div class="seg" id="switch">
+    <button class="on" data-s="lib">Library</button><button data-s="empty">Empty state</button><button data-s="studio">Create</button><button data-s="page">Agent page</button>
+  </div>
+</div>
+
+<script>
+const AB={web_search:['globe','Web search','Read only'],deep_research:['telescope','Deep research','Read only'],read_url:['link','Read pages','Read only'],calculate:['calculator','Calculate','Read only'],run_javascript:['code-2','Run code','Sandboxed'],current_datetime:['clock','Date and time','Read only'],search_knowledge:['book-open','Your knowledge','Read only'],save_document:['file-plus','Save documents','Writes to outputs'],draft_email:['mail','Draft emails','Asks a person',1],request_approval:['shield-check','Ask approval','Asks a person',1]}
+const agents=[
+ {n:'IT Helpdesk',c:'#0ea5e9',i:'life-buoy',s:'live',b:2,t:['search_knowledge','request_approval','draft_email'],d:'Answers IT questions from the handbook and escalates the rest.'},
+ {n:'Market Scout',c:'#6366f1',i:'telescope',s:'live',b:3,t:['web_search','deep_research','read_url','save_document'],d:'Researches competitors and writes a sourced weekly brief.'},
+ {n:'Memo Writer',c:'#8b5cf6',i:'pen-line',s:'draft',b:2,t:['search_knowledge','save_document'],d:'Drafts memos and announcements in the company voice.'},
+ {n:'Number Cruncher',c:'#10b981',i:'bar-chart-3',s:'draft',b:1,t:['calculate','run_javascript'],d:'Runs calculations and small scripts over pasted tables.'},
+]
+const tpls=[['Research Assistant','#0ea5e9','search','Searches the web and writes sourced briefs.',5],['Writing Assistant','#8b5cf6','pen-line','Drafts emails, memos and documents.',3],['Data Analyst','#10b981','bar-chart-3','Calculations and scripts over your data.',4],['Support Agent','#f59e0b','life-buoy','Answers from your knowledge, escalates when unsure.',3],['Web Monitor','#14b8a6','globe','Checks pages or topics and reports changes.',4]]
+const PROF=[['Fast','Quick replies and simple lookups',1],['Balanced','Right for most agents',2],['Deep','Research and hard analysis',3]]
+const AUT=[['bell','Inform','Never acts. Tells you what it found.'],['hand','Ask first','Drafts actions. A person approves.'],['rocket','Act','Acts on read-only tools by itself.']]
+const ICONS=['sparkles','bot','search','pen-line','bar-chart-3','life-buoy','globe','shield','book-open','calculator','mail','briefcase','scale','lightbulb','megaphone','wrench']
+const COLORS=['#0ea5e9','#6366f1','#10b981','#f59e0b','#ec4899','#14b8a6','#8b5cf6','#f97316','#10385b','#64748b']
+const TONES=['Friendly','Formal','Concise','Detailed','Cites sources','Plain English','Asks before guessing']
+const bars=n=>`<span class="bars">${[7,11,15].map((h,k)=>`<i style="height:${h}px" class="${k<n?'f':''}"></i>`).join('')}</span>`
+const wells=t=>t.map(k=>`<span class="well pressed" title="${AB[k][1]}"><i data-lucide="${AB[k][0]}"></i></span>`).join('')
+const soft=c=>`radial-gradient(circle,${c}2e,transparent 70%)`
+
+cards.innerHTML=agents.map(a=>`
+<div class="clay card" data-go="page">
+ <div class="glow" style="background:${soft(a.c)}"></div>
+ <div class="top"><span class="tile" style="background:${a.c}"><i data-lucide="${a.i}"></i></span>
+  <div style="flex:1;min-width:0"><div class="nm display">${a.n}</div><div class="st"><b style="background:${a.s=='live'?'var(--ok)':'var(--muted)'}"></b>${a.s=='live'?'Live':'Draft'}</div></div>
+  <button class="icon-btn" style="margin:-8px -8px 0 0" aria-label="More" onclick="event.stopPropagation()"><i data-lucide="more-horizontal"></i></button></div>
+ <div class="desc">${a.d}</div>
+ <div class="wells">${wells(a.t)}</div>
+ <div class="cfoot"><span class="muted" style="font-size:12px;display:inline-flex;align-items:center;gap:6px">${bars(a.b)}${PROF[a.b-1][0]}</span><span style="flex:1"></span>
+  <button class="chat-btn flat" onclick="event.stopPropagation()"><i data-lucide="message-square"></i>${a.s=='live'?'Chat':'Try it'}</button></div>
+</div>`).join('')+`<button class="add" data-go="studio"><div><span class="tile clay-sm"><i data-lucide="plus"></i></span><b style="color:var(--text);font-size:14px">New agent</b><div style="font-size:12.5px;margin-top:2px">Describe it, pick a template or build step by step</div></div></button>`
+tpls.innerHTML=tpls.map(([n,c,i,d,k])=>`<button class="tpl clay-sm" data-go="studio"><span class="tile" style="width:44px;height:44px;border-radius:14px;background:${c}"><i data-lucide="${i}"></i></span><div><b style="font-size:14px">${n}</b><div class="muted" style="font-size:12.5px;margin-top:2px">${d}</div></div><span class="muted" style="font-size:11.5px;margin-top:auto">${k} abilities</span></button>`).join('')+`<button class="tpl clay-sm" data-go="studio" style="align-items:flex-start"><span class="tile pressed" style="width:44px;height:44px;border-radius:14px;color:var(--muted);box-shadow:none"><i data-lucide="sliders-horizontal"></i></span><div><b style="font-size:14px">Blank agent</b><div class="muted" style="font-size:12.5px;margin-top:2px">Build it step by step.</div></div></button>`
+
+let st={step:0,name:'IT Helpdesk',desc:'Answers IT questions from the handbook and escalates the rest.',color:'#0ea5e9',icon:'life-buoy',tools:new Set(['search_knowledge','request_approval']),prof:2,aut:2,tones:new Set(['Friendly','Concise','Asks before guessing'])}
+const STEPS=['Purpose','Abilities','Behaviour','Look']
+function stepBody(){
+ const s=st.step
+ if(s==0)return `<h2 class="display q">What's it for?</h2><div class="muted">One or two sentences. Who it helps and what it should never do.</div>
+  <textarea class="bigask flat">Answer IT helpdesk questions from our handbook. Escalate anything it can't answer, and never promise hardware.</textarea>
+  <div class="chips">${['Summarise competitor news every morning','Turn meeting notes into actions','Check our pricing page for changes'].map(t=>`<button class="chip flat"><i data-lucide="corner-down-right" class="muted"></i>${t}</button>`).join('')}</div>
+  <div class="sub"><h3 class="display">Or start from a template</h3><div class="chips">${tpls.map(([n,c,i])=>`<button class="chip flat"><span class="tile" style="width:26px;height:26px;border-radius:8px;background:${c};box-shadow:none"><i data-lucide="${i}" style="width:13px;height:13px"></i></span>${n}</button>`).join('')}</div></div>`
+ if(s==1)return `<h2 class="display q">What can it do?</h2><div class="muted">Tap to switch abilities on. A lock means it always asks a person first.</div>
+  <div class="abilities">${Object.entries(AB).map(([k,[ic,l,sub,w]])=>`<button class="ab flat ${st.tools.has(k)?'on':''}" data-t="${k}"><span class="well pressed"><i data-lucide="${ic}"></i></span><b>${l}</b><small>${sub}</small>${w?'<span class="lock"><i data-lucide="lock"></i></span>':''}<span class="mark"><i data-lucide="check"></i></span></button>`).join('')}</div>
+  <div class="sub"><h3 class="display">Knowledge</h3><div class="chips"><button class="chip flat on" data-x><i data-lucide="book-open"></i>Company knowledge · 12</button><button class="chip flat"><i data-lucide="folder-output"></i>Agent outputs · 3</button></div></div>`
+ if(s==2)return `<h2 class="display q">How should it work?</h2><div class="muted">Thinking depth sets the model. Independence sets what it may do alone.</div>
+  <div class="sub" style="margin-top:20px"><h3 class="display">Thinking</h3><div class="choices">${PROF.map(([l,d,n])=>`<button class="choice flat ${st.prof==n?'on':''}" data-p="${n}"><span class="meter">${[16,28,40].map((h,k)=>`<i style="height:${h}px" class="${k<n?'f':''}"></i>`).join('')}</span><b>${l}</b><small>${d}</small></button>`).join('')}</div></div>
+  <div class="sub"><h3 class="display">Independence</h3><div class="choices">${AUT.map(([ic,l,d],k)=>`<button class="choice flat ${st.aut==k+1?'on':''}" data-a="${k+1}"><span class="well pressed" style="width:44px;height:44px;border-radius:14px"><i data-lucide="${ic}"></i></span><b>${l}</b><small>${d}</small></button>`).join('')}</div></div>
+  <div class="sub"><h3 class="display">Personality</h3><div class="chips">${TONES.map(t=>`<button class="chip flat ${st.tones.has(t)?'on':''}" data-o="${t}">${st.tones.has(t)?'<i data-lucide="check"></i>':''}${t}</button>`).join('')}</div></div>`
+ return `<h2 class="display q">Name and look</h2><div class="muted">This is how people find it in Chat and in workflows.</div>
+  <div class="sub" style="margin-top:20px"><h3 class="display" style="margin-bottom:10px">Name</h3><input class="input" value="${st.name}" id="nm"></div>
+  <div class="sub"><h3 class="display">Colour</h3><div class="swatches">${COLORS.map(c=>`<button class="sw ${st.color==c?'on':''}" style="background:${c}" data-c="${c}" aria-label="Colour"></button>`).join('')}</div></div>
+  <div class="sub"><h3 class="display">Icon</h3><div class="icons">${ICONS.map(i=>`<button class="flat ${st.icon==i?'on':''}" data-i="${i}" aria-label="${i}"><i data-lucide="${i}"></i></button>`).join('')}</div></div>
+  <div class="sub flat" style="padding:14px 16px;display:flex;gap:12px;align-items:center"><span class="well pressed" style="width:40px;height:40px;border-radius:12px"><i data-lucide="file-text"></i></span><div style="flex:1"><b style="font-size:13px">Instructions are ready</b><div class="muted" style="font-size:12px">Written from your choices. Read or edit them now, or later on the agent page.</div></div><button class="btn">View</button></div>`
+}
+function preview(){
+ const t=[...st.tools]
+ pvcard.innerHTML=`<div class="top"><span class="tile" style="background:${st.color}"><i data-lucide="${st.icon}"></i></span><div style="flex:1;min-width:0"><div class="nm display">${st.name}</div><div class="st"><b style="background:var(--muted)"></b>Draft</div></div></div><div class="desc" style="margin-top:12px">${st.desc}</div><div class="wells" style="margin-top:12px">${wells(t)||'<span class="muted" style="font-size:12px">No abilities yet</span>'}</div>`
+ pvlines.innerHTML=[['brain',`${PROF[st.prof-1][0]} thinking`],[AUT[st.aut-1][0],AUT[st.aut-1][1]],['smile',[...st.tones].join(', ')||'No tone set'],['book-open','Company knowledge']].map(([ic,l])=>`<div class="pv-line"><span class="well pressed"><i data-lucide="${ic}"></i></span>${l}</div>`).join('')
+}
+function renderStudio(){
+ rail.innerHTML=STEPS.map((s,k)=>`<button class="step ${k==st.step?'on':k<st.step?'done':''}" data-step="${k}"><span class="num">${k<st.step?'<i data-lucide="check" style="width:14px;height:14px"></i>':k+1}</span>${s}</button>`).join('')
+ stepbody.innerHTML=stepBody();preview()
+ back.style.visibility=st.step?'visible':'hidden'
+ next.innerHTML=st.step==3?'<i data-lucide="check"></i> Create agent':'Next <i data-lucide="arrow-right"></i>'
+ hint.textContent=['Everything stays editable','1 ability asks a person first','',''][st.step]
+ lucide.createIcons()
+}
+let ptab='abilities'
+function renderPage(){
+ ptabs.innerHTML=[['abilities','blocks','Abilities'],['behaviour','sliders-horizontal','Behaviour'],['knowledge','book-open','Knowledge'],['instructions','file-text','Instructions'],['versions','history','Versions']].map(([k,ic,l])=>`<button class="${ptab==k?'on':''}" data-pt="${k}"><i data-lucide="${ic}"></i>${l}</button>`).join('')
+ const s0=st.step;st.step=ptab=='abilities'?1:2
+ let body=ptab=='abilities'||ptab=='behaviour'?stepBody():ptab=='instructions'?`<h2 class="display q">Instructions</h2><div class="muted">Written from your choices. Edit freely, or ask the assistant.</div><textarea class="bigask flat" style="min-height:300px;font-size:13.5px">You are IT Helpdesk, an assistant for employees with IT questions.\n\nWhat you do:\n- Answer from the IT handbook and cite the section\n- Escalate anything you can't answer\n\nHow you answer: friendly and concise.\n\nWhen unsure: say what's missing and ask.</textarea>`:ptab=='knowledge'?`<h2 class="display q">Knowledge</h2><div class="muted">Libraries this agent can search.</div><div class="chips"><button class="chip flat on"><i data-lucide="book-open"></i>Company knowledge · 12</button><button class="chip flat"><i data-lucide="folder-output"></i>Agent outputs · 3</button></div>`:`<h2 class="display q">Versions</h2><div class="muted">Every save is a version. Roll back any time.</div><div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">${[['v4','Current','today'],['v3','Added approval','yesterday'],['v2','Tone change','3 days ago']].map(([v,l,d],k)=>`<div class="flat" style="display:flex;align-items:center;gap:12px;padding:10px 12px"><span class="well pressed" style="width:40px;height:40px;border-radius:12px;font-weight:700;font-size:12px">${v}</span><div style="flex:1"><b style="font-size:13px">${l}</b><div class="muted" style="font-size:12px">${d}</div></div>${k?'<button class="btn">Restore</button>':''}</div>`).join('')}</div>`
+ st.step=s0
+ pbody.innerHTML=body.replace('class="display q"','class="display q" style="font-size:20px"')+(ptab=='abilities'?`<div class="ready flat"><div class="ring"><i>6/8</i></div><div style="flex:1"><b style="font-size:13.5px">Almost ready to publish</b><div class="muted" style="font-size:12.5px">Add sample prompts · describe when to escalate</div></div><button class="btn"><i data-lucide="sparkles"></i> Fix for me</button></div>`:'')
+ lucide.createIcons()
+}
+function show(id){
+ const empty=id=='empty';if(empty)id='lib'
+ document.querySelectorAll('.screen').forEach(x=>x.classList.toggle('on',x.id==id))
+ filled.style.display=empty?'none':'block';document.getElementById('empty').style.display=empty?'block':'none'
+ count.textContent=empty?'No agents yet':'4 agents · 2 live'
+ document.querySelectorAll('#switch button').forEach(x=>x.classList.toggle('on',x.dataset.s==(empty?'empty':id)))
+ if(id=='studio'){st.step=0;renderStudio()} if(id=='page')renderPage()
+ document.getElementById('main').scrollTo(0,0);lucide.createIcons()
+}
+document.addEventListener('click',e=>{
+ const q=s=>e.target.closest(s)
+ let el
+ if(el=q('[data-s]'))return show(el.dataset.s)
+ if(el=q('[data-go]'))return show(el.dataset.go)
+ if(el=q('[data-step]')){st.step=+el.dataset.step;return renderStudio()}
+ if(el=q('[data-pt]')){ptab=el.dataset.pt;return renderPage()}
+ const inPage=!!q('#page')
+ if(el=q('[data-t]'))st.tools.has(el.dataset.t)?st.tools.delete(el.dataset.t):st.tools.add(el.dataset.t)
+ else if(el=q('[data-p]'))st.prof=+el.dataset.p
+ else if(el=q('[data-a]'))st.aut=+el.dataset.a
+ else if(el=q('[data-o]'))st.tones.has(el.dataset.o)?st.tones.delete(el.dataset.o):st.tones.add(el.dataset.o)
+ else if(el=q('[data-c]'))st.color=el.dataset.c
+ else if(el=q('[data-i]'))st.icon=el.dataset.i
+ else if(q('#next')){if(st.step<3){st.step++}else return show('page')}
+ else if(q('#back')){st.step=Math.max(0,st.step-1)}
+ else return
+ inPage?renderPage():renderStudio()
+})
+document.addEventListener('input',e=>{if(e.target.id=='nm'){st.name=e.target.value||'Untitled agent';preview();lucide.createIcons()}})
+lucide.createIcons()
+</script>
+</body>
+</html>

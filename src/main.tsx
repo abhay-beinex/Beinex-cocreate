@@ -8,6 +8,7 @@ import Home from './pages/Home'
 import Chat from './pages/Chat'
 import Agents from './pages/Agents'
 import AgentEditor from './pages/AgentEditor'
+import AgentStudio from './pages/AgentStudio'
 import Workflows from './pages/Workflows'
 import WorkflowEditor from './pages/WorkflowEditor'
 import Tools from './pages/Tools'
@@ -26,6 +27,7 @@ const router = createBrowserRouter([
       { path: 'chat', element: <Chat /> },
       { path: 'chat/:agentId', element: <Chat /> },
       { path: 'agents', element: <Agents /> },
+      { path: 'agents/new', element: <AgentStudio /> },
       { path: 'agents/:agentId', element: <AgentEditor /> },
       { path: 'workflows', element: <Workflows /> },
       { path: 'workflows/:workflowId', element: <WorkflowEditor /> },

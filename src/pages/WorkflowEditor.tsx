@@ -11,6 +11,9 @@ import { TOOLS } from '@/lib/tools'
 import { startRun } from '@/lib/runner'
 import { Button, Chip, Field, Input, Select, Segmented, Textarea, Tile, cx } from '@/components/ui'
 import { Page } from '@/components/motion'
+import { AgentAvatar } from '@/components/AgentAvatar'
+import { AbilityWells, ThinkingMeter } from '@/components/AgentBits'
+import { INDEPENDENCE } from '@/lib/agentVocab'
 import { Md } from '@/components/Md'
 
 const bricks: { id: Brick; label: string; icon: typeof Zap; color: string }[] = [
@@ -39,7 +42,7 @@ export default function WorkflowEditor() {
   const [params] = useSearchParams()
   const nav = useNavigate()
   const user = useUser()!
-  const { workflows, agents, councils, upsertWorkflow, deleteWorkflow, runs, apiKey, defaultModel, models, users, customTools } = useApp()
+  const { workflows, agents, councils, upsertWorkflow, deleteWorkflow, runs, apiKey, defaultModel, models, users, customTools, profiles } = useApp()
   const isNew = workflowId === 'new'
   const stored = workflows.find((w) => w.id === workflowId)
   const template = workflowTemplates.find((t) => t.id === (params.get('template') ?? 'standard')) ?? workflowTemplates[0]
@@ -159,6 +162,9 @@ export default function WorkflowEditor() {
                 {selected.data.brick === 'trigger' && <div className="text-[12px] muted">The trigger is set at the top: manual with an input, or a schedule. The input becomes the first message in the run context.</div>}
                 {selected.data.brick === 'agent' && <>
                   <Field label="Agent" hint={selected.data.agentId ? 'Uses the agent’s instructions, tools, knowledge and model.' : 'No agent: the step runs with your instructions and the default read-only tools.'}><Select value={selected.data.agentId ?? ''} onChange={(e) => { const a = agents.find((x) => x.id === e.target.value); patch({ agentId: e.target.value || undefined, label: a?.name ?? selected.data.label, sub: a ? a.description.slice(0, 40) : selected.data.sub, model: a?.model ?? selected.data.model }) }}><option value="">Custom (no saved agent)</option>{agents.map((a) => <option key={a.id} value={a.id}>{a.name}{a.status === 'draft' ? ' (draft)' : ''}</option>)}</Select></Field>
+                  {selected.data.agentId && (() => { const a = agents.find((x) => x.id === selected.data.agentId); if (!a) return null; const ind = INDEPENDENCE.find((i) => i.level === a.autonomy); return (
+                    <div className="flat p-3 flex flex-col gap-2"><div className="flex items-center gap-2.5"><AgentAvatar name={a.name} icon={a.icon} color={a.color} size={30} radius={9} /><div className="min-w-0 flex-1"><div className="text-[13px] font-semibold truncate">{a.name}</div><div className="text-[11px] muted truncate">{a.status === 'live' ? 'Live' : 'Draft'} · {ind?.label}</div></div><button type="button" onClick={() => nav(`/agents/${a.id}`)} className="text-[11.5px] accent-ink font-medium hover:underline">Open</button></div><div className="flex items-center gap-3"><AbilityWells tools={a.tools} custom={customTools} max={6} size={22} /><ThinkingMeter model={a.model} profiles={profiles} defaultModel={defaultModel} /></div></div>
+                  ) })()}
                   {!selected.data.agentId && <Field label="Model">{models.length ? <Select value={selected.data.model} onChange={(e) => patch({ model: e.target.value })}>{models.filter((m) => m.supported_parameters?.includes('tools')).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</Select> : <Input value={selected.data.model ?? ''} onChange={(e) => patch({ model: e.target.value })} />}</Field>}
                   <Field label="Step instructions" hint="What this step should produce from the context so far."><Textarea rows={5} value={selected.data.prompt ?? ''} onChange={(e) => patch({ prompt: e.target.value })} placeholder="e.g. Summarise the findings into a one-page brief" /></Field>
                 </>}

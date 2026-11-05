@@ -76,7 +76,7 @@ export function Thread({ msgs, agent, compact, onPrompt }: { msgs: ChatMsg[]; ag
           <motion.div key={m.id} initial={{ opacity: 0, y: 10, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.3 }} className={cx('flex gap-3', m.role === 'user' && 'justify-end')}>
             {m.role === 'assistant' && <Tile color="#10385b" size={28} radius={9} className="mt-0.5"><Sparkles size={13} /></Tile>}
             <div className={cx('min-w-0 text-[13.5px] leading-relaxed', m.role === 'user' ? 'max-w-[75%] px-4 py-2.5 rounded-[18px] rounded-br-[6px] bg-[var(--surface-2)] border hairline whitespace-pre-wrap' : 'flex-1 pt-1', m.error && 'text-[var(--danger)]')}>
-              {m.role === 'assistant' && (m.tools?.length ?? 0) > 0 && <div className="flex flex-col gap-1.5 mb-2">{m.tools!.map((t, i) => <ToolCard key={i} name={t.name} args={t.args} result={t.result} />)}</div>}
+              {m.role === 'assistant' && (m.tools?.length ?? 0) > 0 && <div className="flex flex-col gap-1.5 mb-2">{m.tools!.map((t, i) => <ToolCard key={i} name={t.name} args={t.args} result={t.result} compact={compact} />)}</div>}
               {m.role === 'assistant' ? (m.content ? <Md>{m.content}</Md> : !m.tools?.length || m.tools.every((t) => t.result) ? <Typing /> : null) : m.content}
             </div>
             {m.role === 'user' && <Avatar initials={user?.initials ?? 'You'} size={28} className="mt-0.5" />}
@@ -88,11 +88,27 @@ export function Thread({ msgs, agent, compact, onPrompt }: { msgs: ChatMsg[]; ag
   )
 }
 
-function ToolCard({ name, args, result }: { name: string; args: string; result?: string }) {
+function summarise(name: string, args: string, result?: string) {
+  let a: any = {}; try { a = JSON.parse(args) } catch { /* ignore */ }
+  const q = a.query ?? a.topic ?? a.url ?? a.expression ?? a.city ?? a.title ?? a.subject ?? a.action ?? ''
+  const base = { web_search: `Searched the web · ${q}`, deep_research: `Researched · ${q}`, read_url: `Read ${q}`, calculate: `Calculated ${q}`, run_javascript: 'Ran code', current_datetime: 'Checked the date', search_knowledge: `Searched your knowledge · ${q}`, save_document: `Saved "${q}"`, draft_email: `Drafted email · ${q}`, request_approval: `Asked for approval · ${q}` }[name] ?? `${name} · ${q}`
+  if (!result) return `${base}…`
+  if (name === 'search_knowledge') { try { const r = JSON.parse(result); if (Array.isArray(r)) return `${base} · ${r.length} result${r.length === 1 ? '' : 's'}` } catch { /* ignore */ } }
+  if (name === 'draft_email' || name === 'request_approval') return `${base} · waiting for a person`
+  return base
+}
+
+function ToolCard({ name, args, result, compact }: { name: string; args: string; result?: string; compact?: boolean }) {
   const [open, setOpen] = useState(false)
   const custom = useApp((s) => s.customTools.find((t) => t.name === name))
   const meta = TOOLS.find((t) => t.name === name)
   const gated = meta?.write
+  if (compact) return (
+    <button onClick={() => setOpen((o) => !o)} className="text-left">
+      <span className={cx('inline-flex items-center gap-2 text-[12px] px-2.5 h-7 rounded-[9px] pressed', gated ? 'text-[var(--warn)]' : 'muted')}>{gated ? <ShieldCheck size={12} /> : <Wrench size={12} />}<span className="truncate max-w-[320px]">{summarise(name, args, result)}</span>{!result && <motion.span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)]" animate={{ opacity: [1, 0.3, 1] }} transition={{ repeat: Infinity, duration: 1 }} />}</span>
+      {open && result && <pre className="mt-1.5 text-[11px] muted whitespace-pre-wrap max-h-40 overflow-auto flat p-2">{result.slice(0, 2000)}</pre>}
+    </button>
+  )
   return (
     <motion.div layout initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} className="flat overflow-hidden">
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-3 h-9 text-[12px] text-left">

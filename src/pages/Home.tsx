@@ -6,6 +6,7 @@ import { useApp, useUser, can } from '@/store/app'
 import { roleLabel } from '@/lib/data'
 import { Button, Tile, colorFor, cx } from '@/components/ui'
 import { AgentAvatar } from '@/components/AgentAvatar'
+import { AbilityWells } from '@/components/AgentBits'
 import { Page, Stagger, Item, Rise, ease } from '@/components/motion'
 
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening' }
@@ -13,7 +14,7 @@ const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good 
 export default function Home() {
   const user = useUser()!
   const nav = useNavigate()
-  const { agents, workflows, runs, libraries } = useApp()
+  const { agents, workflows, runs, libraries, customTools } = useApp()
   const [q, setQ] = useState('')
   const [focus, setFocus] = useState(false)
   const admin = can(user, 'admin')
@@ -92,7 +93,7 @@ export default function Home() {
           <Header title="Agents" onAll={() => nav('/agents')} />
           <div className="clay px-3 py-1">
             {agents.length === 0 && <EmptyRow text="No agents yet." action="Create one" onClick={() => nav('/agents?new=1')} />}
-            {agents.slice(0, 3).map((a) => <button key={a.id} onClick={() => nav(`/agents/${a.id}`)} className="row hover w-full text-left"><AgentAvatar name={a.name} icon={a.icon} color={a.color} size={30} radius={9} /><div className="flex-1 min-w-0"><div className="text-[13px] font-medium truncate">{a.name}</div><div className="text-[11.5px] muted truncate capitalize">{a.status} · {a.tools.length} tools</div></div><ChevronRight size={15} className="muted" /></button>)}
+            {agents.slice(0, 3).map((a) => <button key={a.id} onClick={() => nav(`/agents/${a.id}`)} className="row hover w-full text-left"><AgentAvatar name={a.name} icon={a.icon} color={a.color} size={30} radius={9} /><div className="flex-1 min-w-0"><div className="text-[13px] font-medium truncate">{a.name}</div><div className="text-[11.5px] muted truncate">{a.status === 'live' ? 'Live' : 'Draft'} · {a.description || 'No description'}</div></div><AbilityWells tools={a.tools} custom={customTools} max={4} size={20} /><ChevronRight size={15} className="muted" /></button>)}
           </div>
         </Item>
         <Item>

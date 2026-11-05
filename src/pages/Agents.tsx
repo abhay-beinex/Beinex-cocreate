@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Users, Play, Trash2, Workflow as WorkflowIcon, Check, Wand2, MessageSquare, Pencil, Copy, MoreHorizontal, LayoutGrid, List, Eye, CheckSquare, Square } from 'lucide-react'
+import { Plus, Users, Play, Trash2, Workflow as WorkflowIcon, Check, MessageSquare, Pencil, Copy, MoreHorizontal, LayoutGrid, List, Eye, CheckSquare, Square, ArrowUp, Search, PenLine, BarChart3, LifeBuoy, ListChecks } from 'lucide-react'
 import { useApp, useUser, can, profileModels } from '@/store/app'
 import { councilTemplates, roleLabel, type Agent, type Council } from '@/lib/data'
-import { CreateAgentDialog } from '@/components/CreateAgent'
 import { runAgentTurn } from '@/lib/agentRun'
 import { streamChat, listModels } from '@/lib/openrouter'
-import { Button, Chip, Confirm, Dot, Drawer, Empty, Field, Input, Modal, PageHeader, SearchBox, Segmented, Select, Textarea, Tile, Toggle, colorFor, cx } from '@/components/ui'
+import { Button, Chip, Confirm, Drawer, Empty, Field, Input, Modal, SearchBox, Segmented, Select, Textarea, Tile, Toggle, colorFor, cx } from '@/components/ui'
 import { Page, Stagger, Item } from '@/components/motion'
 import { AgentAvatar } from '@/components/AgentAvatar'
+import { AgentCard, AbilityWells, ThinkingMeter } from '@/components/AgentBits'
 import { Md } from '@/components/Md'
 
 const since = (d: string) => { const days = Math.round((Date.now() - new Date(d).getTime()) / 86400000); return days <= 0 ? 'today' : days === 1 ? 'yesterday' : days < 30 ? `${days} days ago` : d }
+const starts = [{ label: 'Research', icon: Search, color: '#0ea5e9', tpl: 'research' }, { label: 'Writing', icon: PenLine, color: '#8b5cf6', tpl: 'writer' }, { label: 'Data', icon: BarChart3, color: '#10b981', tpl: 'analyst' }, { label: 'Support', icon: LifeBuoy, color: '#f59e0b', tpl: 'support' }, { label: 'Step by step', icon: ListChecks, color: '#64748b', tpl: '' }]
 
 export default function Agents() {
   const nav = useNavigate()
@@ -20,39 +21,38 @@ export default function Agents() {
   const user = useUser()!
   const store = useApp()
   const { agents, councils, users, workflows, upsertAgent, deleteAgent, upsertCouncil, deleteCouncil, defaultModel, profiles, apiKey, customTools, models, setModels } = store
-  const [tab, setTab] = useState<'agents' | 'councils'>((params.get('tab') as 'councils') === 'councils' ? 'councils' : 'agents')
+  const [tab, setTab] = useState<'all' | 'live' | 'draft' | 'councils'>((params.get('tab') as 'councils') === 'councils' ? 'councils' : 'all')
   const [q, setQ] = useState('')
-  const [status, setStatus] = useState<'all' | 'live' | 'draft'>('all')
+  const [ask, setAsk] = useState('')
   const [view, setView] = useState<'grid' | 'list'>(() => (localStorage.getItem('agents-view') as 'list') || 'grid')
-  const [creating, setCreating] = useState(false)
-  const [selected, setSelected] = useState<string[]>([])
-  const [bulkDelete, setBulkDelete] = useState(false)
   const [menu, setMenu] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string[]>([])
   const [toDelete, setToDelete] = useState<Agent | null>(null)
+  const [bulkDelete, setBulkDelete] = useState(false)
   const [templates, setTemplates] = useState(false)
   const [open, setOpen] = useState<Council | null>(null)
   const editable = can(user, 'build')
 
   useEffect(() => {
     const id = params.get('open'); if (id) { const c = councils.find((x) => x.id === id); if (c) { setTab('councils'); setOpen(c) } }
-    if (params.get('new')) setCreating(true)
-    if (id || params.get('new')) setParams({}, { replace: true })
+    if (params.get('new')) nav('/agents/new', { replace: true })
+    if (id) setParams({}, { replace: true })
   }, [params]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { localStorage.setItem('agents-view', view) }, [view])
   useEffect(() => { if (!models.length && apiKey) listModels(apiKey).then(setModels).catch(() => {}) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const close = () => setMenu(null); window.addEventListener('click', close); return () => window.removeEventListener('click', close) }, [])
 
-  const newId = () => `agent-${Date.now().toString(36)}`
-  const duplicate = (a: Agent) => { const id = newId(); upsertAgent({ ...a, id, name: `${a.name} (copy)`, status: 'draft', version: 1, history: undefined, createdBy: user.id, updatedAt: new Date().toISOString().slice(0, 10) }); nav(`/agents/${id}`) }
+  const duplicate = (a: Agent) => { const id = `agent-${Date.now().toString(36)}`; upsertAgent({ ...a, id, name: `${a.name} (copy)`, status: 'draft', version: 1, history: undefined, createdBy: user.id, updatedAt: new Date().toISOString().slice(0, 10) }); nav(`/agents/${id}`) }
   const createCouncil = (t?: typeof councilTemplates[number]) => {
     const c: Council = { id: `council-${Date.now().toString(36)}`, status: 'draft', name: t?.name ?? 'New council', description: t?.description ?? '', members: agents.slice(0, 3).map((a) => a.id), mode: t?.mode ?? 'consensus', gatekeeper: users.find((u) => u.role === 'approver' || u.role === 'admin')?.id ?? user.id, model: t?.model ?? profiles.find((p) => p.id === 'reasoning')?.model ?? defaultModel }
     upsertCouncil(c); setTemplates(false); setOpen(c)
   }
   const usedIn = (a: Agent) => workflows.filter((w) => w.nodes.some((n) => n.data.agentId === a.id)).length
-  const modelName = (id: string) => models.find((m) => m.id === id)?.name ?? (id.split('/')[1] ?? id)
+  const goAsk = () => { if (ask.trim()) nav(`/agents/new?purpose=${encodeURIComponent(ask.trim())}`) }
 
-  const list = useMemo(() => agents.filter((a) => (status === 'all' || a.status === status) && (a.name + ' ' + a.description).toLowerCase().includes(q.toLowerCase())).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [agents, status, q])
+  const list = useMemo(() => agents.filter((a) => (tab === 'all' || tab === 'councils' || a.status === tab) && (a.name + ' ' + a.description).toLowerCase().includes(q.toLowerCase())).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [agents, tab, q])
   const clist = councils.filter((c) => c.name.toLowerCase().includes(q.toLowerCase()))
+  const live = agents.filter((a) => a.status === 'live').length
 
   const AgentMenu = ({ a }: { a: Agent }) => (
     <div className="relative" onClick={(e) => e.stopPropagation()}>
@@ -60,8 +60,8 @@ export default function Agents() {
       <AnimatePresence>
         {menu === a.id && (
           <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="absolute right-0 top-full mt-1 w-[190px] glass rounded-[14px] p-1.5 z-20 text-[13px]">
-            <button onClick={() => nav(`/chat/${a.id}`)} className="w-full flex items-center gap-2 px-2 h-9 rounded-[9px] hover:bg-[var(--clay-dark)]"><MessageSquare size={14} /> {a.status === 'live' ? 'Chat' : 'Preview in Chat'}</button>
-            <button onClick={() => nav(`/agents/${a.id}`)} className="w-full flex items-center gap-2 px-2 h-9 rounded-[9px] hover:bg-[var(--clay-dark)]"><Pencil size={14} /> Edit</button>
+            <button onClick={() => nav(`/chat/${a.id}`)} className="w-full flex items-center gap-2 px-2 h-9 rounded-[9px] hover:bg-[var(--clay-dark)]"><MessageSquare size={14} /> {a.status === 'live' ? 'Chat' : 'Try it'}</button>
+            <button onClick={() => nav(`/agents/${a.id}`)} className="w-full flex items-center gap-2 px-2 h-9 rounded-[9px] hover:bg-[var(--clay-dark)]"><Pencil size={14} /> Open</button>
             {editable && <button onClick={() => duplicate(a)} className="w-full flex items-center gap-2 px-2 h-9 rounded-[9px] hover:bg-[var(--clay-dark)]"><Copy size={14} /> Duplicate</button>}
             {editable && <button onClick={() => { setMenu(null); upsertAgent({ ...a, status: a.status === 'live' ? 'draft' : 'live', version: a.version + 1 }, a.status === 'live' ? 'Unpublished agent' : 'Published agent') }} className="w-full flex items-center gap-2 px-2 h-9 rounded-[9px] hover:bg-[var(--clay-dark)]"><Eye size={14} /> {a.status === 'live' ? 'Unpublish' : 'Publish'}</button>}
             {editable && <button onClick={() => { setMenu(null); setToDelete(a) }} className="w-full flex items-center gap-2 px-2 h-9 rounded-[9px] hover:bg-[var(--clay-dark)] text-[var(--danger)]"><Trash2 size={14} /> Delete</button>}
@@ -72,18 +72,31 @@ export default function Agents() {
   )
 
   return (
-    <Page className="max-w-[1080px] mx-auto pt-8 pb-16 px-4">
-      <PageHeader title={tab === 'agents' ? 'Agents' : 'Councils'} subtitle={tab === 'agents' ? `${agents.filter((a) => a.status === 'live').length} live · ${agents.filter((a) => a.status === 'draft').length} draft${agents.filter((a) => a.status === 'draft').length === 1 ? '' : 's'}` : 'Groups of agents that deliberate on hard cases before a person decides.'}
-        actions={tab === 'agents' ? (editable && <Button variant="primary" onClick={() => setCreating(true)}><Plus size={15} /> New agent</Button>) : (editable && <Button variant="primary" onClick={() => setTemplates(true)} disabled={agents.length === 0} title={agents.length === 0 ? 'Create agents first' : undefined}><Plus size={15} /> New council</Button>)} />
+    <Page className="max-w-[1120px] mx-auto pt-7 pb-16 px-4">
+      {editable && (
+        <div className={cx('clay mb-5', agents.length === 0 ? 'p-8' : 'p-2.5 pl-5')}>
+          {agents.length === 0 && <><div className="text-[12px] muted font-semibold">No agents yet</div><h1 className="display text-[26px] font-extrabold mt-1">What should your next agent do?</h1></>}
+          <div className={cx('flex items-center gap-2', agents.length === 0 ? 'mt-4 pressed rounded-[18px] p-2 pl-4' : '')}>
+            {agents.length > 0 && <span className="text-[13px] font-semibold whitespace-nowrap hidden md:block">Next agent</span>}
+            <input value={ask} onChange={(e) => setAsk(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && goAsk()} placeholder={agents.length === 0 ? 'Answer IT questions from our handbook and escalate the rest' : 'Describe what it should do…'} className="flex-1 bg-transparent outline-0 text-[14px] min-w-0 h-9" />
+            <motion.button whileTap={{ scale: 0.9 }} onClick={goAsk} className="btn btn-primary btn-icon !rounded-full !w-9 !h-9" title="Start"><ArrowUp size={16} /></motion.button>
+          </div>
+          <div className={cx('flex flex-wrap gap-1.5', agents.length === 0 ? 'mt-4' : 'mt-2')}>
+            {starts.map((s) => <button key={s.label} onClick={() => nav(s.tpl ? `/agents/new?template=${s.tpl}` : '/agents/new')} className="chip !h-8 !pl-1.5 hover:text-[var(--text)]"><span className="w-5 h-5 rounded-[6px] grid place-items-center text-white" style={{ background: s.color }}><s.icon size={11} /></span>{s.label}</button>)}
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center gap-3 mb-5 flex-wrap">
-        <Segmented value={tab} onChange={setTab} items={[{ id: 'agents', label: `Agents · ${agents.length}` }, { id: 'councils', label: `Councils · ${councils.length}` }]} />
-        <SearchBox value={q} onChange={setQ} placeholder={tab === 'agents' ? 'Search agents' : 'Search councils'} className="w-[240px]" />
-        {tab === 'agents' && <Segmented value={status} onChange={setStatus} items={[{ id: 'all', label: 'All' }, { id: 'live', label: 'Live' }, { id: 'draft', label: 'Drafts' }]} />}
-        {tab === 'agents' && <div className="ml-auto seg"><button className={cx(view === 'grid' && 'on')} onClick={() => setView('grid')} title="Cards"><LayoutGrid size={14} /></button><button className={cx(view === 'list' && 'on')} onClick={() => setView('list')} title="List"><List size={14} /></button></div>}
+        <Segmented value={tab} onChange={setTab} items={[{ id: 'all', label: <>All <span className="muted">{agents.length}</span></> }, { id: 'live', label: <>Live <span className="muted">{live}</span></> }, { id: 'draft', label: <>Drafts <span className="muted">{agents.length - live}</span></> }, { id: 'councils', label: <>Councils <span className="muted">{councils.length}</span></> }]} />
+        <SearchBox value={q} onChange={setQ} placeholder="Search" className="w-[220px]" />
+        <div className="flex-1" />
+        {tab !== 'councils' ? <div className="seg"><button className={cx(view === 'grid' && 'on')} onClick={() => setView('grid')} title="Cards"><LayoutGrid size={14} /></button><button className={cx(view === 'list' && 'on')} onClick={() => setView('list')} title="List"><List size={14} /></button></div>
+          : editable && <Button variant="primary" size="sm" onClick={() => setTemplates(true)} disabled={agents.length === 0} title={agents.length === 0 ? 'Create agents first' : undefined}><Plus size={14} /> New council</Button>}
       </div>
 
       <AnimatePresence>
-        {tab === 'agents' && selected.length > 0 && (
+        {tab !== 'councils' && selected.length > 0 && (
           <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-[14px] px-3 h-11 flex items-center gap-3 mb-4 text-[13px]">
             <span className="font-semibold">{selected.length} selected</span>
             <button onClick={() => setSelected(list.map((a) => a.id))} className="muted hover:text-[var(--text)]">Select all {list.length}</button>
@@ -95,45 +108,24 @@ export default function Agents() {
         )}
       </AnimatePresence>
 
-      {tab === 'agents' ? (
-        agents.length === 0 ? (
-          <div className="clay"><Empty title="No agents yet" body="Describe what you need in a sentence and the Co-Create Assistant designs it, or start from a template. Agents get real tools: web search, research, code, documents and approvals." action={editable && <Button variant="primary" onClick={() => setCreating(true)}><Wand2 size={14} /> Create your first agent</Button>} /></div>
-        ) : list.length === 0 ? (
-          <div className="clay"><Empty title="No agents match" body="Try a different search or filter." /></div>
-        ) : view === 'grid' ? (
+      {tab !== 'councils' ? (
+        agents.length === 0 ? null : list.length === 0 ? <div className="clay"><Empty title="No agents match" body="Try a different search or filter." /></div> : view === 'grid' ? (
           <Stagger className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4" delay={0.05}>
-            {list.map((a) => { const u = usedIn(a); return (
-              <Item key={a.id}>
-                <motion.div whileHover={{ y: -3 }} onClick={() => nav(`/agents/${a.id}`)} className="clay p-5 cursor-pointer flex flex-col gap-3 min-h-[190px] relative overflow-hidden group">
-                  <div className="absolute -right-10 -top-10 w-32 h-32 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{ background: `radial-gradient(circle, ${a.color ?? colorFor(a.name)}33, transparent 70%)` }} />
-                  <button onClick={(e) => { e.stopPropagation(); setSelected((s) => (s.includes(a.id) ? s.filter((x) => x !== a.id) : [...s, a.id])) }} className={cx('absolute top-3 left-3 z-10 w-6 h-6 rounded-[7px] grid place-items-center transition-opacity', selected.includes(a.id) ? 'opacity-100 accent-ink' : 'opacity-0 group-hover:opacity-100 muted')} title="Select">{selected.includes(a.id) ? <CheckSquare size={16} /> : <Square size={16} />}</button>
-                  <div className="flex items-start gap-3">
-                    <AgentAvatar name={a.name} icon={a.icon} color={a.color} size={40} />
-                    <div className="flex-1 min-w-0 pt-0.5"><div className="font-semibold text-[14px] truncate">{a.name}</div><div className="text-[11.5px] muted flex items-center gap-1.5"><Dot tone={a.status === 'live' ? 'ok' : 'muted'} /><span className="capitalize">{a.status}</span><span>· v{a.version}</span></div></div>
-                    <AgentMenu a={a} />
-                  </div>
-                  <p className="text-[12.5px] muted leading-relaxed line-clamp-2">{a.description || 'No description yet.'}</p>
-                  <div className="mt-auto flex items-center gap-2 text-[11.5px] muted flex-wrap"><Chip>{modelName(a.model)}</Chip><span>{a.tools.length} tool{a.tools.length === 1 ? '' : 's'}</span>{u > 0 && <span>· {u} workflow{u === 1 ? '' : 's'}</span>}<span className="ml-auto">{since(a.updatedAt)}</span></div>
-                  <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-4 right-4" onClick={(e) => e.stopPropagation()}>
-                    <Button size="sm" onClick={() => nav(`/chat/${a.id}`)}><MessageSquare size={12} /> {a.status === 'live' ? 'Chat' : 'Preview'}</Button>
-                    {editable && <button onClick={() => setToDelete(a)} className="btn btn-sm btn-icon !text-[var(--danger)]" title="Delete"><Trash2 size={13} /></button>}
-                  </div>
-                </motion.div>
-              </Item>
-            ) })}
+            {list.map((a) => <Item key={a.id}><AgentCard a={a} custom={customTools} profiles={profiles} defaultModel={defaultModel} onOpen={() => nav(`/agents/${a.id}`)} onChat={() => nav(`/chat/${a.id}`)} menu={<AgentMenu a={a} />} selectable={editable} selected={selected.includes(a.id)} onSelect={() => setSelected((s) => (s.includes(a.id) ? s.filter((x) => x !== a.id) : [...s, a.id]))} /></Item>)}
+            {editable && <Item><button onClick={() => nav('/agents/new')} className="w-full h-full min-h-[196px] rounded-[24px] border-2 border-dashed border-[var(--line)] flex flex-col items-center justify-center gap-2 text-center hover:bg-[var(--clay-dark)] transition-colors"><span className="clay-sm w-11 h-11 rounded-[14px] grid place-items-center muted"><Plus size={18} /></span><span className="text-[13.5px] font-semibold">New agent</span><span className="text-[12px] muted px-6">Describe it, pick a template or build step by step</span></button></Item>}
           </Stagger>
         ) : (
           <Stagger className="clay px-3 py-1" delay={0.04}>
-            <div className="row text-[11px] font-semibold uppercase tracking-wider muted !py-2"><button onClick={() => setSelected(selected.length === list.length ? [] : list.map((a) => a.id))} className="w-[24px] grid place-items-center muted hover:text-[var(--text)]">{selected.length === list.length && list.length > 0 ? <CheckSquare size={15} /> : <Square size={15} />}</button><span className="w-[40px]" /><span className="flex-1">Agent</span><span className="w-[90px]">Status</span><span className="w-[170px]">Model</span><span className="w-[60px] text-right">Tools</span><span className="w-[90px] text-right">Used in</span><span className="w-[100px] text-right">Updated</span><span className="w-[40px]" /></div>
+            <div className="row text-[11px] font-semibold uppercase tracking-wider muted !py-2"><button onClick={() => setSelected(selected.length === list.length ? [] : list.map((a) => a.id))} className="w-[24px] grid place-items-center muted hover:text-[var(--text)]">{selected.length === list.length && list.length > 0 ? <CheckSquare size={15} /> : <Square size={15} />}</button><span className="w-[40px]" /><span className="flex-1">Agent</span><span className="w-[80px]">Status</span><span className="w-[180px]">Abilities</span><span className="w-[110px]">Thinking</span><span className="w-[90px] text-right">Used in</span><span className="w-[100px] text-right">Updated</span><span className="w-[40px]" /></div>
             {list.map((a) => { const u = usedIn(a); return (
               <Item key={a.id}>
                 <div className={cx('row hover cursor-pointer', selected.includes(a.id) && 'bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] rounded-[12px]')} onClick={() => nav(`/agents/${a.id}`)}>
                   <button onClick={(e) => { e.stopPropagation(); setSelected((s) => (s.includes(a.id) ? s.filter((x) => x !== a.id) : [...s, a.id])) }} className={cx('w-[24px] grid place-items-center', selected.includes(a.id) ? 'accent-ink' : 'muted hover:text-[var(--text)]')}>{selected.includes(a.id) ? <CheckSquare size={15} /> : <Square size={15} />}</button>
                   <AgentAvatar name={a.name} icon={a.icon} color={a.color} size={32} />
                   <div className="flex-1 min-w-0"><div className="text-[13.5px] font-medium truncate">{a.name}</div><div className="text-[12px] muted truncate">{a.description || 'No description yet.'}</div></div>
-                  <span className="w-[90px]"><Chip tone={a.status === 'live' ? 'ok' : undefined} className="capitalize">{a.status}</Chip></span>
-                  <span className="w-[170px] text-[12.5px] muted truncate">{modelName(a.model)}</span>
-                  <span className="w-[60px] text-right text-[13px] tabular-nums">{a.tools.length}</span>
+                  <span className="w-[80px]"><Chip tone={a.status === 'live' ? 'ok' : undefined}>{a.status === 'live' ? 'Live' : 'Draft'}</Chip></span>
+                  <span className="w-[180px]"><AbilityWells tools={a.tools} custom={customTools} max={5} size={22} /></span>
+                  <span className="w-[110px]"><ThinkingMeter model={a.model} profiles={profiles} defaultModel={defaultModel} /></span>
                   <span className="w-[90px] text-right text-[12.5px] muted">{u ? `${u} workflow${u === 1 ? '' : 's'}` : '—'}</span>
                   <span className="w-[100px] text-right text-[12.5px] muted">{since(a.updatedAt)}</span>
                   <span className="w-[40px] text-right"><AgentMenu a={a} /></span>
@@ -143,14 +135,14 @@ export default function Agents() {
           </Stagger>
         )
       ) : (
-        clist.length === 0 ? <div className="clay"><Empty title="No councils yet" body="A council runs several agents on the same case and synthesises a recommendation for a gatekeeper." action={agents.length > 0 ? (editable && <Button variant="primary" onClick={() => setTemplates(true)}><Plus size={14} /> New council</Button>) : <Button onClick={() => setTab('agents')}>Create agents first</Button>} /></div> : (
+        clist.length === 0 ? <div className="clay"><Empty title="No councils yet" body="A council runs several agents on the same case and synthesises a recommendation for a gatekeeper." action={agents.length > 0 ? (editable && <Button variant="primary" onClick={() => setTemplates(true)}><Plus size={14} /> New council</Button>) : <Button onClick={() => setTab('all')}>Create agents first</Button>} /></div> : (
           <Stagger className="grid sm:grid-cols-2 gap-4" delay={0.06}>
             {clist.map((c) => (
               <Item key={c.id}>
                 <motion.div whileHover={{ y: -3 }} onClick={() => setOpen(c)} className="clay p-5 cursor-pointer flex gap-4">
                   <Tile color={colorFor(c.name)} size={42} radius={13}><Users size={18} /></Tile>
                   <div className="min-w-0 flex-1">
-                    <div className="font-semibold text-[14px] flex items-center gap-2">{c.name}<Dot tone={c.status === 'live' ? 'ok' : 'muted'} /></div>
+                    <div className="display font-bold text-[15px] flex items-center gap-2">{c.name}<Chip tone={c.status === 'live' ? 'ok' : undefined}>{c.status === 'live' ? 'Live' : 'Draft'}</Chip></div>
                     <p className="text-[12.5px] muted mt-0.5 line-clamp-2">{c.description}</p>
                     <div className="flex items-center gap-2 mt-3 text-[12px] muted">
                       <div className="flex -space-x-1.5">{c.members.map((m) => { const a = agents.find((x) => x.id === m); return <span key={m} className="rounded-full border-2 border-[var(--surface)]"><AgentAvatar name={a?.name ?? m} icon={a?.icon} color={a?.color} size={20} radius={10} /></span> })}</div>
@@ -164,20 +156,14 @@ export default function Agents() {
         )
       )}
 
-      <CreateAgentDialog open={creating} onClose={() => setCreating(false)} onCreated={(a) => nav(`/agents/${a.id}`)} />
-
-      <Confirm open={!!toDelete} onClose={() => setToDelete(null)} title={`Delete ${toDelete?.name}?`} danger confirmLabel="Delete" onConfirm={() => toDelete && deleteAgent(toDelete.id)}
-        body={toDelete && (usedIn(toDelete) > 0 ? `This agent is used by ${usedIn(toDelete)} workflow${usedIn(toDelete) === 1 ? '' : 's'}; those steps will need a new agent. Its chat history and versions are removed. This cannot be undone.` : 'Its chat history and versions are removed. This cannot be undone.')} />
-
-      <Confirm open={bulkDelete} onClose={() => setBulkDelete(false)} title={`Delete ${selected.length} agent${selected.length === 1 ? '' : 's'}?`} danger confirmLabel="Delete" body="Their chat history and versions are removed. Workflow steps that use them will need a new agent. This cannot be undone." onConfirm={() => { selected.forEach((id) => deleteAgent(id)); setSelected([]) }} />
-
+      <Confirm open={!!toDelete} onClose={() => setToDelete(null)} title={`Delete ${toDelete?.name}?`} danger confirmLabel="Delete" onConfirm={() => toDelete && deleteAgent(toDelete.id)} body={toDelete && (usedIn(toDelete) > 0 ? `This agent is used by ${usedIn(toDelete)} workflow${usedIn(toDelete) === 1 ? '' : 's'}; those steps will need a new agent. Its chat history and versions are removed.` : 'Its chat history and versions are removed. This cannot be undone.')} />
+      <Confirm open={bulkDelete} onClose={() => setBulkDelete(false)} title={`Delete ${selected.length} agent${selected.length === 1 ? '' : 's'}?`} danger confirmLabel="Delete" body="Their chat history and versions are removed. Workflow steps that use them will need a new agent." onConfirm={() => { selected.forEach((id) => deleteAgent(id)); setSelected([]) }} />
       <Modal open={templates} onClose={() => setTemplates(false)} title="New council" width={560}>
         <div className="flex flex-col gap-2">
           {councilTemplates.map((t) => <button key={t.name} onClick={() => createCouncil(t)} className="flat p-4 text-left hover:bg-[var(--surface)]"><div className="text-[13.5px] font-semibold">{t.name}</div><div className="text-[12px] muted">{t.description} · {t.mode}</div></button>)}
           <button onClick={() => createCouncil()} className="flat p-4 text-left hover:bg-[var(--surface)]"><div className="text-[13.5px] font-semibold">Blank council</div><div className="text-[12px] muted">Choose members and a deliberation mode yourself.</div></button>
         </div>
       </Modal>
-
       <CouncilDrawer council={open} onClose={() => setOpen(null)} onDelete={(id) => { deleteCouncil(id); setOpen(null) }} />
     </Page>
   )
@@ -198,7 +184,6 @@ function CouncilDrawer({ council, onClose, onDelete }: { council: Council | null
   if (!draft) return null
   const set = (p: Partial<Council>) => setDraft({ ...draft, ...p })
   const dirty = JSON.stringify(draft) !== JSON.stringify(council)
-
   const simulate = async () => {
     if (!apiKey) { setSynthesis('Models are not available right now.'); return }
     setBusy(true); setFindings([]); setSynthesis('')
@@ -221,7 +206,6 @@ function CouncilDrawer({ council, onClose, onDelete }: { council: Council | null
     }
     setBusy(false)
   }
-
   return (
     <Drawer open={!!council} onClose={onClose} title={draft.name} width={600}>
       <div className="flex items-center gap-2 mb-4">
@@ -234,33 +218,20 @@ function CouncilDrawer({ council, onClose, onDelete }: { council: Council | null
         <div className="flex flex-col gap-4">
           <Field label="Name"><Input value={draft.name} onChange={(e) => set({ name: e.target.value })} /></Field>
           <Field label="Purpose"><Textarea rows={2} value={draft.description} onChange={(e) => set({ description: e.target.value })} /></Field>
-          <Field label="Members">
-            <div className="flat divide-y divide-[var(--line)]">
-              {agents.map((a) => <div key={a.id} className="flex items-center gap-3 px-3 h-11"><AgentAvatar name={a.name} icon={a.icon} color={a.color} size={24} /><span className="flex-1 text-[13px]">{a.name}{a.status === 'draft' && <span className="muted"> · draft</span>}</span><Toggle checked={draft.members.includes(a.id)} onChange={(v) => set({ members: v ? [...draft.members, a.id] : draft.members.filter((m) => m !== a.id) })} /></div>)}
-            </div>
-          </Field>
+          <Field label="Members"><div className="flat divide-y divide-[var(--line)]">{agents.map((a) => <div key={a.id} className="flex items-center gap-3 px-3 h-11"><AgentAvatar name={a.name} icon={a.icon} color={a.color} size={24} /><span className="flex-1 text-[13px]">{a.name}{a.status === 'draft' && <span className="muted"> · draft</span>}</span><Toggle checked={draft.members.includes(a.id)} onChange={(v) => set({ members: v ? [...draft.members, a.id] : draft.members.filter((m) => m !== a.id) })} /></div>)}</div></Field>
           <Field label="Deliberation mode"><Segmented value={draft.mode} onChange={(m) => set({ mode: m })} items={[{ id: 'consensus', label: 'Consensus' }, { id: 'debate', label: 'Debate' }, { id: 'quorum', label: 'Quorum vote' }]} /></Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Gatekeeper"><Select value={draft.gatekeeper} onChange={(e) => set({ gatekeeper: e.target.value })}>{users.filter((u) => u.role === 'approver' || u.role === 'security' || u.role === 'admin').map((u) => <option key={u.id} value={u.id}>{u.name} · {roleLabel[u.role]}</option>)}</Select></Field>
             <Field label="Synthesis model">{models.length ? <Select value={draft.model} onChange={(e) => set({ model: e.target.value })}>{!models.some((m) => m.id === draft.model) && <option value={draft.model}>{draft.model}</option>}{models.filter((m) => m.supported_parameters?.includes('tools')).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</Select> : <Input value={draft.model} onChange={(e) => set({ model: e.target.value })} />}</Field>
           </div>
-          <div className="flex items-center gap-2 pt-2">
-            <Button size="sm" onClick={() => nav(`/workflows/new?template=council&council=${draft.id}`)}><WorkflowIcon size={13} /> Use in a workflow</Button>
-            <div className="flex-1" />
-            <button onClick={() => setConfirmDel(true)} className="text-[12px] font-medium text-[var(--danger)] inline-flex items-center gap-1 hover:underline"><Trash2 size={12} /> Delete</button>
-          </div>
+          <div className="flex items-center gap-2 pt-2"><Button size="sm" onClick={() => nav(`/workflows/new?template=council&council=${draft.id}`)}><WorkflowIcon size={13} /> Use in a workflow</Button><div className="flex-1" /><button onClick={() => setConfirmDel(true)} className="text-[12px] font-medium text-[var(--danger)] inline-flex items-center gap-1 hover:underline"><Trash2 size={12} /> Delete</button></div>
           <Confirm open={confirmDel} onClose={() => setConfirmDel(false)} title={`Delete ${draft.name}?`} danger confirmLabel="Delete" body="Workflow steps that use this council will need a new one." onConfirm={() => onDelete(draft.id)} />
         </div>
       ) : (
         <div className="flex flex-col gap-4">
           <Field label="Case"><Textarea rows={4} value={caseText} onChange={(e) => setCaseText(e.target.value)} /></Field>
           <Button variant="primary" onClick={simulate} disabled={busy || !draft.members.length}><Play size={14} /> {busy ? 'Deliberating…' : 'Simulate deliberation'}</Button>
-          {findings.map((f, i) => (
-            <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flat p-3">
-              <div className="text-[12px] font-semibold mb-1 flex items-center gap-2">{(() => { const a = agents.find((x) => x.name === f.agent); return <AgentAvatar name={f.agent} icon={a?.icon} color={a?.color} size={20} radius={6} /> })()}{f.agent}</div>
-              <Md className="prose-chat text-[12.5px]">{f.text || '…'}</Md>
-            </motion.div>
-          ))}
+          {findings.map((f, i) => <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flat p-3"><div className="text-[12px] font-semibold mb-1 flex items-center gap-2">{(() => { const a = agents.find((x) => x.name === f.agent); return <AgentAvatar name={f.agent} icon={a?.icon} color={a?.color} size={20} radius={6} /> })()}{f.agent}</div><Md className="prose-chat text-[12.5px]">{f.text || '…'}</Md></motion.div>)}
           {synthesis && <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="clay-sm p-4"><div className="text-[12px] font-semibold mb-1">Council recommendation · for {users.find((u) => u.id === draft.gatekeeper)?.name}</div><Md className="prose-chat text-[13px]">{synthesis}</Md></motion.div>}
         </div>
       )}
