@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { DEMO_USER, seedLibraries, DEFAULT_MODEL, MODEL_PROFILES, type User, type Agent, type Council, type Run, type Workflow, type Library, type Doc, type AuditEvent, type CustomTool, type Notification, type SpendEntry, type Role, type Thread } from '@/lib/data'
-import type { ORModel } from '@/lib/openrouter'
+import { usingProxy, PROXY_KEY, type ORModel } from '@/lib/openrouter'
+import { hashPassword, verifyPassword, isHashed, SESSION_HOURS } from '@/lib/auth'
 
 export type Theme = 'light' | 'dark'
 export type ChatMsg = { id: string; role: 'user' | 'assistant'; content: string; tools?: { name: string; args: string; result?: string }[]; error?: boolean; at: number; /** what to show instead of content (content carries attached file text) */ display?: string; files?: string[] }
@@ -9,7 +10,7 @@ export type ChatMsg = { id: string; role: 'user' | 'assistant'; content: string;
 const now = () => new Date().toISOString().slice(0, 16).replace('T', ' ')
 const today = () => new Date().toISOString().slice(0, 10)
 const uid = () => Math.random().toString(36).slice(2, 8)
-const ENV_KEY = ((import.meta as any).env?.VITE_OPENROUTER_API_KEY as string | undefined) ?? ''
+const ENV_KEY = usingProxy ? PROXY_KEY : (((import.meta as any).env?.VITE_OPENROUTER_API_KEY as string | undefined) ?? '')
 
 type State = {
   currentUserId: string | null
@@ -39,9 +40,13 @@ type State = {
   holidayPreview: string | null
   flash: { id: number; text: string; tone?: 'ok' | 'danger' } | null
 
-  login: (email: string, password: string) => string | null
+  login: (email: string, password: string) => Promise<string | null>
   logout: () => void
-  addUser: (u: { name: string; email: string; password: string; role: Role; title: string }) => string | null
+  addUser: (u: { name: string; email: string; password: string; role: Role; title: string }) => Promise<string | null>
+  setPassword: (id: string, password: string) => Promise<void>
+  /** Last activity time of the signed-in session; sessions expire after SESSION_HOURS. */
+  sessionAt: number
+  touchSession: () => void
   updateUser: (id: string, p: Partial<User>) => void
   removeUser: (id: string) => void
   setTheme: (t: Theme) => void
@@ -100,6 +105,7 @@ export const useApp = create<State>()(
       const log = (action: string, target: string, detail?: string) => set({ audit: [{ id: `a${Date.now()}${uid()}`, at: now(), actor: actor(), action, target, detail }, ...get().audit].slice(0, 500) })
       return {
         currentUserId: null,
+        sessionAt: 0,
         users: [DEMO_USER],
         theme: 'light',
         dir: 'ltr',
@@ -125,18 +131,22 @@ export const useApp = create<State>()(
         holidayPreview: null,
         flash: null,
 
-        login: (email, password) => {
+        login: async (email, password) => {
           const u = get().users.find((x) => x.email.toLowerCase() === email.trim().toLowerCase())
           if (!u) return 'No account with that email.'
           if (u.status === 'disabled') return 'This account is disabled.'
-          if (u.password !== password) return 'Incorrect password.'
-          set({ currentUserId: u.id, users: get().users.map((x) => (x.id === u.id ? { ...x, lastActive: now() } : x)) }); log('Signed in', u.email); return null
+          if (!(await verifyPassword(password, u.password))) return 'Incorrect password.'
+          const stored = isHashed(u.password) ? u.password : await hashPassword(password)
+          set({ currentUserId: u.id, sessionAt: Date.now(), users: get().users.map((x) => (x.id === u.id ? { ...x, password: stored, lastActive: now() } : x)) }); log('Signed in', u.email); return null
         },
+        setPassword: async (id, password) => { const h = await hashPassword(password); set({ users: get().users.map((u) => (u.id === id ? { ...u, password: h } : u)) }); log('Updated user', get().users.find((u) => u.id === id)?.email ?? id, 'password') },
+        touchSession: () => { const t = Date.now(); if (get().currentUserId && t - get().sessionAt > 60_000) set({ sessionAt: t }) },
         logout: () => { log('Signed out', actor()); set({ currentUserId: null }) },
-        addUser: (u) => {
+        addUser: async (u) => {
           if (get().users.some((x) => x.email.toLowerCase() === u.email.toLowerCase())) return 'A user with that email already exists.'
           const id = `u-${uid()}`
-          set({ users: [...get().users, { ...u, id, initials: u.name.split(' ').map((s) => s[0]).join('').slice(0, 2).toUpperCase(), status: 'active', lastActive: 'Never', createdAt: today() }] }); log('Added user', u.email); return null
+          const password = await hashPassword(u.password)
+          set({ users: [...get().users, { ...u, password, id, initials: u.name.split(' ').map((s) => s[0]).join('').slice(0, 2).toUpperCase(), status: 'active', lastActive: 'Never', createdAt: today() }] }); log('Added user', u.email); return null
         },
         updateUser: (id, p) => { set({ users: get().users.map((u) => (u.id === id ? { ...u, ...p } : u)) }); log('Updated user', get().users.find((u) => u.id === id)?.email ?? id, Object.keys(p).filter((k) => k !== 'password').join(', ') || 'password') },
         removeUser: (id) => { log('Removed user', get().users.find((u) => u.id === id)?.email ?? id); set({ users: get().users.filter((u) => u.id !== id) }) },
@@ -209,7 +219,7 @@ export const useApp = create<State>()(
     },
     {
       name: 'cocreate-v3', version: 3,
-      merge: (persisted, current) => { const m = { ...current, ...(persisted as object) } as State; if (!m.apiKey && ENV_KEY) m.apiKey = ENV_KEY; if (!m.users?.length) m.users = [DEMO_USER]; m.users = m.users.map((u) => (u.id === 'demo' && (u.name === 'Demo User' || u.name === 'Vision') ? { ...u, name: DEMO_USER.name, initials: DEMO_USER.initials } : u)); m.flash = null; return m },
+      merge: (persisted, current) => { const m = { ...current, ...(persisted as object) } as State; if ((!m.apiKey || usingProxy) && ENV_KEY) m.apiKey = ENV_KEY; if (m.currentUserId && m.sessionAt && Date.now() - m.sessionAt > SESSION_HOURS * 3600_000) m.currentUserId = null; if (!m.users?.length) m.users = [DEMO_USER]; m.users = m.users.map((u) => (u.id === 'demo' && (u.name === 'Demo User' || u.name === 'Vision') ? { ...u, name: DEMO_USER.name, initials: DEMO_USER.initials } : u)); m.flash = null; return m },
       partialize: (s) => Object.fromEntries(Object.entries(s).filter(([k, v]) => !['models', 'flash'].includes(k) && typeof v !== 'function')) as any,
     },
   ),

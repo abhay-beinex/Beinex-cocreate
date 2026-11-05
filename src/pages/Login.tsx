@@ -5,6 +5,7 @@ import { ArrowRight, Lock } from 'lucide-react'
 import { useApp } from '@/store/app'
 import { BRAND } from '@/lib/data'
 import { BeinexWordmark } from '@/components/Logo'
+import { loginGate, recordLogin } from '@/lib/auth'
 import { Button, Input } from '@/components/ui'
 import { ease } from '@/components/motion'
 
@@ -16,11 +17,13 @@ export default function Login() {
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const go = () => {
+  const go = async () => {
+    const gate = loginGate(); if (gate.blockedFor > 0) { setErr(`Too many attempts. Try again in ${gate.blockedFor}s.`); return }
     setBusy(true)
-    const e = login(email, pw)
+    const e = await login(email, pw)
     setBusy(false)
-    if (e) { setErr(e); return }
+    recordLogin(!e)
+    if (e) { setErr(loginGate().blockedFor > 0 ? `${e} Too many attempts; wait 30 seconds.` : e); return }
     nav('/')
   }
 

@@ -83,3 +83,9 @@ Ready for a demo and a pilot behind a login, with these conditions:
 - Data lives in each browser's local storage: no sharing between people, no backup beyond Export under Settings.
 - Sign-in is a demo-grade password check, not an identity provider.
 - Add real unit tests around the engine before widening the audience.
+
+## Round 4: themed dropdowns everywhere and a secure release path
+
+- Every dropdown is now a themed component (`src/components/Dropdown.tsx`): same markup as a native select, keyboard navigation, type-to-search on long lists (Models), portal-positioned so it never clips. The Chat agent and thinking pills use it; the schedule time picker became hour and minute dropdowns.
+- Security (see `SECURITY.md`): `server/proxy.mjs` serves `dist/` with CSP, HSTS, nosniff, frame-deny and proxies only the three model paths with the key held server-side, an origin check, a shared token, rate limit and body limit (probed locally: headers present, 401 without token, 404 off-allowlist, chat passthrough works). Passwords are salted SHA-256 (20k rounds) with rehash on first sign-in; sign-in throttles after five failures; sessions expire after 8 idle hours; the Run code sandbox has no network APIs (verified: fetch, XMLHttpRequest, importScripts, WebSocket all undefined).
+- Build the release with `VITE_MODEL_API_BASE=/api/v1` and `VITE_PROXY_TOKEN`, never with `VITE_OPENROUTER_API_KEY`.

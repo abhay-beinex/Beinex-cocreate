@@ -1,3 +1,4 @@
+import { Dropdown, itemsFromOptions } from './Dropdown'
 import { useEffect, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
 
 /** Closes an overlay on Escape while it is open. */
@@ -20,7 +21,11 @@ export function Panel({ children, className, ...rest }: { children: ReactNode; c
 
 export function Input(props: InputHTMLAttributes<HTMLInputElement>) { return <input {...props} className={cx('input', props.className)} /> }
 export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) { return <textarea {...props} className={cx('input', props.className)} /> }
-export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) { return <select {...props} className={cx('input', props.className)} /> }
+/** Same markup as a native select (value, onChange, <option>, <optgroup>) but renders a themed dropdown. */
+export function Select({ value, onChange, children, className, disabled, 'aria-label': ariaLabel }: SelectHTMLAttributes<HTMLSelectElement>) {
+  const items = itemsFromOptions(children)
+  return <Dropdown value={String(value ?? '')} items={items} disabled={disabled} ariaLabel={ariaLabel} className={className} onChange={(v) => onChange?.({ target: { value: v }, currentTarget: { value: v } } as unknown as React.ChangeEvent<HTMLSelectElement>)} />
+}
 
 export function Chip({ children, tone, className }: { children: ReactNode; tone?: 'accent' | 'ok' | 'warn' | 'danger'; className?: string }) {
   return <span className={cx('chip', tone && `chip-${tone}`, className)}>{children}</span>

@@ -17,7 +17,7 @@ const groups: { title?: string; items: { to: string; label: string; icon: typeof
 const kindIcon = { approval: ShieldCheck, run: ListChecks, schedule: Clock, info: Info }
 
 export default function Shell() {
-  const { theme, setTheme, dir, setDir, logout, notifications, markRead, schedulesPaused, runs, themedCursor, seasonal, holidayPreview, flash } = useApp()
+  const { theme, setTheme, dir, setDir, logout, notifications, markRead, schedulesPaused, runs, themedCursor, seasonal, holidayPreview, flash, touchSession } = useApp()
   const holiday = seasonal ? (holidayPreview ? holidayById(holidayPreview) : currentHoliday()) : undefined
   const user = useUser()
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('nav-collapsed') === '1')
@@ -33,6 +33,13 @@ export default function Shell() {
 
   useEffect(() => { document.documentElement.classList.toggle('dark', theme === 'dark'); document.documentElement.dir = dir }, [theme, dir])
   useEffect(() => { document.documentElement.classList.toggle('cursor-themed', themedCursor) }, [themedCursor])
+  useEffect(() => {
+    let last = 0
+    const bump = () => { const t = Date.now(); if (t - last > 60_000) { last = t; touchSession() } }
+    const check = () => { const s = useApp.getState(); if (s.currentUserId && s.sessionAt && Date.now() - s.sessionAt > 8 * 3600_000) { s.logout(); nav('/login') } }
+    window.addEventListener('pointerdown', bump); window.addEventListener('keydown', bump); const i = setInterval(check, 60_000); bump(); check()
+    return () => { window.removeEventListener('pointerdown', bump); window.removeEventListener('keydown', bump); clearInterval(i) }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!builder) localStorage.setItem('nav-collapsed', collapsed ? '1' : '0') }, [collapsed, builder])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); nav('/chat') } if (e.key === 'Escape') setMenu(null) }

@@ -1,5 +1,11 @@
 // OpenRouter client: models catalog + streaming chat completions (OpenAI-compatible).
-export const OR_BASE = 'https://openrouter.ai/api/v1'
+const env = (import.meta as any).env ?? {}
+/** Where model calls go: OpenRouter directly in development, or the release proxy (VITE_MODEL_API_BASE) that holds the key. */
+export const OR_BASE: string = env.VITE_MODEL_API_BASE || 'https://openrouter.ai/api/v1'
+export const PROXY_TOKEN: string = env.VITE_PROXY_TOKEN || ''
+/** The sentinel stored as the key when the proxy holds the real one. */
+export const PROXY_KEY = 'proxy'
+export const usingProxy = !!env.VITE_MODEL_API_BASE
 
 export type ORModel = {
   id: string
@@ -32,12 +38,14 @@ export type Usage = {
   cost?: number
 }
 
-const headers = (key: string) => ({
-  Authorization: `Bearer ${key}`,
+export const apiHeaders = (key: string): Record<string, string> => ({
+  ...(key && key !== PROXY_KEY ? { Authorization: `Bearer ${key}` } : {}),
+  ...(PROXY_TOKEN ? { 'X-Proxy-Token': PROXY_TOKEN } : {}),
   'Content-Type': 'application/json',
   'HTTP-Referer': typeof location !== 'undefined' ? location.origin : 'http://localhost',
-  'X-Title': 'Ephrem by Beinex',
+  'X-Title': 'Beinex Co-Create',
 })
+const headers = apiHeaders
 
 export async function listModels(key?: string): Promise<ORModel[]> {
   const res = await fetch(`${OR_BASE}/models`, { headers: key ? headers(key) : undefined })

@@ -1,5 +1,5 @@
 // Built-in and custom tools. Read tools run in the browser; write tools are gated and only queue work for a person.
-import { OR_BASE } from './openrouter'
+import { OR_BASE, apiHeaders } from './openrouter'
 import type { ToolDef } from './openrouter'
 import type { Library, CustomTool } from './data'
 
@@ -44,7 +44,7 @@ export type ToolContext = {
   onSaveDocument?: (d: { title: string; content: string }) => void
 }
 
-const headers = (key: string) => ({ Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'HTTP-Referer': location.origin, 'X-Title': 'Beinex Co-Create' })
+const headers = apiHeaders
 
 async function webAnswer(ctx: ToolContext, prompt: string, model: string, maxResults: number, maxTokens: number): Promise<string> {
   const res = await fetch(`${OR_BASE}/chat/completions`, { method: 'POST', headers: headers(ctx.key), body: JSON.stringify({ model, plugins: [{ id: 'web', max_results: maxResults }], messages: [{ role: 'user', content: prompt }], max_tokens: maxTokens }) })
@@ -56,7 +56,8 @@ async function webAnswer(ctx: ToolContext, prompt: string, model: string, maxRes
 }
 
 const sandbox = (code: string) => new Promise<string>((resolve) => {
-  const src = `self.onmessage = async (e) => { const logs = []; const console = { log: (...a) => logs.push(a.map(x => typeof x === 'object' ? JSON.stringify(x) : String(x)).join(' ')) }; try { const fn = new Function('console', 'return (async () => { ' + e.data + ' })()'); const r = await fn(console); self.postMessage({ ok: true, logs, result: r === undefined ? undefined : (typeof r === 'object' ? JSON.stringify(r, null, 2) : String(r)) }) } catch (err) { self.postMessage({ ok: false, logs, error: String(err && err.message || err) }) } }`
+  const src = `for (const k of ['fetch','XMLHttpRequest','WebSocket','importScripts','EventSource','navigator','indexedDB','caches']) { try { Object.defineProperty(self, k, { value: undefined, configurable: false, writable: false }) } catch (_) {} }
+self.onmessage = async (e) => { const logs = []; const console = { log: (...a) => logs.push(a.map(x => typeof x === 'object' ? JSON.stringify(x) : String(x)).join(' ')) }; try { const fn = new Function('console', 'return (async () => { ' + e.data + ' })()'); const r = await fn(console); self.postMessage({ ok: true, logs, result: r === undefined ? undefined : (typeof r === 'object' ? JSON.stringify(r, null, 2) : String(r)) }) } catch (err) { self.postMessage({ ok: false, logs, error: String(err && err.message || err) }) } }`
   const w = new Worker(URL.createObjectURL(new Blob([src], { type: 'application/javascript' })))
   const timer = setTimeout(() => { w.terminate(); resolve('Error: script exceeded the 5 second limit.') }, 5000)
   w.onmessage = (e) => { clearTimeout(timer); w.terminate(); const d = e.data; resolve((d.logs.length ? `Console:\n${d.logs.join('\n')}\n` : '') + (d.ok ? (d.result !== undefined ? `Result: ${d.result}` : d.logs.length ? '' : 'Done (no output).') : `Error: ${d.error}`)) }

@@ -4,6 +4,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Sparkles, Plus, ChevronDown, Trash2, Pencil, MessageSquare, Search } from 'lucide-react'
 import { useApp } from '@/store/app'
 import { Tile, cx } from '@/components/ui'
+import { Dropdown } from '@/components/Dropdown'
 import { AgentAvatar } from '@/components/AgentAvatar'
 import { Page } from '@/components/motion'
 import { Thread, Composer, useAgentChat, type AgentLike, type Attachment } from '@/components/ChatThread'
@@ -109,14 +110,10 @@ export default function Chat() {
         <footer className="px-5 pb-4">
           <div className="max-w-[760px] mx-auto">
             <Composer onSend={send} busy={chat.busy} onStop={chat.stop} attach placeholder={`Message ${agent.name}…`}
-              left={<label className="relative shrink-0 flex items-center gap-1.5 h-9 pl-1 pr-2 rounded-[10px] hover:bg-[var(--clay-dark)] cursor-pointer text-[12px] font-medium max-w-[180px]" title="Who answers in this chat">
-                {agent.id === 'assistant' ? <Tile color="#10385b" size={22} radius={7}><Sparkles size={11} /></Tile> : <AgentAvatar name={agent.name} icon={agent.icon} color={agent.color} size={22} radius={7} />}<span className="truncate">{agent.id === 'assistant' ? 'Assistant' : agent.name}</span><ChevronDown size={12} className="muted" />
-                <select value={agent.id} onChange={(e) => switchAgent(e.target.value)} aria-label="Who answers" className="absolute inset-0 opacity-0 cursor-pointer"><option value="assistant">{ASSISTANT.name}</option>{live.map((a) => <option key={a.id} value={a.id}>{a.name}{a.status === 'draft' ? ' · draft' : ''}</option>)}</select>
-              </label>}
-              right={<label className="relative shrink-0 flex items-center gap-1 h-9 px-2 rounded-[10px] hover:bg-[var(--clay-dark)] cursor-pointer text-[11.5px] font-medium muted hover:text-[var(--text)]" title="Thinking level for this chat">
-                {thinking ? <><thinking.icon size={12} /> {thinking.label}</> : <span className="truncate max-w-[110px]">{activeModel.split('/')[1] ?? activeModel}</span>}<ChevronDown size={12} />
-                <select value={thinking?.id ?? ''} onChange={(e) => setThinking(e.target.value)} aria-label="Thinking level" className="absolute inset-0 opacity-0 cursor-pointer">{!thinking && <option value="">{activeModel}</option>}{THINKING.map((t) => <option key={t.id} value={t.id}>{t.label} · {t.desc}</option>)}</select>
-              </label>} />
+              left={<Dropdown value={agent.id} ariaLabel="Who answers" width={240} onChange={(v) => switchAgent(v)} items={[{ value: 'assistant', label: <span className="inline-flex items-center gap-2"><Tile color="#10385b" size={20} radius={6}><Sparkles size={11} /></Tile>{ASSISTANT.name}</span>, text: ASSISTANT.name }, ...live.map((a) => ({ value: a.id, label: <span className="inline-flex items-center gap-2"><AgentAvatar name={a.name} icon={a.icon} color={a.color} size={20} radius={6} />{a.name}{a.status === 'draft' ? <span className="muted"> · draft</span> : ''}</span>, text: a.name }))]}
+                trigger={(open) => <span className="flex items-center gap-1.5 h-9 pl-1 pr-2 rounded-[10px] hover:bg-[var(--clay-dark)] text-[12px] font-medium max-w-[180px]" title="Who answers in this chat">{agent.id === 'assistant' ? <Tile color="#10385b" size={22} radius={7}><Sparkles size={11} /></Tile> : <AgentAvatar name={agent.name} icon={agent.icon} color={agent.color} size={22} radius={7} />}<span className="truncate">{agent.id === 'assistant' ? 'Assistant' : agent.name}</span><ChevronDown size={12} className={cx('muted transition-transform', open && 'rotate-180')} /></span>} />}
+              right={<Dropdown value={thinking?.id ?? ''} ariaLabel="Thinking level" align="end" width={260} onChange={(v) => setThinking(v)} items={[...(!thinking ? [{ value: '', label: activeModel, text: activeModel }] : []), ...THINKING.map((t) => ({ value: t.id, label: <span className="inline-flex items-center gap-2"><t.icon size={13} className="muted" /><span>{t.label} <span className="muted">· {t.desc}</span></span></span>, text: t.label }))]}
+                trigger={(open) => <span className="flex items-center gap-1 h-9 px-2 rounded-[10px] hover:bg-[var(--clay-dark)] text-[11.5px] font-medium muted hover:text-[var(--text)]" title="Thinking level for this chat">{thinking ? <><thinking.icon size={12} /> {thinking.label}</> : <span className="truncate max-w-[110px]">{activeModel.split('/')[1] ?? activeModel}</span>}<ChevronDown size={12} className={cx('transition-transform', open && 'rotate-180')} /></span>} />} />
             <div className="text-[11px] muted mt-2 px-1 flex items-center gap-1.5"><MessageSquare size={11} /> Attach text files for context. Actions that reach outside wait for a person under Approvals.</div>
           </div>
         </footer>

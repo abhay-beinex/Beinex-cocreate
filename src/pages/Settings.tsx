@@ -101,13 +101,13 @@ export default function Settings() {
           <Field label="Temporary password" hint="Share it with them; they can change it under Settings › Workspace."><Input type="text" value={invite.password} onChange={(e) => setInvite({ ...invite, password: e.target.value })} /></Field>
           <div className="grid grid-cols-2 gap-3"><Field label="Title"><Input value={invite.title} onChange={(e) => setInvite({ ...invite, title: e.target.value })} /></Field><Field label="Role" hint={roleDesc[invite.role]}><Select value={invite.role} onChange={(e) => setInvite({ ...invite, role: e.target.value as Role })}>{(Object.keys(roleLabel) as Role[]).map((r) => <option key={r} value={r}>{roleLabel[r]}</option>)}</Select></Field></div>
           {err && <div className="text-[12.5px] text-[var(--danger)]">{err}</div>}
-          <div className="flex justify-end"><Button variant="primary" disabled={!invite.name.trim() || !/\S+@\S+\.\S+/.test(invite.email) || invite.password.length < 6} onClick={() => { const e = s.addUser(invite); if (e) setErr(e); else setInvite(null) }}>Add user</Button></div>
+          <div className="flex justify-end"><Button variant="primary" disabled={!invite.name.trim() || !/\S+@\S+\.\S+/.test(invite.email) || invite.password.length < 6} onClick={async () => { const e = await s.addUser(invite); if (e) setErr(e); else setInvite(null) }}>Add user</Button></div>
         </div>}
       </Modal>
       <Modal open={!!pwFor} onClose={() => setPwFor(null)} title="Set password" width={420}>
         {pwFor && <div className="flex flex-col gap-4">
           <Field label="New password" hint="At least 6 characters."><Input type="password" value={pwFor.pw} onChange={(e) => setPwFor({ ...pwFor, pw: e.target.value })} autoFocus /></Field>
-          <div className="flex justify-end"><Button variant="primary" disabled={pwFor.pw.length < 6} onClick={() => { s.updateUser(pwFor.id, { password: pwFor.pw }); setPwFor(null) }}>Save</Button></div>
+          <div className="flex justify-end"><Button variant="primary" disabled={pwFor.pw.length < 6} onClick={async () => { await s.setPassword(pwFor.id, pwFor.pw); setPwFor(null); s.flashMsg('Password updated.', 'ok') }}>Save</Button></div>
         </div>}
       </Modal>
     </Page>
