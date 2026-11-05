@@ -1,43 +1,59 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { motion } from 'framer-motion'
-import { ArrowLeft, Sparkles, ArrowUp, Trash2, Lock, ChevronDown, ChevronRight, Wand2, RotateCcw, Download, Upload, History, Copy } from 'lucide-react'
-import { useApp, useUser, can } from '@/store/app'
-import type { Agent, Autonomy } from '@/lib/data'
-import { streamChat } from '@/lib/openrouter'
+import { motion, AnimatePresence } from 'framer-motion'
+import { ArrowLeft, Sparkles, ArrowUp, Trash2, Lock, ChevronDown, ChevronRight, RotateCcw, Download, Upload, History, Copy, MessageSquare, Zap, Scale, Brain, Check, X, Globe, BookOpen, Send, Code2 } from 'lucide-react'
+import { useApp, useUser, can, profileModels } from '@/store/app'
+import { BRAND, MODEL_PROFILES, type Agent, type Autonomy } from '@/lib/data'
+import { streamChat, listModels } from '@/lib/openrouter'
 import { TOOLS } from '@/lib/tools'
 import { Button, Chip, Field, Input, Textarea, Select, Segmented, Toggle, Tile, colorFor, cx } from '@/components/ui'
 import { Page } from '@/components/motion'
 import { Thread, Composer, useAgentChat } from '@/components/ChatThread'
 
 const download = (name: string, data: string) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' })); a.download = name; a.click() }
+const ASSISTANT_NAME = `${BRAND.name} Assistant`
+const catIcon = { Web: Globe, Reasoning: Brain, Knowledge: BookOpen, Actions: Send, Custom: Code2 } as const
+const profileIcon = { fast: Zap, balanced: Scale, reasoning: Brain } as const
+
+const Section = ({ n, title, hint, children, right }: { n: number; title: string; hint?: string; children: React.ReactNode; right?: React.ReactNode }) => (
+  <section className="flat p-5">
+    <div className="flex items-start gap-3 mb-4">
+      <span className="w-6 h-6 rounded-full grid place-items-center text-[11px] font-bold bg-[var(--clay-dark)] muted shrink-0 mt-0.5">{n}</span>
+      <div className="flex-1 min-w-0"><div className="text-[13.5px] font-semibold">{title}</div>{hint && <div className="text-[12px] muted mt-0.5">{hint}</div>}</div>
+      {right}
+    </div>
+    {children}
+  </section>
+)
 
 export default function AgentEditor() {
   const { agentId } = useParams()
   const nav = useNavigate()
   const user = useUser()!
-  const { agents, upsertAgent, rollbackAgent, deleteAgent, apiKey, defaultModel, models, libraries, customTools } = useApp()
+  const store = useApp()
+  const { agents, upsertAgent, rollbackAgent, deleteAgent, apiKey, defaultModel, models, setModels, libraries, customTools, profiles } = store
   const stored = agents.find((a) => a.id === agentId)
   const [draft, setDraft] = useState<Agent | undefined>(stored)
   const [advanced, setAdvanced] = useState(false)
-  const [refineOpen, setRefineOpen] = useState(false)
-  const [refine, setRefine] = useState('')
-  const [refining, setRefining] = useState(false)
+  const [assist, setAssist] = useState<{ open: boolean; input: string; busy: boolean; log: { role: 'user' | 'assistant'; text: string }[] }>({ open: false, input: '', busy: false, log: [] })
   const fileRef = useRef<HTMLInputElement>(null)
   const editable = can(user, 'build')
 
-  useEffect(() => { if (stored && (!draft || stored.version !== draft.version && JSON.stringify(stored) !== JSON.stringify(draft) && stored.version > (draft?.version ?? 0))) setDraft(stored) }, [stored]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (stored && (!draft || (stored.version > (draft?.version ?? 0)))) setDraft(stored) }, [stored]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!models.length && apiKey) listModels(apiKey).then(setModels).catch(() => {}) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const chat = useAgentChat(draft ?? { id: '', name: '', description: '', instructions: '', model: '', tools: [], knowledge: [], samplePrompts: [] })
   useEffect(() => { if (draft && draft.autonomy === 3 && draft.tools.some((t) => TOOLS.find((x) => x.name === t)?.write)) setDraft({ ...draft, autonomy: 2 }) }, [draft])
 
   const issues = useMemo(() => {
     if (!draft) return []
     const out: string[] = []
+    if (!draft.description) out.push('Add a one-line description so people know when to use this agent.')
+    if (draft.instructions.trim().length < 80) out.push('Instructions are short. Say what the agent is for, how it should answer, and what it must not do.')
     if (!/unsure|ask|missing|uncertain|escalat/i.test(draft.instructions)) out.push('Say what the agent should do when it is unsure or information is missing.')
     if (draft.tools.includes('search_knowledge') && draft.knowledge.length === 0) out.push('Knowledge search is on but no library is attached.')
-    if (!draft.description) out.push('Add a one-line description so people know when to use this agent.')
     if (draft.tools.length === 0) out.push('No tools: the agent can only answer from its instructions and knowledge.')
     if (draft.autonomy === 1 && draft.tools.some((t) => TOOLS.find((x) => x.name === t)?.write)) out.push('At "Notify only" the gated tools (email, approval) are switched off at runtime.')
+    if (draft.samplePrompts.length === 0) out.push('Add two or three sample prompts; they appear as suggestions in Chat.')
     return out
   }, [draft])
 
@@ -46,85 +62,142 @@ export default function AgentEditor() {
   const hasWrite = draft.tools.some((t) => TOOLS.find((x) => x.name === t)?.write)
   const dirty = JSON.stringify({ ...draft, history: undefined }) !== JSON.stringify({ ...stored, history: undefined })
   const save = (status?: Agent['status']) => { const n = { ...draft, status: status ?? draft.status, version: dirty || status ? draft.version + 1 : draft.version, updatedAt: new Date().toISOString().slice(0, 10) }; upsertAgent(n, status === 'live' ? 'Published agent' : status === 'draft' ? 'Unpublished agent' : undefined); setDraft(n) }
+  const modelName = (id: string) => models.find((m) => m.id === id)?.name ?? id
+  const toolModels = models.filter((m) => m.supported_parameters?.includes('tools'))
 
-  const runRefine = async () => {
-    const text = refine.trim(); if (!text || refining || !apiKey) return
-    setRefining(true)
+  const runAssist = async (text: string) => {
+    const q = text.trim(); if (!q || assist.busy || !apiKey) return
+    setAssist((a) => ({ ...a, busy: true, input: '', log: [...a.log, { role: 'user', text: q }] }))
+    const sys = `You are ${ASSISTANT_NAME}, helping a person design an AI agent on a governed platform. Current agent card as JSON:\n${JSON.stringify({ name: draft.name, description: draft.description, instructions: draft.instructions, tools: draft.tools, samplePrompts: draft.samplePrompts, autonomy: draft.autonomy })}\nAvailable tools: ${[...TOOLS.map((t) => `${t.name} (${t.desc})`), ...customTools.map((t) => `${t.name} (${t.description})`)].join('; ')}.\nApply the person's request. Reply ONLY with JSON: {"patch": {any of name, description, instructions, tools, samplePrompts, autonomy that should change}, "note": "one or two sentences on what you changed and why"}. Keep instructions complete (not a diff), in second person, and keep the governed tone: recommend, never execute; ask when unsure.`
     let acc = ''
-    for await (const ev of streamChat({ key: apiKey, model: defaultModel, messages: [{ role: 'system', content: `Rewrite this AI agent's system instructions to apply the user's request. Keep the governed tone (recommend, never execute; escalate when unsure). Current instructions:\n${draft.instructions}\nReply with the full updated instructions only.` }, { role: 'user', content: text }], temperature: 0.2 })) if (ev.type === 'delta') acc += ev.text
-    if (acc.trim()) set({ instructions: acc.trim() })
-    setRefining(false); setRefine(''); setRefineOpen(false)
+    try {
+      for await (const ev of streamChat({ key: apiKey, model: defaultModel, messages: [{ role: 'system', content: sys }, { role: 'user', content: q }], temperature: 0.3 })) { if (ev.type === 'delta') acc += ev.text; if (ev.type === 'usage') store.recordSpend(ev.usage.cost ?? 0) }
+      const j = JSON.parse(acc.replace(/^```json?|```$/g, '').trim())
+      const p = j.patch ?? {}
+      const patch: Partial<Agent> = {}
+      if (typeof p.name === 'string') patch.name = p.name
+      if (typeof p.description === 'string') patch.description = p.description
+      if (typeof p.instructions === 'string') patch.instructions = p.instructions
+      if (Array.isArray(p.tools)) patch.tools = p.tools.filter((t: string) => TOOLS.some((x) => x.name === t) || customTools.some((x) => x.name === t))
+      if (Array.isArray(p.samplePrompts)) patch.samplePrompts = p.samplePrompts.filter((s: unknown) => typeof s === 'string')
+      if ([1, 2, 3].includes(p.autonomy)) patch.autonomy = p.autonomy
+      set(patch)
+      setAssist((a) => ({ ...a, busy: false, log: [...a.log, { role: 'assistant', text: (j.note ?? 'Updated.') + (Object.keys(patch).length ? ` (changed: ${Object.keys(patch).join(', ')})` : '') }] }))
+    } catch { setAssist((a) => ({ ...a, busy: false, log: [...a.log, { role: 'assistant', text: acc.slice(0, 300) || 'I could not apply that. Try rephrasing.' }] })) }
   }
   const importJson = (f: File) => { const r = new FileReader(); r.onload = () => { try { const j = JSON.parse(String(r.result)); set({ name: j.name ?? draft.name, description: j.description ?? draft.description, instructions: j.instructions ?? draft.instructions, model: j.model ?? draft.model, tools: Array.isArray(j.tools) ? j.tools : draft.tools, knowledge: Array.isArray(j.knowledge) ? j.knowledge : draft.knowledge, autonomy: j.autonomy ?? draft.autonomy, samplePrompts: Array.isArray(j.samplePrompts) ? j.samplePrompts : draft.samplePrompts }) } catch { alert('That file is not a valid agent export.') } }; r.readAsText(f) }
   const duplicate = () => { const id = `agent-${Date.now().toString(36)}`; upsertAgent({ ...draft, id, name: `${draft.name} (copy)`, status: 'draft', version: 1, history: undefined, createdBy: user.id, updatedAt: new Date().toISOString().slice(0, 10) }); nav(`/agents/${id}`) }
 
   const cats = ['Web', 'Reasoning', 'Knowledge', 'Actions'] as const
-  const toolRow = (name: string, label: string, desc: string, write: boolean, cat: string) => {
-    const on = draft.tools.includes(name)
-    return (
-      <div key={name} className="flex items-center gap-3 px-3 h-12">
-        <div className="flex-1 min-w-0"><div className="text-[13px] font-medium flex items-center gap-1.5">{label} {write && <Lock size={11} className="muted" />}</div><div className="text-[11.5px] muted truncate">{desc}</div></div>
-        <span className="text-[10.5px] muted w-[70px]">{cat}</span>
-        <Toggle checked={on} onChange={(v) => set({ tools: v ? [...draft.tools, name] : draft.tools.filter((x) => x !== name) })} />
-      </div>
-    )
-  }
+  const toolRows = [...TOOLS.map((t) => ({ name: t.name, label: t.label, desc: t.desc, write: t.write, cat: t.category as keyof typeof catIcon })), ...customTools.map((t) => ({ name: t.name, label: t.label, desc: t.description, write: false, cat: 'Custom' as const }))]
+  const previewPrompts = draft.samplePrompts.length ? draft.samplePrompts : ['Introduce yourself in two lines', 'What can you help me with?', 'What would you not do?']
 
   return (
     <Page className="h-full flex flex-col gap-3">
       <header className="clay h-14 px-3 flex items-center gap-2 shrink-0">
         <button onClick={() => nav('/agents')} className="btn btn-ghost btn-icon"><ArrowLeft size={16} /></button>
-        <Tile color={colorFor(draft.name)} size={30} radius={9}><Sparkles size={14} /></Tile>
-        <input value={draft.name} onChange={(e) => set({ name: e.target.value })} disabled={!editable} className="font-semibold text-[14px] bg-transparent outline-0 w-[260px]" />
-        <Chip tone={draft.status === 'live' ? 'ok' : undefined}>{draft.status === 'live' ? 'Live' : 'Draft'} · v{draft.version}</Chip>
+        <Tile color={colorFor(draft.name)} size={32} radius={10}><Sparkles size={15} /></Tile>
+        <div className="flex flex-col leading-tight">
+          <input value={draft.name} onChange={(e) => set({ name: e.target.value })} disabled={!editable} placeholder="Agent name" className="font-semibold text-[14px] bg-transparent outline-0 w-[280px]" />
+          <span className="text-[11px] muted">{draft.status === 'live' ? 'Live' : 'Draft'} · v{draft.version}{draft.updatedAt ? ` · updated ${draft.updatedAt}` : ''}{dirty ? ' · unsaved changes' : ''}</span>
+        </div>
         <div className="flex-1" />
-        {dirty && <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[12px] muted">Unsaved changes</motion.span>}
+        {draft.status === 'live' && <Button size="sm" onClick={() => nav(`/chat/${draft.id}`)}><MessageSquare size={13} /> Open in Chat</Button>}
         {editable && <Button onClick={() => save()} disabled={!dirty}>Save</Button>}
-        {editable && (draft.status === 'draft' ? <Button variant="primary" onClick={() => save('live')}>Publish</Button> : <Button onClick={() => save('draft')}><RotateCcw size={13} /> Unpublish</Button>)}
+        {editable && (draft.status === 'draft' ? <Button variant="primary" onClick={() => save('live')} title="Makes the agent available in Chat and workflows">Publish</Button> : <Button onClick={() => save('draft')}><RotateCcw size={13} /> Unpublish</Button>)}
       </header>
 
-      <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)] gap-3">
-        <section className="clay scroll">
-          <fieldset disabled={!editable} className="max-w-[640px] mx-auto px-6 py-6 flex flex-col gap-6 disabled:opacity-80">
-            <Field label="Description"><Input value={draft.description} onChange={(e) => set({ description: e.target.value })} placeholder="What does this agent do, in one line?" /></Field>
+      <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_minmax(380px,0.8fr)] gap-3">
+        <div className="clay scroll">
+          <fieldset disabled={!editable} className="max-w-[680px] mx-auto px-6 py-6 flex flex-col gap-4 disabled:opacity-80">
+            {/* assistant */}
+            <div className="clay-sm p-3">
+              <button type="button" onClick={() => setAssist((a) => ({ ...a, open: !a.open }))} className="w-full flex items-center gap-3 text-left">
+                <Tile color="#10385b" size={32} radius={10}><Sparkles size={15} /></Tile>
+                <div className="flex-1 min-w-0"><div className="text-[13px] font-semibold">{ASSISTANT_NAME}</div><div className="text-[11.5px] muted truncate">{apiKey ? 'Describe a change and the card updates: instructions, tools, sample prompts, name.' : 'Not available right now.'}</div></div>
+                {apiKey && (assist.open ? <ChevronDown size={16} className="muted" /> : <ChevronRight size={16} className="muted" />)}
+              </button>
+              <AnimatePresence>
+                {assist.open && apiKey && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                    <div className="mt-3 flex flex-col gap-2">
+                      {assist.log.length === 0 && <div className="flex flex-wrap gap-1.5">{['Make the instructions more specific and structured', 'Add an escalation rule for uncertainty', 'Write three sample prompts', 'Pick the tools this agent needs', 'Make the tone warmer and shorter'].map((s) => <button key={s} type="button" onClick={() => runAssist(s)} className="chip hover:text-[var(--text)]">{s}</button>)}</div>}
+                      {assist.log.map((m, i) => <div key={i} className={cx('text-[12.5px] px-3 py-2 rounded-[12px] max-w-[92%]', m.role === 'user' ? 'self-end bg-[var(--surface-2)] border hairline' : 'self-start muted')}>{m.text}</div>)}
+                      {assist.busy && <div className="text-[12px] muted px-1">Working…</div>}
+                      <div className="flat p-1.5 pl-3 flex items-center gap-2">
+                        <input value={assist.input} onChange={(e) => setAssist((a) => ({ ...a, input: e.target.value }))} onKeyDown={(e) => e.key === 'Enter' && runAssist(assist.input)} placeholder="e.g. only answer questions about HR policy and refuse everything else" className="flex-1 bg-transparent outline-0 text-[13px]" />
+                        <button type="button" onClick={() => runAssist(assist.input)} disabled={assist.busy || !assist.input.trim()} className="btn btn-primary btn-sm btn-icon !rounded-full"><ArrowUp size={14} /></button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
 
-            <Field label="Instructions" action={editable && apiKey && <button onClick={() => setRefineOpen((o) => !o)} className="text-[12px] font-medium accent-ink inline-flex items-center gap-1 hover:underline"><Wand2 size={12} /> Refine with AI</button>}>
-              {refineOpen && (
-                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="flat p-1.5 pl-3 flex items-center gap-2 mb-2 overflow-hidden">
-                  <input autoFocus value={refine} onChange={(e) => setRefine(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && runRefine()} placeholder="e.g. always answer in British English and cite sources" className="flex-1 bg-transparent outline-0 text-[13px]" />
-                  <button onClick={runRefine} disabled={refining || !refine.trim()} className="btn btn-primary btn-sm btn-icon !rounded-full">{refining ? '…' : <ArrowUp size={14} />}</button>
-                </motion.div>
-              )}
-              <Textarea rows={11} value={draft.instructions} onChange={(e) => set({ instructions: e.target.value })} />
-              {issues.length > 0 && <ul className="mt-2 flex flex-col gap-1">{issues.map((i) => <li key={i} className="text-[12px] muted flex gap-2"><span className="w-1 h-1 rounded-full bg-[var(--warn)] mt-2 shrink-0" />{i}</li>)}</ul>}
-            </Field>
+            <Section n={1} title="What it does" hint="A clear description helps people and the assistant pick this agent.">
+              <Input value={draft.description} onChange={(e) => set({ description: e.target.value })} placeholder="e.g. Answers HR policy questions from the handbook and escalates exceptions" />
+            </Section>
 
-            <Field label="Model">
-              {models.length ? <Select value={draft.model} onChange={(e) => set({ model: e.target.value })}>{!models.some((m) => m.id === draft.model) && <option value={draft.model}>{draft.model}</option>}{models.filter((m) => m.supported_parameters?.includes('tools')).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</Select> : <Input value={draft.model} onChange={(e) => set({ model: e.target.value })} placeholder="provider/model" />}
-            </Field>
+            <Section n={2} title="Instructions" hint="The system prompt. Say what the agent is for, how it answers, and what it must not do." right={<span className="text-[11px] muted tabular-nums">{draft.instructions.length} chars</span>}>
+              <Textarea rows={12} value={draft.instructions} onChange={(e) => set({ instructions: e.target.value })} className="!leading-relaxed" />
+            </Section>
 
-            <Field label="Tools" hint="Tools with a lock take external actions and are always queued for a person.">
-              <div className="flat divide-y divide-[var(--line)]">
-                {cats.map((c) => TOOLS.filter((t) => t.category === c).map((t) => toolRow(t.name, t.label, t.desc, t.write, t.category)))}
-                {customTools.map((t) => toolRow(t.name, t.label, t.description, false, 'Custom'))}
+            <Section n={3} title="Model" hint="Pick a profile for a sensible default, or choose any model from the catalog.">
+              <div className="flex gap-2 mb-3">
+                {MODEL_PROFILES.map((p) => { const id = profiles.find((x) => x.id === p.id)?.model ?? p.model; const I = profileIcon[p.id]; const on = draft.model === id; return (
+                  <button type="button" key={p.id} onClick={() => set({ model: id })} className={cx('flex-1 flat p-3 text-left flex items-center gap-2.5 transition-all', on && 'border-[var(--accent)] shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_18%,transparent)]')}>
+                    <span className={cx('w-8 h-8 rounded-[9px] grid place-items-center', on ? 'bg-[var(--accent)] text-white' : 'bg-[var(--clay-dark)] muted')}><I size={14} /></span>
+                    <span className="min-w-0"><span className="block text-[12.5px] font-semibold">{p.name}</span><span className="block text-[11px] muted truncate">{modelName(id)}</span></span>
+                    {on && <Check size={14} className="ml-auto accent-ink shrink-0" />}
+                  </button>
+                ) })}
               </div>
-            </Field>
+              {toolModels.length ? <Select value={draft.model} onChange={(e) => set({ model: e.target.value })}>{!toolModels.some((m) => m.id === draft.model) && <option value={draft.model}>{modelName(draft.model)}</option>}{toolModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</Select> : <Input value={draft.model} onChange={(e) => set({ model: e.target.value })} placeholder="provider/model" />}
+            </Section>
 
-            <Field label="Knowledge" hint="Attached libraries are given to the agent and searched by the knowledge tool.">
-              <div className="flat divide-y divide-[var(--line)]">
-                {libraries.map((l) => <div key={l.id} className="flex items-center gap-3 px-3 h-11"><div className="flex-1 min-w-0"><div className="text-[13px] font-medium">{l.name}</div><div className="text-[11.5px] muted">{l.docs.length} documents</div></div><Toggle checked={draft.knowledge.includes(l.id)} onChange={(v) => set({ knowledge: v ? [...draft.knowledge, l.id] : draft.knowledge.filter((x) => x !== l.id) })} /></div>)}
+            <Section n={4} title="Tools" hint="What the agent can do beyond talking. Locked tools take external actions and always wait for a person." right={<Chip>{draft.tools.length} on</Chip>}>
+              <div className="flex flex-col gap-3">
+                {[...cats, ...(customTools.length ? (['Custom'] as const) : [])].map((c) => { const I = catIcon[c]; const rows = toolRows.filter((t) => t.cat === c); return (
+                  <div key={c}>
+                    <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider muted mb-1.5"><I size={12} /> {c}</div>
+                    <div className="flat divide-y divide-[var(--line)]">
+                      {rows.map((t) => { const on = draft.tools.includes(t.name); return (
+                        <label key={t.name} className="flex items-center gap-3 px-3 h-11 cursor-pointer">
+                          <div className="flex-1 min-w-0"><div className="text-[13px] font-medium flex items-center gap-1.5">{t.label} {t.write && <Lock size={11} className="muted" />}</div><div className="text-[11.5px] muted truncate">{t.desc}</div></div>
+                          <Toggle checked={on} onChange={(v) => set({ tools: v ? [...draft.tools, t.name] : draft.tools.filter((x) => x !== t.name) })} />
+                        </label>
+                      ) })}
+                    </div>
+                  </div>
+                ) })}
               </div>
-            </Field>
+            </Section>
 
-            <Field label="Autonomy" hint={['Notify only: gated tools are switched off; the agent can only inform.', 'Draft for approval: gated actions are queued for a person.', hasWrite ? 'Locked: this agent has gated tools.' : 'Act within limits: no gated tools, so nothing needs approval.'][draft.autonomy - 1]}>
+            <Section n={5} title="Knowledge" hint="Attached libraries are given to the agent and searched by the knowledge tool." right={<Chip>{draft.knowledge.length} attached</Chip>}>
+              <div className="flat divide-y divide-[var(--line)]">
+                {libraries.map((l) => <label key={l.id} className="flex items-center gap-3 px-3 h-11 cursor-pointer"><div className="flex-1 min-w-0"><div className="text-[13px] font-medium">{l.name}</div><div className="text-[11.5px] muted">{l.docs.length} document{l.docs.length === 1 ? '' : 's'}</div></div><Toggle checked={draft.knowledge.includes(l.id)} onChange={(v) => set({ knowledge: v ? [...draft.knowledge, l.id] : draft.knowledge.filter((x) => x !== l.id) })} /></label>)}
+              </div>
+            </Section>
+
+            <Section n={6} title="Autonomy" hint={['Notify only: gated tools are switched off; the agent can only inform.', 'Draft for approval: gated actions are queued for a person.', hasWrite ? 'Locked: this agent has gated tools, so it cannot act on its own.' : 'Act within limits: no gated tools, so nothing needs approval.'][draft.autonomy - 1]}>
               <Segmented value={String(draft.autonomy) as '1' | '2' | '3'} onChange={(v) => set({ autonomy: Number(v) as Autonomy })} items={[{ id: '1', label: 'Notify only' }, { id: '2', label: 'Draft for approval' }, { id: '3', label: hasWrite ? 'Act (locked)' : 'Act within limits' }]} />
-            </Field>
+            </Section>
+
+            <Section n={7} title="Sample prompts" hint="Shown as suggestions in Chat and in the preview. One per line.">
+              <Textarea rows={3} value={draft.samplePrompts.join('\n')} onChange={(e) => set({ samplePrompts: e.target.value.split('\n').filter(Boolean) })} placeholder={'What is our parental leave policy?\nSummarise the latest expense rules'} />
+            </Section>
+
+            {issues.length > 0 && (
+              <div className="flat p-4">
+                <div className="text-[12px] font-semibold mb-2">Before you publish</div>
+                <ul className="flex flex-col gap-1">{issues.map((i) => <li key={i} className="text-[12px] muted flex gap-2"><span className="w-1 h-1 rounded-full bg-[var(--warn)] mt-2 shrink-0" />{i}</li>)}</ul>
+              </div>
+            )}
 
             <div>
-              <button type="button" onClick={() => setAdvanced((a) => !a)} className="text-[12px] font-semibold inline-flex items-center gap-1 muted hover:text-[var(--text)]">{advanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Advanced</button>
+              <button type="button" onClick={() => setAdvanced((a) => !a)} className="text-[12px] font-semibold inline-flex items-center gap-1 muted hover:text-[var(--text)]">{advanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Versions, export and more</button>
               {advanced && (
                 <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="mt-4 flex flex-col gap-5">
-                  <Field label="Sample prompts" hint="One per line. Shown as suggestions in Chat."><Textarea rows={3} value={draft.samplePrompts.join('\n')} onChange={(e) => set({ samplePrompts: e.target.value.split('\n').filter(Boolean) })} /></Field>
                   <Field label="Version history" hint="Every save creates a version. Roll back restores an earlier one as a new version.">
                     <div className="flat divide-y divide-[var(--line)]">
                       <div className="flex items-center gap-3 px-3 h-10 text-[12.5px]"><History size={13} className="muted" /><span className="flex-1">v{draft.version} · current</span></div>
@@ -144,12 +217,28 @@ export default function AgentEditor() {
               )}
             </div>
           </fieldset>
-        </section>
+        </div>
 
         <section className="clay flex flex-col min-h-0">
-          <div className="h-12 px-5 flex items-center border-b hairline text-[13px] font-semibold">Preview <span className="muted font-normal ml-2">{draft.model.split('/')[1] ?? draft.model}{dirty ? ' · unsaved draft' : ''}</span><div className="flex-1" />{chat.msgs.length > 0 && <button className="text-[12px] muted hover:text-[var(--text)]" onClick={chat.clear}>Reset</button>}</div>
-          <div className="flex-1 scroll"><Thread msgs={chat.msgs} agent={draft} compact onPrompt={(p) => chat.send(p)} /></div>
-          <div className="p-3"><Composer onSend={(t) => chat.send(t)} busy={chat.busy} onStop={chat.stop} placeholder="Message…" /></div>
+          <div className="h-12 px-5 flex items-center gap-2 border-b hairline text-[13px]">
+            <span className="font-semibold">Preview</span>
+            <span className="muted">{modelName(draft.model)}</span>
+            {dirty && <Chip tone="warn">testing unsaved changes</Chip>}
+            <div className="flex-1" />
+            {chat.msgs.length > 0 && <button className="text-[12px] muted hover:text-[var(--text)] inline-flex items-center gap-1" onClick={chat.clear}><X size={12} /> Reset</button>}
+          </div>
+          <div className="flex-1 scroll">
+            {chat.msgs.length === 0 ? (
+              <div className="px-6 pt-14 text-center">
+                <Tile color={colorFor(draft.name)} size={48} radius={15} className="mx-auto mb-4"><Sparkles size={22} /></Tile>
+                <h2 className="display text-[18px] font-bold">Test {draft.name || 'your agent'}</h2>
+                <p className="muted text-[12.5px] mt-1 max-w-[300px] mx-auto">Talk to it exactly as a user would. Tool calls show inline. Changes on the left apply straight away.</p>
+                <div className="flex flex-col items-center gap-2 mt-6">{previewPrompts.slice(0, 3).map((p) => <button key={p} onClick={() => chat.send(p)} className="btn btn-sm !font-medium max-w-full truncate">{p}</button>)}</div>
+                {!apiKey && <div className="text-[12px] text-[var(--warn)] mt-6">Models are not available right now. Contact your administrator.</div>}
+              </div>
+            ) : <Thread msgs={chat.msgs} agent={draft} compact />}
+          </div>
+          <div className="p-3"><Composer onSend={(t) => chat.send(t)} busy={chat.busy} onStop={chat.stop} placeholder={`Message ${draft.name || 'agent'}…`} /></div>
         </section>
       </div>
     </Page>

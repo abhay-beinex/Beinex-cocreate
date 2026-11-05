@@ -124,20 +124,21 @@ export default function WorkflowEditor() {
           <Background variant={BackgroundVariant.Dots} gap={20} size={1.2} color="var(--muted)" style={{ opacity: 0.3 }} />
           <Controls showInteractive={false} position="bottom-right" />
         </ReactFlow>
-        {nodes.length === 0 && <div className="absolute inset-0 grid place-items-center pointer-events-none muted text-[13px]">Add a step below, or ask the copilot.</div>}
+        {nodes.length === 0 && <div className="absolute inset-0 grid place-items-center pointer-events-none muted text-[13px]">Add a step below, or ask the Co-Create Assistant.</div>}
         {problems.length > 0 && nodes.length > 0 && <div className="absolute top-3 left-3 glass rounded-[12px] px-3 py-2 text-[12px] flex items-start gap-2 max-w-[420px]"><AlertTriangle size={13} className="text-[var(--warn)] mt-0.5 shrink-0" /><div>{problems.slice(0, 2).map((p) => <div key={p}>{p}</div>)}{problems.length > 2 && <div className="muted">+{problems.length - 2} more</div>}</div></div>}
 
         {editable && (
           <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.2 }} className="absolute bottom-4 left-1/2 -translate-x-1/2 glass rounded-[16px] p-1.5 flex items-center gap-0.5">
             {bricks.map((b) => <motion.button whileHover={{ y: -2 }} whileTap={{ scale: 0.95 }} key={b.id} onClick={() => addBrick(b.id)} title={`Add ${b.label}`} className="flex flex-col items-center gap-1 w-[60px] py-1.5 rounded-[11px] hover:bg-[var(--clay-dark)]"><Tile color={b.color} size={28} radius={9}><b.icon size={13} /></Tile><span className="text-[10.5px] font-medium muted">{b.label}</span></motion.button>)}
             <span className="w-px h-8 bg-[var(--line)] mx-1" />
-            <motion.button whileHover={{ y: -2 }} onClick={() => setCopilot((c) => ({ ...c, open: !c.open }))} className={cx('flex flex-col items-center gap-1 w-[60px] py-1.5 rounded-[11px] hover:bg-[var(--clay-dark)]', copilot.open && 'bg-[var(--clay-dark)]')} disabled={!apiKey} title={apiKey ? undefined : 'Models are not available right now'}><Tile color="#10385b" size={28} radius={9}><Sparkles size={13} /></Tile><span className="text-[10.5px] font-medium muted">Copilot</span></motion.button>
+            <motion.button whileHover={{ y: -2 }} onClick={() => setCopilot((c) => ({ ...c, open: !c.open }))} className={cx('flex flex-col items-center gap-1 w-[60px] py-1.5 rounded-[11px] hover:bg-[var(--clay-dark)]', copilot.open && 'bg-[var(--clay-dark)]')} disabled={!apiKey} title={apiKey ? 'Co-Create Assistant' : 'Models are not available right now'}><Tile color="#10385b" size={28} radius={9}><Sparkles size={13} /></Tile><span className="text-[10.5px] font-medium muted">Assistant</span></motion.button>
           </motion.div>
         )}
 
         <AnimatePresence>
           {copilot.open && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="absolute bottom-24 left-1/2 -translate-x-1/2 w-[460px] glass rounded-[16px] p-2">
+              <div className="text-[12px] font-semibold px-2 pt-1 pb-1.5 flex items-center gap-1.5"><Sparkles size={12} className="accent-ink" /> Co-Create Assistant <span className="muted font-normal">· adds steps from a sentence</span></div>
               {copilot.note && <div className="text-[12px] muted px-2 pb-2">{copilot.note}</div>}
               <div className="flex items-center gap-2 pl-2"><input autoFocus value={copilot.input} onChange={(e) => setCopilot((c) => ({ ...c, input: e.target.value }))} onKeyDown={(e) => e.key === 'Enter' && runCopilot()} placeholder="Add a condition that checks for risks, then an approval…" className="flex-1 bg-transparent outline-0 text-[13px]" /><button onClick={runCopilot} className="btn btn-primary btn-sm btn-icon !rounded-full"><ArrowUp size={14} /></button></div>
             </motion.div>

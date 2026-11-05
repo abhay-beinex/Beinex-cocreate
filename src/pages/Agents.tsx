@@ -111,10 +111,10 @@ export default function Agents() {
       <Modal open={creating} onClose={() => setCreating(false)} title="New agent" width={620}>
         <div className="flex flex-col gap-5">
           <div>
-            <div className="text-[12px] font-semibold mb-1.5 flex items-center gap-1.5"><Wand2 size={13} className="accent-ink" /> Describe what it should do</div>
+            <div className="text-[12px] font-semibold mb-1.5 flex items-center gap-1.5"><Wand2 size={13} className="accent-ink" /> Describe what it should do <span className="muted font-normal">· Co-Create Assistant designs it</span></div>
             <Textarea rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="e.g. An agent that monitors our competitors' pricing pages weekly and drafts a short update for the sales team" />
             <div className="flex items-center justify-between mt-2">
-              <span className="text-[11.5px] muted">{apiKey ? 'The model writes the instructions and picks the tools. You can edit everything after.' : 'Models are not available right now; a blank agent is created instead.'}</span>
+              <span className="text-[11.5px] muted">{apiKey ? 'The assistant writes the instructions, picks the tools and suggests prompts. You can edit everything after.' : 'Models are not available right now; a blank agent is created instead.'}</span>
               <Button variant="primary" size="sm" onClick={generate} disabled={!desc.trim() || generating}>{generating ? 'Designing…' : 'Create'}</Button>
             </div>
           </div>
