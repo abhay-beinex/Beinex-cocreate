@@ -4,6 +4,7 @@ import { runAgentTurn } from './agentRun'
 import { streamChat } from './openrouter'
 import { runTool } from './tools'
 import { render, toList, slug } from './template'
+import { parseJsonLoose } from './json'
 import { nextOf, outEdges, joinOf, keyOf } from './flow'
 import type { Workflow, WfNode, Run, RunStep, Agent, Council, Library, CustomTool, User, StepData } from './data'
 
@@ -179,7 +180,7 @@ export function makeEngine(run: Run, wf: Workflow, ctx: EngineCtx) {
         const g = guard(); if (g) throw new Error(g)
         let ans = ''
         for await (const ev of streamChat({ key: ctx.key, model: ctx.models.fast, temperature: 0, messages: [{ role: 'system', content: 'Extract the list of distinct items from the text as a JSON array of short strings. Reply with the JSON array only.' }, { role: 'user', content: (st.last || run.input || '').slice(0, 8000) }] })) { if (ev.type === 'delta') ans += ev.text; if (ev.type === 'usage') { spend(ev.usage.cost ?? 0); step.cost = ev.usage.cost } }
-        items = toList(ans.replace(/^```(?:json)?/m, '').replace(/```\s*$/m, '').trim())
+        try { const arr = parseJsonLoose(ans); items = Array.isArray(arr) ? arr.map((x: unknown) => (typeof x === 'string' ? x : JSON.stringify(x))) : toList(ans) } catch { items = toList(ans) }
       }
     } catch (e: any) { step.status = 'failed'; step.output = `Error: ${e?.message ?? e}`; step.ms = Date.now() - s0; run.steps.push(step); touch(); return 'failed' }
     const max = Math.min(Math.max(1, d.maxItems ?? 10), 25)

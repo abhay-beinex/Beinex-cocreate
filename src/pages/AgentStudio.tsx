@@ -6,6 +6,7 @@ import { ArrowLeft, ArrowRight, Check, Lock, Sparkles, FileText, CornerDownRight
 import { useApp, useUser } from '@/store/app'
 import { agentTemplates, GOVERNED, type Agent, type Autonomy, type AgentTest } from '@/lib/data'
 import { streamChat } from '@/lib/openrouter'
+import { parseJsonLoose } from '@/lib/json'
 import { abilities, THINKING, INDEPENDENCE, TONES, toneLine, readiness, type ThinkingId } from '@/lib/agentVocab'
 import { Button, Confirm, Input, Textarea, cx } from '@/components/ui'
 import { Page } from '@/components/motion'
@@ -69,7 +70,7 @@ Reply ONLY with JSON: {"name":"2-4 words","description":"one line","icon":"one o
     let acc = ''
     try {
       for await (const ev of streamChat({ key: apiKey, model: defaultModel, messages: [{ role: 'system', content: sys }, { role: 'user', content: `Brief: ${purpose}` }], temperature: 0.3 })) { if (ev.type === 'delta') acc += ev.text; if (ev.type === 'usage') store.recordSpend(ev.usage.cost ?? 0); if (ev.type === 'error') throw new Error(ev.message) }
-      const j = JSON.parse(acc.replace(/^```(?:json)?/m, '').replace(/```\s*$/m, '').trim())
+      const j = parseJsonLoose(acc)
       const tools = new Set<string>((Array.isArray(j.tools) ? j.tools : []).filter((t: string) => abil.some((a) => a.id === t)))
       const knowledge = new Set<string>((Array.isArray(j.knowledge) ? j.knowledge : []).filter((k: string) => libraries.some((l) => l.id === k)))
       if (knowledge.size) tools.add('search_knowledge')

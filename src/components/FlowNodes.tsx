@@ -60,7 +60,7 @@ export const StepNodeView = memo(function StepNodeView({ id, data, selected }: N
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               <span className="block text-[13px] font-semibold truncate leading-tight">{data.label || b.label}</span>
-              <span className="text-[10px] font-semibold uppercase tracking-[0.06em] muted shrink-0">{b.label}</span>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.06em] muted shrink-0">{b.tag}</span>
             </div>
             <div className="text-[11.5px] muted leading-snug mt-0.5 line-clamp-2 break-words">{ui.line}</div>
           </div>

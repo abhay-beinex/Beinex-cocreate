@@ -13,6 +13,7 @@ import { TOOLS } from '@/lib/tools'
 import { CONNECTORS, connectorTool } from '@/lib/connectors'
 import { startRun, resumeRun, isRunning, rerunFrom, tryStep, checkWatch } from '@/lib/runner'
 import { varsAfter } from '@/lib/engine'
+import { parseJsonLoose } from '@/lib/json'
 import { BRICKS, brickOf, uid, autoLayout, checkFlow, newStep, stepLine, varsBefore, keyOf, producesVar, nestedNodes, ruleLabel, NODE_W, type Problem } from '@/lib/flow'
 import { THINKING, INDEPENDENCE, thinkingOf } from '@/lib/agentVocab'
 import { nodeTypes, edgeTypes, type FlowNode, type BranchEdge, type StepStatus, type FlowUi } from '@/components/FlowNodes'
@@ -54,7 +55,7 @@ export default function WorkflowEditor() {
 
 type Sel = { kind: 'node' | 'edge'; id: string } | null
 type Adding = { after: string; branch?: string } | null
-type PlanStep = { brick: Brick; label: string; sub?: string; prompt?: string; agentId?: string; tool?: string; after?: string; branch?: string; items?: string; code?: string; url?: string; method?: string; input?: string; rule?: StepData['rule'] }
+type PlanStep = { brick: Brick; label: string; sub?: string; prompt?: string; agentId?: string; tool?: string; after?: string; branch?: string; approver?: string; items?: string; code?: string; url?: string; method?: string; input?: string; rule?: StepData['rule'] }
 type Plan = { name?: string; description?: string; add: PlanStep[]; remove: string[]; set: { label: string; patch: Partial<StepData> }[] }
 type AssistMsg = { role: 'user' | 'assistant'; text: string; plan?: Plan; applied?: boolean }
 
@@ -128,7 +129,7 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
     const position = opts.position ?? (after ? { x: after.position.x + NODE_W + 92, y: after.position.y + (opts.branch === 'no' || opts.branch === 'done' ? 150 : opts.branch === 'yes' || opts.branch === 'each' ? -40 : after.data.brick === 'parallel' ? siblings * 140 - 70 : 0) } : { x: 60 + nodes.length * 40, y: 160 + nodes.length * 30 })
     const data: StepData = { ...newStep(brick, { model: defaultModel, approver: approvers[0]?.id }, opts.extra), ...(opts.extra?.agentId ? { label: agents.find((a) => a.id === opts.extra!.agentId)?.name ?? brickOf(brick).label } : {}) }
     setNodes((ns) => [...ns, { id, type: 'step', position, data: { ...data, ui: blankUi } }])
-    if (after) { const branch = branchOf(after.data.brick, opts.branch); setEdges((es) => [...es, { id: `e${uid()}`, source: after.id, target: id, type: 'branch', sourceHandle: branch, data: { label: branch } }]) }
+    if (after) setEdges((es) => wire(es, after, id, brick, opts.branch))
     setSel({ kind: 'node', id }); setAdding(null); setPalette(false)
     setTimeout(() => ensureVisible(position), 20)
     return id
@@ -140,6 +141,14 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
     const branch = branchOf(src.data.brick, c.sourceHandle ?? undefined)
     setEdges((es) => es.some((e) => e.source === c.source && e.target === c.target) ? es : [...es, { id: `e${uid()}`, source: c.source!, target: c.target!, type: 'branch', sourceHandle: branch, data: { label: branch } }])
   }, [nodes, setEdges])
+  /** Connect a new step after `from`. If `from` already continues on that branch, the new step is inserted into the chain. */
+  const wire = (es: BranchEdge[], from: FlowNode, newId: string, newBrick: Brick, branch?: string): BranchEdge[] => {
+    const label = branchOf(from.data.brick, branch)
+    const existing = from.data.brick === 'parallel' ? undefined : es.find((e) => e.source === from.id && (e.data?.label ?? undefined) === label)
+    let out = es
+    if (existing && newBrick !== 'parallel') { const nl = branchOf(newBrick, undefined); out = out.map((e) => (e.id === existing.id ? { ...e, source: newId, sourceHandle: nl, data: { label: nl } } : e)) }
+    return [...out, { id: `e${uid()}`, source: from.id, target: newId, type: 'branch', sourceHandle: label, data: { label } }]
+  }
   const removeNode = (id: string) => { setNodes((ns) => ns.filter((n) => n.id !== id)); setEdges((es) => es.filter((e) => e.source !== id && e.target !== id)); setSel(null) }
   const removeEdge = (id: string) => { setEdges((es) => es.filter((e) => e.id !== id)); setSel(null) }
   const flipEdge = (id: string) => setEdges((es) => es.map((e) => { if (e.id !== id || !e.data?.label) return e; const l = e.data.label; const nl = l === 'yes' ? 'no' : l === 'no' ? 'yes' : l === 'each' ? 'done' : 'each'; return { ...e, sourceHandle: nl, data: { label: nl } } }))
@@ -220,11 +229,12 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
       const id = uid()
       const agent = s.agentId ? agents.find((a) => a.id === s.agentId) : undefined
       const tool = s.tool && [...TOOLS, ...customTools].some((t) => t.name === s.tool) ? s.tool : undefined
-      const data: StepData = { ...newStep(s.brick, { model: defaultModel, approver: approvers[0]?.id }), label: String(s.label || brickOf(s.brick).label).slice(0, 40), sub: s.brick === 'logic' && !s.rule ? String(s.sub ?? s.prompt ?? '') : s.brick === 'human' ? String(s.sub ?? '') : '', prompt: s.brick === 'agent' || s.brick === 'tool' ? (s.prompt ? String(s.prompt) : undefined) : undefined, ...(agent ? { agentId: agent.id, model: agent.model } : {}), ...(s.brick === 'tool' ? { tool: tool ?? 'save_document' } : {}), ...(s.brick === 'logic' && s.rule ? { mode: 'rule' as const, rule: s.rule } : {}), ...(s.items ? { items: s.items } : {}), ...(s.code ? { code: s.code } : {}), ...(s.url ? { url: s.url, method: (s.method as StepData['method']) ?? 'GET' } : {}), ...(s.input ? { input: s.input } : {}) }
+      const approver = s.approver ? approvers.find((u) => u.name.toLowerCase() === String(s.approver).toLowerCase() || u.email.toLowerCase() === String(s.approver).toLowerCase() || u.id === s.approver || u.name.toLowerCase().includes(String(s.approver).toLowerCase()))?.id : undefined
+      const data: StepData = { ...newStep(s.brick, { model: defaultModel, approver: approver ?? approvers[0]?.id }), label: String(s.label || brickOf(s.brick).label).slice(0, 40), sub: s.brick === 'logic' && !s.rule ? String(s.sub ?? s.prompt ?? '') : s.brick === 'human' ? String(s.sub ?? '') : '', prompt: s.brick === 'agent' || s.brick === 'tool' ? (s.prompt ? String(s.prompt) : undefined) : undefined, ...(agent ? { agentId: agent.id, model: agent.model } : {}), ...(s.brick === 'tool' ? { tool: tool ?? 'save_document' } : {}), ...(s.brick === 'logic' && s.rule ? { mode: 'rule' as const, rule: s.rule } : {}), ...(s.items ? { items: s.items } : {}), ...(s.code ? { code: s.code } : {}), ...(s.url ? { url: s.url, method: (s.method as StepData['method']) ?? 'GET' } : {}), ...(s.input ? { input: s.input } : {}) }
       const from = s.after === 'end' || !s.after ? prev : find(s.after) ?? prev
       const node: FlowNode = { id, type: 'step', position: { x: 0, y: 0 }, data: { ...data, ui: blankUi } }
       ns = [...ns, node]
-      if (from) { const branch = branchOf(from.data.brick, s.branch); es = [...es, { id: `e${uid()}`, source: from.id, target: id, type: 'branch', sourceHandle: branch, data: { label: branch } }] }
+      if (from) es = wire(es, from, id, s.brick, s.branch)
       prev = node
     }
     setNodes(ns); setEdges(es)
@@ -239,15 +249,15 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
     const last = wfRuns[0]
     const lastRun = last ? `Last run ${last.id}: ${last.status}. Steps: ${last.steps.map((s) => `${s.name}=${s.status}${s.status === 'failed' ? ` (${(s.output ?? '').slice(0, 200)})` : ''}`).join('; ')}` : 'No runs yet.'
     const sys = `You are the Co-Create Assistant inside a workflow builder. Be brief and concrete; the person is a colleague. You can answer questions about the flow or propose changes.
-Steps available: agent (AI does work; "prompt" = instructions; optional "agentId"), logic (condition; either "sub" plain-language check judged by a model, or "rule": {"left":"{{var}}","op":"contains|not_contains|equals|not_equals|empty|not_empty|gt|lt|matches","right":"text"}; the step after it on "yes" runs when true; add a step with "branch":"no" for the other path), human (a person approves; the run pauses; "sub" = note), tool (call one ability: ${TOOLS.filter((t) => t.category !== 'Reasoning').map((t) => t.name).join(', ')}${customTools.length ? ', ' + customTools.map((t) => t.name).join(', ') : ''}; "prompt" = guidance), notify (in-app notification), loop (repeat for each item; "items" = template like "{{input}}" or empty to extract from the last result; the step after it on "each" handles one item and may use {{item}}; the step on "done" runs after all items; the loop's results are {{<loop key>}}), parallel (every outgoing step runs at once; they join at the first step they all connect to), code (JavaScript, "code" with vars.* available, return a value), http ("url", "method"), flow (run another workflow).
+Steps available: agent (AI does work; "prompt" = instructions; optional "agentId"), logic (condition; either "sub" plain-language check judged by a model, or "rule": {"left":"{{var}}","op":"contains|not_contains|equals|not_equals|empty|not_empty|gt|lt|matches","right":"text"}; the step after it on "yes" runs when true; add a step with "branch":"no" for the other path), human (a person approves; the run pauses; "approver" = the person's name from: ${approvers.map((u) => u.name).join(', ')}; "sub" = note), tool (call one ability: ${TOOLS.filter((t) => t.category !== 'Reasoning').map((t) => t.name).join(', ')}${customTools.length ? ', ' + customTools.map((t) => t.name).join(', ') : ''}; "prompt" = guidance), notify (in-app notification), loop (repeat for each item; "items" = template like "{{input}}" or empty to extract from the last result; the step after it on "each" handles one item and may use {{item}}; the step on "done" runs after all items; the loop's results are {{<loop key>}}), parallel (every outgoing step runs at once; they join at the first step they all connect to), code (JavaScript, "code" with vars.* available, return a value), http ("url", "method"), flow (run another workflow).
 Every producing step stores its result as {{key}} where key is the label in snake_case; a step may set "input" to a template such as "Topic: {{input}}\\n\\n{{research}}" to receive only that instead of everything so far. Labels are 1-3 words and unique.
 Available agents: ${agents.map((a) => `${a.id} = ${a.name} (${a.description})`).join('; ') || 'none, so leave agentId out and write prompts'}. Other workflows: ${workflows.filter((w) => w.id !== base.id).map((w) => w.name).join(', ') || 'none'}. Knowledge libraries: ${libraries.map((l) => l.name).join(', ')}.
 Current flow "${meta.name}":\n${flowSummary()}\n${lastRun}
-Reply ONLY with JSON: {"reply":"one to three short sentences for the person","changes":{"name":"only when the flow is untitled","description":"optional","add":[{"brick":"agent|logic|human|tool|notify|loop|parallel|code|http|flow","label":"...","after":"label of the step it follows or \\"end\\"","branch":"yes|no|each|done (only after logic or loop)","prompt":"...","sub":"...","agentId":"...","tool":"...","items":"...","code":"...","url":"...","input":"..."}],"remove":["labels to delete"],"set":[{"label":"existing label","patch":{"prompt":"...","sub":"...","label":"..."}}]}}. Leave "changes" out when only answering. Added steps chain in order: the first follows "after", each next one follows the previous added step unless it names its own "after".`
+Reply with ONE JSON object and nothing else, no prose before or after: {"reply":"one to three short sentences for the person","changes":{"name":"only when the flow is untitled","description":"optional","add":[{"brick":"agent|logic|human|tool|notify|loop|parallel|code|http|flow","label":"...","after":"label of the step it follows or \\"end\\"","branch":"yes|no|each|done (only after logic or loop)","prompt":"...","sub":"...","agentId":"...","tool":"...","approver":"...","items":"...","code":"...","url":"...","input":"..."}],"remove":["labels to delete"],"set":[{"label":"existing label","patch":{"prompt":"...","sub":"...","label":"..."}}]}}. Leave "changes" out when only answering. Added steps chain in order: the first follows "after", each next one follows the previous added step unless it names its own "after". A step added after X is inserted between X and whatever X led to, so "before Y" means after the step that precedes Y.`
     let acc = ''
     try {
-      for await (const ev of streamChat({ key: apiKey, model: defaultModel, messages: [{ role: 'system', content: sys }, ...assist.log.slice(-6).map((m) => ({ role: m.role, content: m.text })), { role: 'user' as const, content: q }], temperature: 0.2 })) { if (ev.type === 'delta') acc += ev.text; if (ev.type === 'usage') store.recordSpend(ev.usage.cost ?? 0) }
-      const j = JSON.parse(acc.replace(/^```(?:json)?/m, '').replace(/```\s*$/m, '').trim())
+      for await (const ev of streamChat({ key: apiKey, model: defaultModel, messages: [{ role: 'system', content: sys }, ...assist.log.slice(-6).map((m) => ({ role: m.role, content: m.text })), { role: 'user' as const, content: q }], temperature: 0 })) { if (ev.type === 'delta') acc += ev.text; if (ev.type === 'usage') store.recordSpend(ev.usage.cost ?? 0) }
+      const j = parseJsonLoose(acc)
       const c = j.changes
       const add: PlanStep[] = Array.isArray(c?.add) ? c.add.filter((s: any) => ['agent', 'logic', 'human', 'tool', 'notify', 'loop', 'parallel', 'code', 'http', 'flow'].includes(s.brick)) : []
       const plan: Plan | undefined = c && (add.length || c.remove?.length || c.set?.length) ? { name: typeof c.name === 'string' ? c.name : undefined, description: typeof c.description === 'string' ? c.description : undefined, add, remove: Array.isArray(c.remove) ? c.remove.filter((x: unknown) => typeof x === 'string') : [], set: Array.isArray(c.set) ? c.set.filter((x: any) => x && typeof x.label === 'string' && x.patch && typeof x.patch === 'object') : [] } : undefined
@@ -274,6 +284,7 @@ Reply ONLY with JSON: {"reply":"one to three short sentences for the person","ch
   const rfEdges = useMemo<BranchEdge[]>(() => edges.map((e) => ({ ...e, selected: sel?.kind === 'edge' && sel.id === e.id, data: { ...e.data, active: statusOf.get(e.source) === 'ok' && (statusOf.get(e.target) === 'running'), editable, onDelete: removeEdge, onFlip: flipEdge } })), [edges, sel, statusOf, editable]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const statusTone = meta.status === 'live' ? 'ok' : meta.status === 'paused' ? 'warn' : undefined
+  const showRight = !!selectedNode || !!selectedEdge || !assistantOpen
   const addTarget = (): { after?: string; branch?: string } => adding ? { after: adding.after, branch: adding.branch } : selectedNode ? { after: selectedNode.id, branch: selectedNode.data.brick === 'logic' ? 'yes' : selectedNode.data.brick === 'loop' ? 'each' : undefined } : { after: [...nodes].reverse().find((n) => !edges.some((e) => e.source === n.id) && n.data.brick !== 'parallel')?.id }
   const lastRun = wfRuns[0]
   const sampleVars = useMemo(() => (lastRun ? varsAfter(lastRun, lastRun.steps.length) : { input: runInput }), [lastRun, runInput])
@@ -288,11 +299,11 @@ Reply ONLY with JSON: {"reply":"one to three short sentences for the person","ch
           minZoom={0.3} maxZoom={1.6} proOptions={{ hideAttribution: true }}
           nodesDraggable={editable} nodesConnectable={editable} elementsSelectable deleteKeyCode={editable ? ['Backspace', 'Delete'] : null} selectionOnDrag={false} panOnScroll zoomOnDoubleClick={false} snapToGrid snapGrid={[12, 12]} defaultEdgeOptions={{ type: 'branch' }}>
           <Background variant={BackgroundVariant.Dots} gap={22} size={1.3} color="var(--muted)" style={{ opacity: 0.28 }} />
-          <Controls showInteractive={false} position="bottom-right" style={{ right: RIGHT_W + 12, bottom: drawer ? 300 : 12 }} />
+          <Controls showInteractive={false} position="bottom-right" style={{ right: showRight ? RIGHT_W + 12 : 0, bottom: drawer ? 300 : 12 }} />
           {nodes.length > 4 && !drawer && <MiniMap pannable zoomable position="bottom-left" nodeColor={(n) => brickOf((n.data as FlowNode['data']).brick).color} nodeStrokeWidth={0} maskColor="transparent" style={{ width: 150, height: 84, marginLeft: 64 }} />}
         </ReactFlow>}
         {nodes.length <= 1 && !palette && (
-          <div className="absolute inset-x-0 top-[55%] grid place-items-center pointer-events-none" style={{ paddingRight: RIGHT_W }}>
+          <div className="absolute inset-x-0 top-[55%] grid place-items-center pointer-events-none" style={{ paddingRight: showRight ? RIGHT_W : 0 }}>
             <div className="text-center max-w-[360px]">
               <div className="text-[13.5px] font-semibold">Build the workflow</div>
               <div className="text-[12.5px] muted mt-1 leading-relaxed">Press <b>+</b> for steps, abilities and connectors, hover Start and press <b>+</b>, or open the assistant and describe the whole flow.</div>
@@ -338,7 +349,7 @@ Reply ONLY with JSON: {"reply":"one to three short sentences for the person","ch
         )}</AnimatePresence>
 
         {/* ---------- right panel ---------- */}
-        <aside className="absolute right-3 top-[68px] bottom-3 glass rounded-[18px] flex flex-col min-h-0 overflow-hidden z-20" style={{ width: RIGHT_W }}>
+        {showRight && <aside className="absolute right-3 top-[68px] bottom-3 glass rounded-[18px] flex flex-col min-h-0 overflow-hidden z-20" style={{ width: RIGHT_W }}>
           {selectedNode ? (
             <StepInspector node={selectedNode} editable={editable} onClose={() => setSel(null)} onRemove={() => removeNode(selectedNode.id)} patch={(p) => patch(selectedNode.id, p)} meta={meta} setMeta={setMeta} edges={edges} nodes={nodes} onAdd={(branch) => { setAdding({ after: selectedNode.id, branch }); setPalette(true) }} onSelect={(id) => select({ kind: 'node', id })} store={{ agents, councils, users, approvers, customTools, profiles, defaultModel, workflows: workflows.filter((w) => w.id !== base.id), libraries }} stored={stored} wfForTry={current} sampleVars={sampleVars} nested={nested.get(selectedNode.id)} onSaveFirst={() => persist()} />
           ) : selectedEdge ? (
@@ -353,16 +364,16 @@ Reply ONLY with JSON: {"reply":"one to three short sentences for the person","ch
           ) : (
             <FlowPanel tab={flowTab} setTab={setFlowTab} meta={meta} setMeta={setMeta} editable={editable} problems={problems} onProblem={(p) => p.nodeId && select({ kind: 'node', id: p.nodeId })} runs={wfRuns} onPickRun={(id) => { setTestRunId(id); setDrawer(true) }} onStart={() => { const t = nodes.find((n) => n.data.brick === 'trigger'); if (t) select({ kind: 'node', id: t.id }) }} />
           )}
-        </aside>
+        </aside>}
 
         {/* ---------- run drawer ---------- */}
         <AnimatePresence>{drawer && (
-          <motion.div key="drawer" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }} transition={{ duration: 0.2 }} className="absolute left-[64px] bottom-3 glass rounded-[18px] z-20 flex flex-col overflow-hidden" style={{ right: RIGHT_W + 24, height: 288 }}>
+          <motion.div key="drawer" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }} transition={{ duration: 0.2 }} className="absolute left-[64px] bottom-3 glass rounded-[18px] z-20 flex flex-col overflow-hidden" style={{ right: showRight ? RIGHT_W + 24 : 12, height: 288 }}>
             <RunDrawer run={liveRun} runs={wfRuns} input={runInput} setInput={setRunInput} onStart={startTest} starting={starting} problems={problems} apiKey={!!apiKey} dirty={dirty || isNew} canApprove={can(user, 'approve')} onDecide={decide} onPick={(id) => setTestRunId(id)} onReset={() => setTestRunId(null)} onClose={() => setDrawer(false)} nodes={nodes} onAgain={again} onSelectNode={(id) => select({ kind: 'node', id })} />
           </motion.div>
         )}</AnimatePresence>
         <AnimatePresence>{liveRun && liveRun.status === 'running' && !drawer && (
-          <motion.button initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} onClick={() => { setSel(null); setDrawer(true) }} className="absolute bottom-4 left-1/2 -translate-x-1/2 glass rounded-full h-9 pl-3 pr-4 flex items-center gap-2 text-[12.5px] font-medium z-20" style={{ marginLeft: -RIGHT_W / 2 }}><Loader2 size={13} className="animate-spin accent-ink" /> Running · {liveRun.cursor ? nameOf(liveRun.cursor) || `step ${liveRun.steps.length + 1}` : `step ${liveRun.steps.length + 1}`}</motion.button>
+          <motion.button initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} onClick={() => { setSel(null); setDrawer(true) }} className="absolute bottom-4 left-1/2 -translate-x-1/2 glass rounded-full h-9 pl-3 pr-4 flex items-center gap-2 text-[12.5px] font-medium z-20" style={{ marginLeft: showRight ? -RIGHT_W / 2 : 0 }}><Loader2 size={13} className="animate-spin accent-ink" /> Running · {liveRun.cursor ? nameOf(liveRun.cursor) || `step ${liveRun.steps.length + 1}` : `step ${liveRun.steps.length + 1}`}</motion.button>
         )}</AnimatePresence>
       </div>
 

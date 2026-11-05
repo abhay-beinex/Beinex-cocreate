@@ -6,6 +6,7 @@ import { ArrowLeft, Sparkles, ArrowUp, Trash2, Lock, RotateCcw, Download, Upload
 import { useApp, useUser, can, profileModels } from '@/store/app'
 import { BRAND, type Agent, type Autonomy, type AgentTest } from '@/lib/data'
 import { runTest, draftTests } from '@/lib/evals'
+import { parseJsonLoose } from '@/lib/json'
 import { streamChat, listModels } from '@/lib/openrouter'
 import { TOOLS } from '@/lib/tools'
 import { abilities, THINKING, INDEPENDENCE, TONES, toneLine, readiness, thinkingOf } from '@/lib/agentVocab'
@@ -95,7 +96,7 @@ export default function AgentEditor() {
     let acc = ''
     try {
       for await (const ev of streamChat({ key: apiKey, model: defaultModel, messages: [{ role: 'system', content: sys }, { role: 'user', content: q }], temperature: 0.3 })) { if (ev.type === 'delta') acc += ev.text; if (ev.type === 'usage') store.recordSpend(ev.usage.cost ?? 0) }
-      const j = JSON.parse(acc.replace(/^```json?|```$/g, '').trim())
+      const j = parseJsonLoose(acc)
       const p = j.patch ?? {}; const patch: Partial<Agent> = {}
       if (typeof p.name === 'string') patch.name = p.name
       if (typeof p.description === 'string') patch.description = p.description

@@ -3,21 +3,21 @@ import { Zap, Sparkles, Users, GitFork, UserCheck, Wrench, Bell, Repeat, Split, 
 import type { Brick, StepData, WfEdge, WfNode, Workflow } from './data'
 import { refs, slug } from './template'
 
-export type BrickInfo = { id: Brick; label: string; desc: string; icon: typeof Zap; color: string; soon?: boolean; group: 'Core' | 'Flow' | 'Data' }
+export type BrickInfo = { id: Brick; label: string; tag: string; desc: string; icon: typeof Zap; color: string; soon?: boolean; group: 'Core' | 'Flow' | 'Data' }
 
 export const BRICKS: BrickInfo[] = [
-  { id: 'trigger', label: 'Start', desc: 'Where the flow begins: by hand, on a schedule, by link or on an event', icon: Zap, color: '#64748b', group: 'Core' },
-  { id: 'agent', label: 'Agent', desc: 'An agent works on the input or on what came before', icon: Sparkles, color: '#0ea5e9', group: 'Core' },
-  { id: 'human', label: 'Approval', desc: 'Pause until a person decides', icon: UserCheck, color: '#f59e0b', group: 'Core' },
-  { id: 'tool', label: 'Action', desc: 'Call one ability with arguments from the run', icon: Wrench, color: '#10b981', group: 'Core' },
-  { id: 'notify', label: 'Notify', desc: 'Send the latest result as a notification', icon: Bell, color: '#ec4899', group: 'Core' },
-  { id: 'logic', label: 'Condition', desc: 'Branch on a rule or a plain-language check', icon: GitFork, color: '#8b5cf6', group: 'Flow' },
-  { id: 'loop', label: 'Repeat for each', desc: 'Run the next steps once per item in a list', icon: Repeat, color: '#f97316', group: 'Flow' },
-  { id: 'parallel', label: 'Split', desc: 'Run every outgoing branch at the same time', icon: Split, color: '#14b8a6', group: 'Flow' },
-  { id: 'flow', label: 'Run a workflow', desc: 'Run another workflow as one step', icon: WorkflowIcon, color: '#6366f1', group: 'Flow' },
-  { id: 'code', label: 'Run code', desc: 'JavaScript over the variables, no model involved', icon: Code2, color: '#0f766e', group: 'Data' },
-  { id: 'http', label: 'Call an API', desc: 'An HTTP request with the result stored as a variable', icon: Globe, color: '#2563eb', group: 'Data' },
-  { id: 'council', label: 'Council', desc: 'Several agents deliberate on one case', icon: Users, color: '#6366f1', soon: true, group: 'Core' },
+  { id: 'trigger', label: 'Start', tag: 'Start', desc: 'Where the flow begins: by hand, on a schedule, by link or on an event', icon: Zap, color: '#64748b', group: 'Core' },
+  { id: 'agent', label: 'Agent', tag: 'Agent', desc: 'An agent works on the input or on what came before', icon: Sparkles, color: '#0ea5e9', group: 'Core' },
+  { id: 'human', label: 'Approval', tag: 'Approval', desc: 'Pause until a person decides', icon: UserCheck, color: '#f59e0b', group: 'Core' },
+  { id: 'tool', label: 'Action', tag: 'Action', desc: 'Call one ability with arguments from the run', icon: Wrench, color: '#10b981', group: 'Core' },
+  { id: 'notify', label: 'Notify', tag: 'Notify', desc: 'Send the latest result as a notification', icon: Bell, color: '#ec4899', group: 'Core' },
+  { id: 'logic', label: 'Condition', tag: 'If', desc: 'Branch on a rule or a plain-language check', icon: GitFork, color: '#8b5cf6', group: 'Flow' },
+  { id: 'loop', label: 'Repeat for each', tag: 'Repeat', desc: 'Run the next steps once per item in a list', icon: Repeat, color: '#f97316', group: 'Flow' },
+  { id: 'parallel', label: 'Split', tag: 'Split', desc: 'Run every outgoing branch at the same time', icon: Split, color: '#14b8a6', group: 'Flow' },
+  { id: 'flow', label: 'Run a workflow', tag: 'Workflow', desc: 'Run another workflow as one step', icon: WorkflowIcon, color: '#6366f1', group: 'Flow' },
+  { id: 'code', label: 'Run code', tag: 'Code', desc: 'JavaScript over the variables, no model involved', icon: Code2, color: '#0f766e', group: 'Data' },
+  { id: 'http', label: 'Call an API', tag: 'API', desc: 'An HTTP request with the result stored as a variable', icon: Globe, color: '#2563eb', group: 'Data' },
+  { id: 'council', label: 'Council', tag: 'Council', desc: 'Several agents deliberate on one case', icon: Users, color: '#6366f1', soon: true, group: 'Core' },
 ]
 export const brickOf = (b: Brick): BrickInfo => BRICKS.find((x) => x.id === b) ?? BRICKS[1]
 /** Steps whose output is stored as a variable */
