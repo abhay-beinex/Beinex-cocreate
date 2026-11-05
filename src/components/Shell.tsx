@@ -74,7 +74,7 @@ export default function Shell() {
         {/* bottom: notifications + account */}
         <div className="mt-2 flex flex-col gap-0.5 border-t hairline pt-2">
           <div className="relative">
-            <button onClick={() => setMenu(menu === 'bell' ? null : 'bell')} title={collapsed ? 'Notifications' : undefined} className={cx('w-full flex items-center gap-2.5 h-9 rounded-[11px] text-[13px] font-medium relative', collapsed ? 'justify-center' : 'px-2.5', menu === 'bell' ? 'bg-[var(--surface-2)] text-[var(--text)]' : 'muted hover:text-[var(--text)] hover:bg-[var(--clay-dark)]')}>
+            <button aria-label="Notifications" aria-expanded={menu === 'bell'} onClick={() => setMenu(menu === 'bell' ? null : 'bell')} title={collapsed ? 'Notifications' : undefined} className={cx('w-full flex items-center gap-2.5 h-9 rounded-[11px] text-[13px] font-medium relative', collapsed ? 'justify-center' : 'px-2.5', menu === 'bell' ? 'bg-[var(--surface-2)] text-[var(--text)]' : 'muted hover:text-[var(--text)] hover:bg-[var(--clay-dark)]')}>
               <Bell size={17} />{!collapsed && <span className="flex-1 text-left">Notifications</span>}
               {unread > 0 && <span className={cx('min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--accent)] text-white text-[10.5px] grid place-items-center font-semibold', collapsed && 'absolute -top-0.5 -right-0.5')}>{unread}</span>}
             </button>
@@ -94,7 +94,7 @@ export default function Shell() {
             </AnimatePresence>
           </div>
           <div className="relative">
-            <button onClick={() => setMenu(menu === 'user' ? null : 'user')} className={cx('w-full flex items-center gap-2.5 h-11 rounded-[12px] hover:bg-[var(--clay-dark)]', collapsed ? 'justify-center' : 'px-1.5', menu === 'user' && 'bg-[var(--surface-2)]')}>
+            <button aria-label="Account menu" aria-expanded={menu === 'user'} onClick={() => setMenu(menu === 'user' ? null : 'user')} className={cx('w-full flex items-center gap-2.5 h-11 rounded-[12px] hover:bg-[var(--clay-dark)]', collapsed ? 'justify-center' : 'px-1.5', menu === 'user' && 'bg-[var(--surface-2)]')}>
               <Avatar initials={user.initials} size={30} />
               {!collapsed && <><div className="text-left leading-tight min-w-0 flex-1"><div className="text-[12.5px] font-semibold truncate">{user.name}</div><div className="text-[11px] muted truncate">{roleLabel[user.role]}</div></div><ChevronUp size={14} className="muted" /></>}
             </button>

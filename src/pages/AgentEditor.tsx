@@ -141,7 +141,7 @@ export default function AgentEditor() {
               {cats.filter((c) => abil.some((a) => a.category === c)).map((c) => (
                 <div key={c}><div className="text-[11px] font-semibold uppercase tracking-wider muted mb-2">{c === 'Custom' ? 'Your APIs' : c}</div>
                   <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-2">{abil.filter((a) => a.category === c).map((a) => { const on = draft.tools.includes(a.id); const I = a.icon; return (
-                    <button type="button" key={a.id} onClick={() => set({ tools: on ? draft.tools.filter((t) => t !== a.id) : [...draft.tools, a.id] })} className={cx('flat p-3 text-left flex items-center gap-3 relative transition-all', on && 'border-[var(--accent)] shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_16%,transparent)]')}>
+                    <button type="button" key={a.id} aria-pressed={on} aria-label={`${a.label}: ${on ? 'on' : 'off'}`} onClick={() => set({ tools: on ? draft.tools.filter((t) => t !== a.id) : [...draft.tools, a.id] })} className={cx('flat p-3 text-left flex items-center gap-3 relative transition-all', on && 'border-[var(--accent)] shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_16%,transparent)]')}>
                       <span className={cx('w-9 h-9 rounded-[10px] grid place-items-center shrink-0', on ? 'bg-[var(--accent)] text-white' : 'pressed muted')}><I size={16} /></span>
                       <span className="min-w-0"><span className="block text-[13px] font-semibold">{a.label}</span><span className="block text-[11px] muted">{a.sub}</span></span>
                       {a.gated && <Lock size={11} className="absolute top-2.5 right-2.5 text-[var(--warn)]" />}
@@ -149,7 +149,7 @@ export default function AgentEditor() {
                     </button>
                   ) })}</div></div>
               ))}
-              <div className="text-[12px] muted">Need an ability that is not here? Add your own HTTP tool under <button type="button" onClick={() => nav('/tools')} className="accent-ink font-medium hover:underline">Tools</button>.</div>
+              <div className="text-[12px] muted">Need an ability that is not here? Add your own API under <button type="button" onClick={() => nav('/tools')} className="accent-ink font-medium hover:underline">Tools</button>.</div>
             </>}
 
             {tab === 'behaviour' && <>

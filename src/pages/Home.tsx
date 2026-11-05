@@ -100,7 +100,7 @@ export default function Home() {
           <Header title="Workflows" onAll={() => nav('/workflows')} />
           <div className="clay px-3 py-1">
             {workflows.length === 0 && <EmptyRow text="No workflows yet." action="Build one" onClick={() => nav('/workflows')} />}
-            {workflows.slice(0, 3).map((w) => <RowLink key={w.id} name={w.name} meta={`${w.status} · ${w.triggerType === 'schedule' ? `every ${w.schedule?.every}` : 'manual'}`} icon={<Workflow size={14} />} color={colorFor(w.name)} onClick={() => nav(`/workflows/${w.id}`)} />)}
+            {workflows.slice(0, 3).map((w) => <RowLink key={w.id} name={w.name} meta={`${w.status === 'live' ? 'Live' : w.status === 'paused' ? 'Paused' : 'Draft'} · ${w.triggerType === 'schedule' ? `Every ${w.schedule?.every} at ${w.schedule?.at}` : 'By hand'}`} icon={<Workflow size={14} />} color={colorFor(w.name)} onClick={() => nav(`/workflows/${w.id}`)} />)}
           </div>
         </Item>
       </Stagger>

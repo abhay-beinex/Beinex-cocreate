@@ -161,9 +161,9 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
   }
   const duplicate = () => { const w: Workflow = { ...current(), id: `wf-${Date.now().toString(36)}`, name: `${meta.name} copy`, status: 'draft', version: 1, lastRunAt: undefined }; upsertWorkflow(w); nav(`/workflows/${w.id}`) }
   const exportJson = () => { const blob = new Blob([JSON.stringify(current(), null, 2)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${meta.name.replace(/\s+/g, '-').toLowerCase()}.workflow.json`; a.click(); URL.revokeObjectURL(a.href) }
-  const blocker = useBlocker(({ currentLocation, nextLocation }) => editable && dirty && !isNew && currentLocation.pathname !== nextLocation.pathname)
-  const blockerNew = useBlocker(({ currentLocation, nextLocation }) => editable && isNew && !stored && nodes.length > 1 && !nextLocation.pathname.startsWith('/workflows/wf-') && currentLocation.pathname !== nextLocation.pathname)
-  const blocked = blocker.state === 'blocked' ? blocker : blockerNew.state === 'blocked' ? blockerNew : null
+  // react-router allows one blocker per component: unsaved edits on a saved workflow, or a new canvas with real work on it
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => editable && currentLocation.pathname !== nextLocation.pathname && (isNew && !stored ? nodes.length > 1 && !nextLocation.pathname.startsWith('/workflows/wf-') : dirty))
+  const blocked = blocker.state === 'blocked' ? blocker : null
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -256,7 +256,7 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
         <Button variant="primary" onClick={() => { setSel(null); setDock(dock === 'run' ? 'inspect' : 'run') }} disabled={problems.length > 0} title={problems[0]?.text}><Play size={13} /> Test run</Button>
         {editable && (meta.status === 'live' ? <Button onClick={() => persist('paused')}><Pause size={13} /> Pause</Button> : <Button onClick={() => persist('live')} disabled={problems.length > 0} title={problems[0]?.text}>Publish</Button>)}
         <div className="relative">
-          <button onClick={() => setMenu(!menu)} className="btn btn-ghost btn-icon"><MoreHorizontal size={16} /></button>
+          <button onClick={() => setMenu(!menu)} className="btn btn-ghost btn-icon" aria-label="More actions" aria-expanded={menu}><MoreHorizontal size={16} /></button>
           <AnimatePresence>{menu && (
             <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="absolute right-0 top-full mt-2 w-[220px] pop rounded-[14px] p-1.5 z-30" onMouseLeave={() => setMenu(false)}>
               {editable && <button onClick={() => { setMenu(false); duplicate() }} className="w-full flex items-center gap-2 px-2.5 h-9 rounded-[10px] text-[13px] hover:bg-[var(--clay-dark)]"><Copy size={14} /> Duplicate</button>}
@@ -285,7 +285,7 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
               {BRICKS.map((b) => {
                 const disabled = b.soon || (b.id === 'trigger' && hasTrigger)
                 return (
-                  <button key={b.id} disabled={disabled} draggable={!disabled} onDragStart={(e) => { e.dataTransfer.setData(DT, b.id); e.dataTransfer.effectAllowed = 'move' }}
+                  <button key={b.id} aria-label={b.soon ? `${b.label} (coming soon)` : `Add ${b.label} step`} disabled={disabled} draggable={!disabled} onDragStart={(e) => { e.dataTransfer.setData(DT, b.id); e.dataTransfer.effectAllowed = 'move' }}
                     onClick={() => addStep(b.id, adding ? { after: adding.after, branch: adding.branch } : selectedNode ? { after: selectedNode.id, branch: selectedNode.data.brick === 'logic' ? 'yes' : undefined } : { after: [...nodes].reverse().find((n) => !edges.some((e) => e.source === n.id))?.id })}
                     className={cx('brick-card flat p-2.5 flex items-center gap-2.5 text-left transition-all hover:border-[color-mix(in_srgb,var(--accent)_45%,var(--line))] hover:-translate-y-px', disabled && 'opacity-50 cursor-not-allowed hover:translate-y-0')}>
                     <Tile color={b.color} size={30} radius={9}><b.icon size={14} /></Tile>
@@ -299,7 +299,7 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
               <div className="text-[11.5px] muted px-1 mt-0.5 leading-snug">{nodes.filter((n) => n.data.brick !== 'trigger').length === 0 ? 'Describe the workflow and I will build the steps.' : 'Tell me what to add and I will append the steps.'}</div>
               <div className="flat mt-2 p-1.5 pl-2.5 flex items-end gap-1.5 focus-within:border-[var(--accent)]">
                 <textarea value={assist.input} onChange={(e) => setAssist({ ...assist, input: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runAssistant(assist.input) } }} rows={2} disabled={!apiKey || assist.busy} placeholder={apiKey ? 'Research a topic, draft a brief, then ask me to approve…' : 'Models are not available right now'} className="flex-1 bg-transparent outline-0 text-[12.5px] resize-none leading-snug py-1" />
-                <button onClick={() => runAssistant(assist.input)} disabled={!assist.input.trim() || assist.busy || !apiKey} className="btn btn-primary btn-sm btn-icon !rounded-full shrink-0">{assist.busy ? <Loader2 size={13} className="animate-spin" /> : <ArrowUp size={14} />}</button>
+                <button aria-label="Ask the assistant" onClick={() => runAssistant(assist.input)} disabled={!assist.input.trim() || assist.busy || !apiKey} className="btn btn-primary btn-sm btn-icon !rounded-full shrink-0">{assist.busy ? <Loader2 size={13} className="animate-spin" /> : <ArrowUp size={14} />}</button>
               </div>
               {assist.note && <div className="text-[11.5px] muted px-1 mt-2 leading-snug">{assist.note}</div>}
             </div>

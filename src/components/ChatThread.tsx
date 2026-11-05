@@ -113,8 +113,7 @@ function ToolCard({ name, args, result, compact }: { name: string; args: string;
     <motion.div layout initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} className="flat overflow-hidden">
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-3 h-9 text-[12px] text-left">
         <span className={cx('w-5 h-5 rounded-[6px] grid place-items-center', gated ? 'bg-[color-mix(in_srgb,var(--warn)_18%,transparent)] text-[var(--warn)]' : 'bg-[color-mix(in_srgb,var(--accent)_16%,transparent)] accent-ink')}>{gated ? <ShieldCheck size={12} /> : <Wrench size={12} />}</span>
-        <span className="font-medium">{meta?.label ?? custom?.label ?? name}</span>
-        <span className="muted truncate flex-1">{args.slice(0, 80)}</span>
+        <span className="font-medium truncate flex-1">{custom ? `${custom.label} · ${(() => { try { return Object.values(JSON.parse(args)).join(', ').slice(0, 80) } catch { return '' } })()}` : summarise(name, args, result)}</span>
         {result ? <Check size={13} className="text-[var(--ok)]" /> : <motion.span className="w-2 h-2 rounded-full bg-[var(--accent)]" animate={{ opacity: [1, 0.3, 1] }} transition={{ repeat: Infinity, duration: 1 }} />}
       </button>
       {open && (name === 'draft_email' ? <div className="px-3 pb-3 text-[12px] whitespace-pre-wrap max-h-60 overflow-auto">{(() => { try { const a = JSON.parse(args); return `To: ${a.to}\nSubject: ${a.subject}\n\n${a.body}` } catch { return args } })()}</div> : <pre className="px-3 pb-3 text-[11px] muted whitespace-pre-wrap max-h-48 overflow-auto">{result ?? 'Running…'}</pre>)}

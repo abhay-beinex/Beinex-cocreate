@@ -54,7 +54,7 @@ export default function Workflows() {
           <div className="flat flex items-center gap-2 pl-4 pr-2 h-12 focus-within:border-[var(--accent)]">
             <Sparkles size={15} className="accent-ink shrink-0" />
             <input value={ask} onChange={(e) => setAsk(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && build()} disabled={!apiKey} placeholder={apiKey ? 'Research a competitor every Monday, summarise what changed, and notify me if prices moved' : 'Models are not available right now'} className="flex-1 bg-transparent outline-0 text-[13.5px]" />
-            <button onClick={build} disabled={!ask.trim() || !apiKey} className="btn btn-primary btn-sm btn-icon !rounded-full"><ArrowUp size={14} /></button>
+            <button aria-label="Build this workflow" onClick={build} disabled={!ask.trim() || !apiKey} className="btn btn-primary btn-sm btn-icon !rounded-full"><ArrowUp size={14} /></button>
           </div>
           {empty && (
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2.5 mt-5">
@@ -97,7 +97,7 @@ export default function Workflows() {
                     </button>
                     <Button size="sm" onClick={() => { setRunFor(w); setInput(w.schedule?.input ?? '') }} disabled={!apiKey && w.nodes.some((n) => n.data.brick !== 'trigger')}><Play size={12} /> Run</Button>
                     <div className="relative" onClick={(e) => e.stopPropagation()}>
-                      <button onClick={() => setMenu(menu === w.id ? null : w.id)} className="btn btn-ghost btn-sm btn-icon"><MoreHorizontal size={15} /></button>
+                      <button aria-label="More actions" aria-expanded={menu === w.id} onClick={() => setMenu(menu === w.id ? null : w.id)} className="btn btn-ghost btn-sm btn-icon"><MoreHorizontal size={15} /></button>
                       <AnimatePresence>{menu === w.id && (
                         <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="absolute right-0 top-full mt-1 w-[180px] pop rounded-[14px] p-1.5 z-20">
                           <button onClick={() => nav(`/workflows/${w.id}`)} className="w-full flex items-center gap-2 px-2.5 h-9 rounded-[10px] text-[13px] hover:bg-[var(--clay-dark)]"><Pencil size={14} /> Open</button>
