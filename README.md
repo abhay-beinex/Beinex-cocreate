@@ -1,6 +1,6 @@
 # Beinex Co-Create
 
-Governed AI agent and workflow platform for the Beinex pilot. Non-technical staff create specialised assistants ("agents"), committees of agents ("councils") and multi-step workflows. Anything that changes company data waits for a human to approve.
+An agent and workflow builder. Teams create AI agents with real tools (web search, deep research, page reading, calculator, JavaScript sandbox, knowledge search, documents), group them into councils, and chain them into workflows. Every external action (emails, approvals) waits for a person.
 
 ## Run it
 
@@ -27,18 +27,19 @@ Pick an account on the sign-in screen, or use the email with the password `cocre
 
 The platform calls OpenRouter directly from the browser. Add a key under Settings → OpenRouter, or put it in a `.env` file as `VITE_OPENROUTER_API_KEY=...` (see `.env.example`). The key is stored only in the browser's local storage and sent only to OpenRouter.
 
-Default model: `anthropic/claude-sonnet-5.5`. Profiles: Verify (Sonnet 5.5), Decide (Opus 5.5), Draft (Haiku 5.5). Change them under Models.
+Default model: `anthropic/claude-sonnet-5.5`. Profiles: Fast (Haiku 5.5), Balanced (Sonnet 5.5), Reasoning (Opus 5.5). Change them under Models.
 
 ## What is in the pilot
 
-- Home: role-aware briefing, prompt box, attention list, deadlines
-- Chat: assistant and agents with real tool calling over pilot data; write tools are queued for approval
-- Agents: editor with instructions, AI refine, tools, knowledge, autonomy, watchers, MCP manifest, live preview
+- Home: onboarding checklist, assistant prompt, items waiting for approval
+- Chat: the assistant and your agents, with live tool calls shown inline
+- Agents: create from a one-line description or a template; editor with instructions, AI refine, tools, knowledge, autonomy, watchers, MCP manifest and a live preview
 - Councils: members, deliberation mode, gatekeeper, simulated deliberation with synthesis
 - Workflows: canvas with seven bricks, copilot, step inspector, test runs that create Runs entries
-- Tools and Knowledge: built-in tools, connectors, document libraries agents cite
+- Tools: web search, deep research, read web page, calculator, run JavaScript, date/time, knowledge search, save document, draft email (gated), request approval (gated)
+- Knowledge: libraries agents cite; agents can save documents back
 - Runs: runs, approvals with sign-off, immutable audit log
-- Models: profiles and the live OpenRouter catalog
+- Models: Fast / Balanced / Reasoning profiles and the live OpenRouter catalog
 - Settings: OpenRouter, users and roles, governance, notifications, workspace
 
-All pilot data lives in the browser (local storage). Settings → Workspace → Reset restores the seed data.
+The workspace starts empty. All data lives in the browser (local storage). Settings → Workspace → Reset clears it.

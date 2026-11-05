@@ -31,10 +31,10 @@ export default function AgentEditor() {
   const issues = useMemo(() => {
     if (!draft) return []
     const out: string[] = []
-    if (!/unsure|escalat|missing|uncertain/i.test(draft.instructions)) out.push('Add an exception rule: what should the agent do when unsure?')
-    if (draft.tools.includes('draft_email') && !draft.tools.includes('lookup_invoice')) out.push('Email drafting without an invoice lookup can produce unverified claims.')
-    if (draft.tools.includes('queue_ledger_posting') && !draft.tools.includes('chart_of_accounts')) out.push('Ledger postings should use the chart of accounts tool.')
+    if (!/unsure|ask|missing|uncertain|escalat/i.test(draft.instructions)) out.push('Say what the agent should do when it is unsure or information is missing.')
+    if (draft.tools.includes('search_knowledge') && draft.knowledge.length === 0) out.push('Knowledge search is on but no library is attached.')
     if (!draft.description) out.push('Add a one-line description so people know when to use this agent.')
+    if (draft.tools.length === 0) out.push('No tools: the agent can only answer from its instructions and knowledge.')
     return out
   }, [draft])
 
@@ -54,7 +54,7 @@ export default function AgentEditor() {
     setRefining(false); setRefine(''); setRefineOpen(false)
   }
 
-  const cats = ['Finance', 'Suppliers', 'Knowledge', 'Actions'] as const
+  const cats = ['Web', 'Reasoning', 'Knowledge', 'Actions'] as const
 
   return (
     <Page className="h-full flex flex-col gap-3">
@@ -77,7 +77,7 @@ export default function AgentEditor() {
             <Field label="Instructions" action={editable && <button onClick={() => setRefineOpen((o) => !o)} className="text-[12px] font-medium accent-ink inline-flex items-center gap-1 hover:underline"><Wand2 size={12} /> Refine with AI</button>}>
               {refineOpen && (
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="flat p-1.5 pl-3 flex items-center gap-2 mb-2 overflow-hidden">
-                  <input autoFocus value={refine} onChange={(e) => setRefine(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && runRefine()} placeholder={apiKey ? 'e.g. only look at invoices above AED 50,000' : 'Connect an OpenRouter key first'} className="flex-1 bg-transparent outline-0 text-[13px]" />
+                  <input autoFocus value={refine} onChange={(e) => setRefine(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && runRefine()} placeholder={apiKey ? 'e.g. always answer in British English and cite sources' : 'Connect an OpenRouter key first'} className="flex-1 bg-transparent outline-0 text-[13px]" />
                   <button onClick={runRefine} disabled={refining || !refine.trim()} className="btn btn-primary btn-sm btn-icon !rounded-full">{refining ? '…' : <ArrowUp size={14} />}</button>
                 </motion.div>
               )}
@@ -116,7 +116,7 @@ export default function AgentEditor() {
 
             <Field label="Watchers" hint="Background monitors that surface findings on Home. They never change external systems.">
               <div className="flat divide-y divide-[var(--line)]">
-                {draft.watchers.map((w) => <div key={w} className="flex items-center gap-3 px-3 h-11 text-[13px]"><span className="flex-1">{w}</span><Button size="sm" variant="ghost" onClick={() => alert('Dry run over the last 30 days: this watcher would have fired 6 times (within the daily cap).')}><History size={12} /> Test 30 days</Button><button onClick={() => set({ watchers: draft.watchers.filter((x) => x !== w) })} className="muted hover:text-[var(--danger)]"><X size={14} /></button></div>)}
+                {draft.watchers.map((w) => <div key={w} className="flex items-center gap-3 px-3 h-11 text-[13px]"><span className="flex-1">{w}</span><Button size="sm" variant="ghost" onClick={() => alert('Watchers are evaluated when the agent runs on a schedule. Scheduled runs arrive with the production roll-out.')}><History size={12} /> Test 30 days</Button><button onClick={() => set({ watchers: draft.watchers.filter((x) => x !== w) })} className="muted hover:text-[var(--danger)]"><X size={14} /></button></div>)}
                 <div className="flex items-center gap-2 px-3 h-11"><input value={newWatcher} onChange={(e) => setNewWatcher(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && newWatcher.trim()) { set({ watchers: [...draft.watchers, newWatcher.trim()] }); setNewWatcher('') } }} placeholder="Fire when…" className="flex-1 bg-transparent outline-0 text-[13px]" /><button onClick={() => { if (newWatcher.trim()) { set({ watchers: [...draft.watchers, newWatcher.trim()] }); setNewWatcher('') } }} className="btn btn-ghost btn-sm btn-icon"><Plus size={14} /></button></div>
               </div>
             </Field>

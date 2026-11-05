@@ -17,6 +17,7 @@ const bricks: { id: Brick; label: string; icon: typeof Zap; color: string }[] = 
   { id: 'logic', label: 'Condition', icon: GitFork, color: '#8b5cf6' }, { id: 'human', label: 'Approval', icon: UserCheck, color: '#f59e0b' }, { id: 'tool', label: 'Action', icon: Wrench, color: '#10b981' }, { id: 'notify', label: 'Notify', icon: Bell, color: '#ec4899' },
 ]
 const brickOf = (b: Brick) => bricks.find((x) => x.id === b)!
+const DEFAULT_STEP_TOOLS = ['web_search', 'read_url', 'calculate', 'run_javascript', 'current_datetime', 'search_knowledge', 'save_document']
 type StepNode = Node<StepData, 'step'>
 
 function StepNodeView({ data, selected }: NodeProps<StepNode>) {
@@ -42,7 +43,7 @@ export default function WorkflowEditor() {
   const isNew = workflowId === 'new'
   const stored = workflows.find((w) => w.id === workflowId)
   const template = workflowTemplates.find((t) => t.id === (params.get('template') ?? 'standard')) ?? workflowTemplates[0]
-  const base = useMemo<Workflow>(() => stored ?? { id: `wf-${Date.now().toString(36)}`, name: 'New workflow', description: '', status: 'draft', version: 1, trigger: 'Manual', autonomy: 2, nodes: template.nodes.map((n) => ({ ...n, data: { ...n.data, ...(n.data.brick === 'council' && params.get('council') ? { councilId: params.get('council')!, label: councils.find((c) => c.id === params.get('council'))?.name ?? n.data.label } : {}) } })), edges: template.edges, runsWeek: 0, straightThrough: 0, updatedAt: '', createdBy: user.id }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const base = useMemo<Workflow>(() => stored ?? { id: `wf-${Date.now().toString(36)}`, name: 'New workflow', description: '', status: 'draft', version: 1, trigger: template.trigger, autonomy: 2, nodes: template.nodes.map((n) => ({ ...n, data: { ...n.data, ...(n.data.brick === 'council' && params.get('council') ? { councilId: params.get('council')!, label: councils.find((c) => c.id === params.get('council'))?.name ?? n.data.label } : {}) } })), edges: template.edges, runsWeek: 0, straightThrough: 0, updatedAt: '', createdBy: user.id }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const [nodes, setNodes, onNodesChange] = useNodesState<StepNode>(base.nodes as StepNode[])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(base.edges)
@@ -50,7 +51,7 @@ export default function WorkflowEditor() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [tab, setTab] = useState<'configure' | 'advanced'>('configure')
   const [copilot, setCopilot] = useState<{ open: boolean; input: string; note: string }>({ open: false, input: '', note: '' })
-  const [test, setTest] = useState<{ open: boolean; input: string; running: boolean; active: number; log: RunStep[] }>({ open: false, input: 'Invoice INV-20931 from Al Futtaim Logistics, AED 52,300, PO-4471.', running: false, active: -1, log: [] })
+  const [test, setTest] = useState<{ open: boolean; input: string; running: boolean; active: number; log: RunStep[] }>({ open: false, input: 'Research the current state of enterprise AI agent platforms and summarise the top three trends.', running: false, active: -1, log: [] })
   const editable = can(user, 'build')
 
   const selected = useMemo(() => nodes.find((n) => n.id === selectedId), [nodes, selectedId])
@@ -91,7 +92,7 @@ export default function WorkflowEditor() {
         const instr = a?.instructions ?? n.data.prompt ?? 'Process the input and summarise the result in under 80 words.'
         let out = ''
         try {
-          for await (const ev of runAgentTurn({ key: apiKey, model: a?.model ?? n.data.model ?? defaultModel, instructions: instr + (n.data.prompt ? `\n\nStep instructions: ${n.data.prompt}` : '') + '\n\nBe brief (under 100 words).', tools: a?.tools ?? [], libraries: libraries.filter((l) => a?.knowledge.includes(l.id)), history: [{ role: 'user', content: context }], maxRounds: 4 })) {
+          for await (const ev of runAgentTurn({ key: apiKey, model: a?.model ?? n.data.model ?? defaultModel, instructions: instr + (n.data.prompt ? `\n\nStep instructions: ${n.data.prompt}` : '') + '\n\nBe brief (under 100 words).', tools: a?.tools ?? DEFAULT_STEP_TOOLS, libraries: libraries.filter((l) => (a ? a.knowledge.includes(l.id) : l.id === 'company')), history: [{ role: 'user', content: context }], maxRounds: 4 })) {
             if (ev.type === 'text') { out += ev.text; setTest((t) => ({ ...t, log: [...log, { ...step, output: out }] })) }
             if (ev.type === 'error') { out += `Error: ${ev.message}`; step.status = 'failed' }
           }
@@ -106,7 +107,7 @@ export default function WorkflowEditor() {
       } else if (n.data.brick === 'logic') {
         await new Promise((r) => setTimeout(r, 400)); step.output = `Condition "${n.data.sub || n.data.label}" evaluated on the current context.`
       } else if (n.data.brick === 'tool') {
-        await new Promise((r) => setTimeout(r, 500)); step.output = 'Write action simulated. In a live run this executes only after approval.'
+        await new Promise((r) => setTimeout(r, 500)); step.output = 'External action simulated. In a live run this executes only after approval.'
       } else { await new Promise((r) => setTimeout(r, 350)); step.output = n.data.brick === 'trigger' ? `Triggered with: ${test.input.slice(0, 120)}` : 'Notification sent to Teams and the audit log sealed.' }
       step.ms = Date.now() - s0; log.push(step); setTest((t) => ({ ...t, log: [...log] }))
     }
@@ -202,7 +203,7 @@ export default function WorkflowEditor() {
                     {!selected.data.agentId && <Field label="Model">{models.length ? <Select value={selected.data.model} onChange={(e) => patch({ model: e.target.value })}>{models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</Select> : <Input value={selected.data.model ?? ''} onChange={(e) => patch({ model: e.target.value })} />}</Field>}
                     <Field label="Step instructions"><Textarea rows={4} value={selected.data.prompt ?? ''} onChange={(e) => patch({ prompt: e.target.value })} placeholder="What should this step do with the input?" /></Field>
                   </>}
-                  {selected.data.brick === 'human' && <Field label="Approver"><Select value={selected.data.sub ?? ''} onChange={(e) => patch({ sub: e.target.value })}>{users.filter((u) => u.role === 'approver' || u.role === 'security').map((u) => <option key={u.id} value={`${u.name.split(' ')[0]} decides`}>{u.name}</option>)}</Select><div className="text-[11.5px] muted mt-1.5">Approval is mandatory above AED 50,000 or on PO mismatch, at any autonomy level.</div></Field>}
+                  {selected.data.brick === 'human' && <Field label="Approver"><Select value={selected.data.sub ?? ''} onChange={(e) => patch({ sub: e.target.value })}>{users.filter((u) => u.role === 'approver' || u.role === 'security').map((u) => <option key={u.id} value={`${u.name.split(' ')[0]} decides`}>{u.name}</option>)}</Select><div className="text-[11.5px] muted mt-1.5">A person decides here before anything downstream runs, at any autonomy level.</div></Field>}
                   {selected.data.brick === 'logic' && <Field label="Condition"><Input value={selected.data.sub ?? ''} onChange={(e) => patch({ sub: e.target.value })} placeholder="amount > 50000" /></Field>}
                 </> : <>
                   <Field label="Retries"><Input type="number" value={selected.data.retries} onChange={(e) => patch({ retries: +e.target.value })} /></Field>

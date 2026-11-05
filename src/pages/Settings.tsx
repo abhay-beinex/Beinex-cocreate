@@ -77,6 +77,7 @@ export default function Settings() {
               <div className="max-w-[560px]">
                 <h2 className="text-[15px] font-semibold mb-1">Governance</h2><p className="text-[12.5px] muted mb-4">Watchers monitor in the background and never change external systems.</p>
                 <Row title="Emergency pause" desc={can(user, 'security') ? 'Pauses every watcher platform-wide. You are authorised.' : 'Restricted to the Head of Information Security.'} right={<Toggle checked={s.emergencyPause} onChange={s.setEmergencyPause} disabled={!can(user, 'security')} />} />
+                {s.watchers.length === 0 && <div className="text-[12.5px] muted py-3">No watchers yet. Add them on an agent under Watchers.</div>}
                 {s.watchers.map((w) => <Row key={w.id} title={w.name} desc={`${w.owner} · ${w.used}/${w.cap} today`} right={<Toggle checked={w.status === 'active'} onChange={() => s.toggleWatcher(w.id)} disabled={s.emergencyPause || !can(user, 'build')} />} />)}
                 <div className="mt-6 text-[12px] font-semibold mb-1">Spend caps (USD)</div>
                 {([['user', 'Per user, per day'], ['group', 'Finance group, per day'], ['org', 'Organisation, per month']] as const).map(([k, l]) => <Row key={k} title={l} right={<Input type="number" value={s.spend[k]} onChange={(e) => s.setSpend(k, +e.target.value)} className="!w-[110px] !h-8 text-right" disabled={!admin} />} />)}
@@ -97,7 +98,7 @@ export default function Settings() {
                 <h2 className="text-[15px] font-semibold mb-4">Workspace</h2>
                 <Row title="Dark theme" right={<Toggle checked={s.theme === 'dark'} onChange={(v) => s.setTheme(v ? 'dark' : 'light')} />} />
                 <Row title="Arabic layout (RTL)" right={<Toggle checked={s.dir === 'rtl'} onChange={(v) => s.setDir(v ? 'rtl' : 'ltr')} />} />
-                <Row title="Reset pilot data" desc="Clears local changes and restores the seed workspace." right={<Button size="sm" onClick={() => { if (confirm('Reset all local pilot data?')) { localStorage.removeItem('cocreate-v1'); location.href = '/login' } }}>Reset</Button>} />
+                <Row title="Reset pilot data" desc="Clears local changes and restores the seed workspace." right={<Button size="sm" onClick={() => { if (confirm('Reset all local pilot data?')) { localStorage.removeItem('cocreate-v2'); location.href = '/login' } }}>Reset</Button>} />
               </div>
             )}
           </motion.div>

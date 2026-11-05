@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import {
-  seedUsers, seedAgents, seedCouncils, seedSuggestions, seedWatchers, seedRuns, seedWorkflows, seedLibraries, seedAudit, DEFAULT_MODEL, MODEL_PROFILES,
+  seedUsers, seedLibraries, DEFAULT_MODEL, MODEL_PROFILES,
   type User, type Agent, type Council, type Suggestion, type Watcher, type Run, type Workflow, type Library, type Doc, type AuditEvent,
 } from '@/lib/data'
 import type { ORModel } from '@/lib/openrouter'
@@ -95,14 +95,14 @@ export const useApp = create<State>()(
         profiles: MODEL_PROFILES.map((p) => ({ id: p.id, model: p.model })),
         models: [],
         modelsFetchedAt: 0,
-        agents: seedAgents,
-        councils: seedCouncils,
-        workflows: seedWorkflows,
-        runs: seedRuns,
+        agents: [],
+        councils: [],
+        workflows: [],
+        runs: [],
         libraries: seedLibraries,
-        suggestions: seedSuggestions,
-        watchers: seedWatchers,
-        audit: seedAudit,
+        suggestions: [],
+        watchers: [],
+        audit: [],
         chats: {},
         emergencyPause: false,
         dailyCap: 5,
@@ -130,7 +130,7 @@ export const useApp = create<State>()(
         deleteCouncil: (id) => { log('Deleted council', get().councils.find((c) => c.id === id)?.name ?? id); set({ councils: get().councils.filter((c) => c.id !== id) }) },
         upsertWorkflow: (w) => { const exists = get().workflows.some((x) => x.id === w.id); set({ workflows: exists ? get().workflows.map((x) => (x.id === w.id ? w : x)) : [w, ...get().workflows] }); log(exists ? 'Saved workflow' : 'Created workflow', `${w.name} v${w.version}`) },
         deleteWorkflow: (id) => { log('Deleted workflow', get().workflows.find((w) => w.id === id)?.name ?? id); set({ workflows: get().workflows.filter((w) => w.id !== id) }) },
-        addRun: (r) => { const max = get().runs.reduce((m, x) => Math.max(m, parseInt(x.id.replace(/\D/g, ''), 10) || 0), 1288); set({ runs: [{ ...r, id: `R-${max + 1}` }, ...get().runs] }) },
+        addRun: (r) => { const max = get().runs.reduce((m, x) => Math.max(m, parseInt(x.id.replace(/\D/g, ''), 10) || 0), 1000); set({ runs: [{ ...r, id: `R-${max + 1}` }, ...get().runs] }) },
         updateRun: (id, p) => set({ runs: get().runs.map((r) => (r.id === id ? { ...r, ...p } : r)) }),
         decideRun: (id, decision) => {
           set({ runs: get().runs.map((r) => (r.id === id ? { ...r, status: decision, decidedBy: actor(), steps: r.steps.map((s) => (s.status === 'waiting' ? { ...s, status: decision === 'approved' ? 'ok' : 'skipped', ms: s.ms || 1200 } : s)) } : r)), suggestions: get().suggestions.map((s) => (s.link?.includes(id) ? { ...s, status: 'history' } : s)) })
@@ -152,7 +152,7 @@ export const useApp = create<State>()(
         setSpend: (k, v) => set({ spend: { ...get().spend, [k]: v } }),
       }
     },
-    { name: 'cocreate-v1', version: 1, merge: (persisted, current) => { const m = { ...current, ...(persisted as object) } as State; const env = (import.meta as any).env?.VITE_OPENROUTER_API_KEY as string | undefined; if (!m.apiKey && env) m.apiKey = env; return m }, partialize: (s) => Object.fromEntries(Object.entries(s).filter(([k]) => !['models', 'modelsFetchedAt'].includes(k) && typeof (s as any)[k] !== 'function')) as any },
+    { name: 'cocreate-v2', version: 2, merge: (persisted, current) => { const m = { ...current, ...(persisted as object) } as State; const env = (import.meta as any).env?.VITE_OPENROUTER_API_KEY as string | undefined; if (!m.apiKey && env) m.apiKey = env; return m }, partialize: (s) => Object.fromEntries(Object.entries(s).filter(([k]) => !['models', 'modelsFetchedAt'].includes(k) && typeof (s as any)[k] !== 'function')) as any },
   ),
 )
 

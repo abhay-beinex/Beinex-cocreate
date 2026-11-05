@@ -40,10 +40,10 @@ export default function Login() {
               Build agents.<br />Keep humans<br />in the loop.
             </motion.h1>
             <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.35 }} className="muted mt-4 text-[14px] max-w-[360px] leading-relaxed">
-              {BRAND.full} lets your team create governed AI assistants and workflows. Nothing changes company data without a person signing off.
+              {BRAND.full} lets your team build AI agents and workflows with real tools, and keeps a person in control of every external action.
             </motion.p>
           </div>
-          <div className="text-[11.5px] muted">Pilot workspace · Finance & Procurement</div>
+          <div className="text-[11.5px] muted">Pilot workspace</div>
         </div>
 
         <div className="clay p-8 flex flex-col">

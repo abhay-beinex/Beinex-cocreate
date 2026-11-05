@@ -5,13 +5,13 @@ import { useApp } from '@/store/app'
 import { Tile, colorFor, cx, SearchBox } from '@/components/ui'
 import { Page } from '@/components/motion'
 import { Thread, Composer, useAgentChat, type AgentLike } from '@/components/ChatThread'
-import { BRAND } from '@/lib/data'
+import { BRAND, GOVERNED } from '@/lib/data'
 
 const ASSISTANT: AgentLike = {
-  id: 'assistant', name: `${BRAND.name} Assistant`, description: 'General help across finance, agents and workflows',
-  instructions: `You are the ${BRAND.full} assistant for a UAE public-sector finance team. Be concise, accurate and governed: you never change company data yourself; you recommend, draft, and route to a human approver. Use the tools to answer with real records rather than guessing. Use markdown sparingly. Currency is AED. If unsure, say so.`,
-  model: '', tools: ['lookup_invoice', 'lookup_purchase_order', 'find_duplicates', 'lookup_supplier', 'list_suppliers', 'search_knowledge'], knowledge: ['finance-policies', 'vat-guidance'],
-  samplePrompts: ['What needs my approval today?', 'Which suppliers have a licence expiring soon?', 'Explain the AED 50,000 approval rule'],
+  id: 'assistant', name: `${BRAND.name} Assistant`, description: 'General assistant with web search, research, code and your knowledge',
+  instructions: `You are the ${BRAND.full} assistant. Use the tools to answer with real information: search the web for anything current, read pages when a URL is given, calculate exactly, and run JavaScript for data work. Cite sources as links. Be concise and use markdown sparingly. ${GOVERNED}`,
+  model: '', tools: ['web_search', 'deep_research', 'read_url', 'calculate', 'run_javascript', 'current_datetime', 'search_knowledge', 'save_document', 'draft_email', 'request_approval'], knowledge: ['company'],
+  samplePrompts: ['What happened in AI this week?', 'Read https://openrouter.ai/docs/quickstart and summarise it', 'Compound 1.2M at 18% for 4 years'],
 }
 
 export default function Chat() {
@@ -44,14 +44,11 @@ export default function Chat() {
               <span className="text-[13px] font-medium truncate">{a.name}</span>
             </button>
           ))}
+          {agents.length === 0 && <div className="text-[12px] muted px-2 py-3">Your agents appear here.</div>}
           {councils.length > 0 && <div className="text-[10.5px] font-semibold uppercase tracking-wider muted px-2 mt-3 mb-1">Councils</div>}
-          {councils.map((c) => (
-            <button key={c.id} onClick={() => nav(`/agents?tab=councils&open=${c.id}`)} className="flex items-center gap-2.5 px-2 h-10 rounded-[10px] text-left hover:bg-[var(--clay-dark)] muted">
-              <Tile color={colorFor(c.name)} size={26} radius={8}><Users size={13} /></Tile><span className="text-[13px] font-medium truncate">{c.name}</span>
-            </button>
-          ))}
+          {councils.map((c) => <button key={c.id} onClick={() => nav(`/agents?tab=councils&open=${c.id}`)} className="flex items-center gap-2.5 px-2 h-10 rounded-[10px] text-left hover:bg-[var(--clay-dark)] muted"><Tile color={colorFor(c.name)} size={26} radius={8}><Users size={13} /></Tile><span className="text-[13px] font-medium truncate">{c.name}</span></button>)}
         </div>
-        <button onClick={() => nav('/agents')} className="mt-auto btn btn-ghost btn-sm justify-start"><Plus size={14} /> New agent</button>
+        <button onClick={() => nav('/agents?new=1')} className="mt-auto btn btn-ghost btn-sm justify-start"><Plus size={14} /> New agent</button>
       </aside>
 
       <section className="clay flex flex-col min-h-0">
@@ -69,10 +66,10 @@ export default function Chat() {
                 {activeModel.split('/')[1] ?? activeModel} <ChevronDown size={12} />
                 <select value={activeModel} onChange={(e) => setModel(e.target.value)} className="absolute inset-0 opacity-0 cursor-pointer">
                   {!models.some((m) => m.id === activeModel) && <option value={activeModel}>{activeModel}</option>}
-                  {models.slice(0, 250).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  {models.slice(0, 300).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
               </label>} />
-            <div className="text-[11px] muted mt-2 px-1">Governed chat. Tools read pilot data; anything that writes is queued for a human.</div>
+            <div className="text-[11px] muted mt-2 px-1">{agent.tools.length} tools available. External actions are queued under Approvals for a person.</div>
           </div>
         </footer>
       </section>

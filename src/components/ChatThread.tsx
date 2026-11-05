@@ -12,7 +12,7 @@ import { Avatar, Tile, cx } from './ui'
 export type AgentLike = { id: string; name: string; description: string; instructions: string; model: string; tools: string[]; knowledge: string[]; samplePrompts: string[] }
 
 export function useAgentChat(agent: AgentLike, storeKey?: string) {
-  const { apiKey, libraries, chats, setChat, logAudit, addRun } = useApp()
+  const { apiKey, libraries, chats, setChat, logAudit, addRun, addDoc } = useApp()
   const [local, setLocal] = useState<ChatMsg[]>([])
   const msgs = storeKey ? chats[storeKey] ?? [] : local
   const save = (m: ChatMsg[]) => (storeKey ? setChat(storeKey, m) : setLocal(m))
@@ -39,15 +39,18 @@ export function useAgentChat(agent: AgentLike, storeKey?: string) {
         else if (ev.type === 'tool_start') cur.tools = [...(cur.tools ?? []), { name: ev.name, args: ev.args }]
         else if (ev.type === 'tool_end') cur.tools = (cur.tools ?? []).map((t) => (t.name === ev.name && !t.result ? { ...t, result: ev.result } : t))
         else if (ev.type === 'gated') {
-          const label = ev.tool === 'draft_email' ? `Email draft to ${ev.args.to ?? 'supplier'}: ${ev.args.subject ?? ''}` : `Ledger posting ${ev.args.invoice ?? ''} · ${ev.args.account ?? ''} · AED ${ev.args.amount ?? ''}`
+          const label = ev.tool === 'draft_email' ? `Email draft to ${ev.args.to ?? ''}: ${ev.args.subject ?? ''}` : `Approval requested: ${ev.args.action ?? ''}`
           logAudit('Queued for approval', ev.tool, label.slice(0, 120))
           addRun({ id: `R-${1300 + Math.floor(Math.random() * 600)}`, workflowId: 'chat', workflow: `Chat · ${agent.name}`, trigger: 'Chat · gated action', status: 'waiting', started: new Date().toISOString().slice(0, 16).replace('T', ' '), duration: '—', cost: 0.004, summary: label,
             steps: [{ name: agent.name, model: (model ?? agent.model).split('/')[1], ms: 2400, status: 'ok', output: ev.tool === 'draft_email' ? `**To:** ${ev.args.to}
 
 **Subject:** ${ev.args.subject}
 
-${ev.args.body}` : JSON.stringify(ev.args, null, 2) }, { name: ev.tool === 'draft_email' ? 'Send-off (human)' : 'Finance approval', ms: 0, status: 'waiting' }] })
+${ev.args.body}` : `**Action:** ${ev.args.action}
+
+${ev.args.reason ?? ''}` }, { name: ev.tool === 'draft_email' ? 'Send-off (human)' : 'Approval (human)', ms: 0, status: 'waiting' }] })
         }
+        else if (ev.type === 'saved') addDoc('outputs', { title: ev.title, content: ev.content })
         else if (ev.type === 'error') { cur.content += (cur.content ? '\n\n' : '') + `Error: ${ev.message}`; cur.error = true }
         update()
       }
