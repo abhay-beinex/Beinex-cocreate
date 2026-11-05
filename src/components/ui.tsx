@@ -1,4 +1,9 @@
-import { type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+import { useEffect, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+
+/** Closes an overlay on Escape while it is open. */
+function useEscape(open: boolean, onClose: () => void) {
+  useEffect(() => { if (!open) return; const h = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }; window.addEventListener('keydown', h, true); return () => window.removeEventListener('keydown', h, true) }, [open, onClose])
+}
 
 export const cx = (...a: (string | false | null | undefined)[]) => a.filter(Boolean).join(' ')
 
@@ -102,6 +107,7 @@ export function Empty({ title, body, action }: { title: string; body?: string; a
 }
 
 export function Modal({ open, onClose, title, children, width = 540 }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; width?: number }) {
+  useEscape(open, onClose)
   if (!open) return null
   return (
     <div className="fixed inset-0 z-50 grid place-items-center p-4" onClick={onClose} style={{ background: 'rgba(10,20,40,.3)', backdropFilter: 'blur(6px)' }}>
@@ -117,6 +123,7 @@ export function Modal({ open, onClose, title, children, width = 540 }: { open: b
 }
 
 export function Drawer({ open, onClose, title, children, width = 500 }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; width?: number }) {
+  useEscape(open, onClose)
   if (!open) return null
   return (
     <div className="fixed inset-0 z-50 flex justify-end p-3" onClick={onClose} style={{ background: 'rgba(10,20,40,.2)', backdropFilter: 'blur(4px)' }}>
@@ -132,6 +139,7 @@ export function Drawer({ open, onClose, title, children, width = 500 }: { open: 
 }
 
 export function Confirm({ open, title, body, confirmLabel = 'Confirm', danger, onConfirm, onClose, children }: { open: boolean; title: string; body?: ReactNode; confirmLabel?: string; danger?: boolean; onConfirm: () => void; onClose: () => void; children?: ReactNode }) {
+  useEscape(open, onClose)
   if (!open) return null
   return (
     <div className="fixed inset-0 z-[60] grid place-items-center p-4" onClick={onClose} style={{ background: 'rgba(10,20,40,.3)', backdropFilter: 'blur(6px)' }}>
