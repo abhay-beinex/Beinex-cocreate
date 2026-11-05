@@ -3,12 +3,14 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { BookOpen, Plus, FileText, Trash2, ChevronRight, Upload, Link2, Type } from 'lucide-react'
 import { useApp, useUser, can } from '@/store/app'
 import { runTool } from '@/lib/tools'
-import { Button, Field, Input, Modal, PageHeader, Segmented, Textarea, Tile, colorFor, cx } from '@/components/ui'
+import { Button, Confirm, Field, Input, Modal, PageHeader, Segmented, Textarea, Tile, colorFor, cx } from '@/components/ui'
 import { Page, Stagger, Item } from '@/components/motion'
 
 export default function Knowledge() {
   const user = useUser()!
-  const { libraries, agents, addDoc, removeDoc, addLibrary, removeLibrary, apiKey, defaultModel } = useApp()
+  const { libraries, agents, addDoc, removeDoc, addLibrary, removeLibrary, apiKey, defaultModel, flashMsg } = useApp()
+  const [confirmLib, setConfirmLib] = useState<{ id: string; name: string; count: number } | null>(null)
+  const [confirmDoc, setConfirmDoc] = useState<{ lib: string; id: string; title: string } | null>(null)
   const [open, setOpen] = useState<string | null>(libraries[0]?.id ?? null)
   const [adding, setAdding] = useState<string | null>(null)
   const [mode, setMode] = useState<'text' | 'file' | 'url'>('text')
@@ -22,7 +24,7 @@ export default function Knowledge() {
 
   const readFiles = async (files: FileList) => {
     for (const f of Array.from(files)) {
-      if (f.size > 2_000_000) { alert(`${f.name} is over 2 MB. Paste the relevant section instead.`); continue }
+      if (f.size > 2_000_000) { flashMsg(`${f.name} is over 2 MB. Paste the relevant section instead.`, 'danger'); continue }
       const text = await f.text()
       addDoc(adding!, { title: f.name.replace(/\.(txt|md|csv|json|html?)$/i, ''), content: text.slice(0, 200_000), source: f.name })
     }
@@ -32,7 +34,7 @@ export default function Knowledge() {
     setFetching(true)
     const text = await runTool('read_url', JSON.stringify({ url }), { key: apiKey, models: { fast: defaultModel, reasoning: defaultModel }, libraries: [] })
     setFetching(false)
-    if (/^Could not|^Provide a full/.test(text)) { alert(text); return }
+    if (/^Could not|^Provide a full/.test(text)) { flashMsg(text, 'danger'); return }
     const title = (text.match(/^Title:\s*(.+)$/m)?.[1] ?? url).trim()
     addDoc(adding!, { title, content: text, source: url }); setAdding(null); setUrl('')
   }
@@ -58,7 +60,7 @@ export default function Knowledge() {
               <div className="flex items-start gap-3 mb-4">
                 <div className="flex-1"><h2 className="display text-[17px] font-bold">{lib.name}</h2><p className="muted text-[12.5px]">{lib.desc}</p><div className="text-[11.5px] muted mt-1">Used by {agents.filter((a) => a.knowledge.includes(lib.id)).map((a) => a.name).join(', ') || 'no agents yet'}</div></div>
                 {editable && <Button size="sm" variant="primary" onClick={() => { setAdding(lib.id); setMode('text'); setDoc({ title: '', content: '', source: '' }) }}><Plus size={13} /> Add</Button>}
-                {editable && lib.id !== 'outputs' && lib.id !== 'company' && <button className="btn btn-ghost btn-sm btn-icon" title="Delete library" onClick={() => { if (confirm(`Delete "${lib.name}" and its ${lib.docs.length} documents?`)) { removeLibrary(lib.id); setOpen(libraries[0]?.id ?? null) } }}><Trash2 size={13} /></button>}
+                {editable && lib.id !== 'outputs' && lib.id !== 'company' && <button className="btn btn-ghost btn-sm btn-icon" title="Delete library" onClick={() => setConfirmLib({ id: lib.id, name: lib.name, count: lib.docs.length })} aria-label="Delete library"><Trash2 size={13} /></button>}
               </div>
               <div className="flat divide-y divide-[var(--line)]">
                 {lib.docs.length === 0 && <div className="p-6 text-center muted text-[12.5px]">No documents yet. Paste text, upload .txt / .md / .csv / .json files, or import a web page.</div>}
@@ -66,7 +68,7 @@ export default function Knowledge() {
                   <details key={d.id} className="group">
                     <summary className="flex items-center gap-3 px-3 h-12 cursor-pointer list-none">
                       <FileText size={15} className="muted" /><span className="flex-1 text-[13px] font-medium truncate">{d.title}</span><span className="text-[11px] muted">{Math.round(d.content.length / 1000)}k chars · {d.updatedAt}{d.source ? ` · ${d.source.length > 30 ? d.source.slice(0, 30) + '…' : d.source}` : ''}</span>
-                      {editable && <button onClick={(e) => { e.preventDefault(); if (confirm('Remove this document?')) removeDoc(lib.id, d.id) }} className="muted hover:text-[var(--danger)] opacity-0 group-hover:opacity-100"><Trash2 size={13} /></button>}
+                      {editable && <button onClick={(e) => { e.preventDefault(); setConfirmDoc({ lib: lib.id, id: d.id, title: d.title }) }} className="muted hover:text-[var(--danger)] opacity-0 group-hover:opacity-100 focus-visible:opacity-100" aria-label={`Remove ${d.title}`}><Trash2 size={13} /></button>}
                     </summary>
                     <div className="px-3 pb-3 pl-10 text-[12.5px] leading-relaxed muted whitespace-pre-wrap max-h-72 overflow-auto">{d.content}</div>
                   </details>
@@ -77,6 +79,8 @@ export default function Knowledge() {
         </AnimatePresence>
       </div>
 
+      <Confirm open={!!confirmLib} onClose={() => setConfirmLib(null)} title={`Delete "${confirmLib?.name}"?`} danger confirmLabel="Delete" body={`Its ${confirmLib?.count ?? 0} document${confirmLib?.count === 1 ? '' : 's'} are removed and agents lose this library.`} onConfirm={() => { if (confirmLib) { removeLibrary(confirmLib.id); setOpen(libraries[0]?.id ?? null) } }} />
+      <Confirm open={!!confirmDoc} onClose={() => setConfirmDoc(null)} title={`Remove "${confirmDoc?.title}"?`} danger confirmLabel="Remove" body="Agents can no longer search or cite it." onConfirm={() => confirmDoc && removeDoc(confirmDoc.lib, confirmDoc.id)} />
       <Modal open={!!adding} onClose={() => setAdding(null)} title="Add to library" width={620}>
         <div className="flex flex-col gap-4">
           <Segmented value={mode} onChange={setMode} items={[{ id: 'text', label: <><Type size={12} className="inline mr-1" />Paste text</> }, { id: 'file', label: <><Upload size={12} className="inline mr-1" />Upload files</> }, { id: 'url', label: <><Link2 size={12} className="inline mr-1" />From URL</> }]} />

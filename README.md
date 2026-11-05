@@ -13,7 +13,7 @@ Open http://localhost:5173.
 
 ## Sign in
 
-One demo account exists: `demo@beinex.com` / `cocreate` (admin). Add more users under Settings › Users; each gets an email, password and role (Builder, Approver, Security, Auditor, Admin).
+One demo account exists: `demo@beinex.com` / `cocreate` (admin, shown as Spencer). Add more users under Settings › Users; each gets an email, password and role (Builder, Approver, Security, Auditor, Admin).
 
 ## Models
 

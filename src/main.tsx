@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom'
+import { MotionConfig } from 'framer-motion'
 import './index.css'
 import Shell from './components/Shell'
 import Login from './pages/Login'
@@ -47,6 +48,6 @@ const router = createBrowserRouter([
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <RouterProvider router={router} />
+    <MotionConfig reducedMotion="user"><RouterProvider router={router} /></MotionConfig>
   </React.StrictMode>,
 )

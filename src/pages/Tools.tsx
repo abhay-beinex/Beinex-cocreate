@@ -4,7 +4,7 @@ import { useApp, useUser, can } from '@/store/app'
 import { TOOLS, runTool } from '@/lib/tools'
 import type { CustomTool } from '@/lib/data'
 import { CONNECTORS, connectorTool } from '@/lib/connectors'
-import { Button, Chip, Field, Input, Modal, PageHeader, Select, Textarea, Tile } from '@/components/ui'
+import { Button, Chip, Confirm, Field, Input, Modal, PageHeader, Select, Textarea, Tile } from '@/components/ui'
 import { Page, Stagger, Item } from '@/components/motion'
 
 const cats = [
@@ -20,6 +20,7 @@ export default function Tools() {
   const user = useUser()!
   const { agents, customTools, upsertCustomTool, removeCustomTool, apiKey, profiles, defaultModel } = useApp()
   const [edit, setEdit] = useState<CustomTool | null>(null)
+  const [confirmTool, setConfirmTool] = useState<{ id: string; label: string; used: number } | null>(null)
   const [testArgs, setTestArgs] = useState('')
   const [testOut, setTestOut] = useState('')
   const [tryOut, setTryOut] = useState<Record<string, string>>({})
@@ -78,13 +79,14 @@ export default function Tools() {
                 <div className="flex-1 min-w-0"><div className="text-[13.5px] font-medium">{t.label} <code className="text-[11px] muted font-normal ml-1">{t.name}</code></div><div className="text-[12px] muted truncate">{t.method} {t.url}</div></div>
                 <span className="text-[12.5px] muted w-[90px] text-right">{used} agent{used === 1 ? '' : 's'}</span>
                 {editable && <button className="btn btn-ghost btn-sm btn-icon" onClick={() => { setEdit(t); setTestOut(''); setTestArgs(t.params.map((p) => `${p.name}=`).join('\n')) }}><Pencil size={13} /></button>}
-                {editable && <button className="btn btn-ghost btn-sm btn-icon" onClick={() => { if (confirm(`Delete ${t.label}? It is removed from ${used} agent(s).`)) removeCustomTool(t.id) }}><Trash2 size={13} /></button>}
+                {editable && <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setConfirmTool({ id: t.id, label: t.label, used })} aria-label={`Delete ${t.label}`}><Trash2 size={13} /></button>}
               </div>
             ) })}
           </div>
         </Item>
       </Stagger>
 
+      <Confirm open={!!confirmTool} onClose={() => setConfirmTool(null)} title={`Delete ${confirmTool?.label}?`} danger confirmLabel="Delete" body={confirmTool?.used ? `It is removed from ${confirmTool.used} agent${confirmTool.used === 1 ? '' : 's'}.` : 'No agent uses it.'} onConfirm={() => confirmTool && removeCustomTool(confirmTool.id)} />
       <Modal open={!!edit} onClose={() => setEdit(null)} title={edit && customTools.some((t) => t.id === edit.id) ? 'Edit custom tool' : 'New custom tool'} width={680}>
         {edit && (
           <div className="flex flex-col gap-4">

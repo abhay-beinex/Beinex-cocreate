@@ -10,6 +10,7 @@ import { Button, Tile, colorFor, cx, Chip } from '@/components/ui'
 import { AgentAvatar } from '@/components/AgentAvatar'
 import { AbilityWells } from '@/components/AgentBits'
 import { Page, Rise } from '@/components/motion'
+import { currentHoliday, holidayById } from '@/lib/holidays'
 
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening' }
 type Intent = 'ask' | 'agent' | 'workflow'
@@ -17,7 +18,8 @@ type Intent = 'ask' | 'agent' | 'workflow'
 export default function Home() {
   const user = useUser()!
   const nav = useNavigate()
-  const { agents, workflows, runs, libraries, customTools, decideRun, spentToday, caps } = useApp()
+  const { agents, workflows, runs, libraries, customTools, decideRun, spentToday, caps, seasonal, holidayPreview } = useApp()
+  const holiday = seasonal ? (holidayPreview ? holidayById(holidayPreview) : currentHoliday()) : undefined
   const [q, setQ] = useState('')
   const [intent, setIntent] = useState<Intent>('ask')
   const [tab, setTab] = useState<'agents' | 'workflows' | 'runs'>('agents')
@@ -61,7 +63,7 @@ export default function Home() {
         <div className="flex items-end justify-between gap-4 flex-wrap">
           <div>
             <div className="text-[11.5px] font-semibold muted mb-1.5">{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })} · {roleLabel[user.role]}</div>
-            <h1 className="display text-[30px] font-bold leading-tight">{greeting()}, {user.name.split(' ')[0]}</h1>
+            <h1 className="display text-[30px] font-bold leading-tight">{holiday ? <>{holiday.greeting}, {user.name.split(' ')[0]} <span role="img" aria-label={holiday.name} className="inline-block align-[-2px] ml-1">{holiday.emoji}</span></> : <>{greeting()}, {user.name.split(' ')[0]}</>}</h1>
             <p className="muted mt-1.5 text-[14px]">{needs > 0 ? [waiting.length > 0 ? `${waiting.length} waiting for your sign-off` : '', failed.length > 0 ? `${failed.length} failed` : '', running.length > 0 ? `${running.length} running` : ''].filter(Boolean).join(' · ') + '.' : empty ? 'Start by describing an agent or a workflow below.' : 'Nothing needs you right now. Ask anything, or build something.'}</p>
           </div>
         </div>

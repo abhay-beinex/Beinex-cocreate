@@ -4,7 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, Trash2, Download, Upload } from 'lucide-react'
 import { useApp, useUser, can } from '@/store/app'
 import { roleLabel, roleDesc, BRAND, type Role } from '@/lib/data'
-import { Button, Chip, Field, Input, Modal, PageHeader, Select, Toggle, Avatar, cx } from '@/components/ui'
+import { Button, Chip, Confirm, Field, Input, Modal, PageHeader, Select, Toggle, Avatar, cx } from '@/components/ui'
+import { ALL_HOLIDAYS } from '@/lib/holidays'
 import { Page } from '@/components/motion'
 
 const sections = [['users', 'Users'], ['governance', 'Governance'], ['workspace', 'Workspace']] as const
@@ -18,6 +19,8 @@ export default function Settings() {
   const [invite, setInvite] = useState<{ name: string; email: string; password: string; role: Role; title: string } | null>(null)
   const [pwFor, setPwFor] = useState<{ id: string; pw: string } | null>(null)
   const [err, setErr] = useState('')
+  const [confirmRemove, setConfirmRemove] = useState<{ id: string; name: string } | null>(null)
+  const [confirmReset, setConfirmReset] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const admin = can(user, 'admin')
   const security = can(user, 'security')
@@ -47,7 +50,7 @@ export default function Settings() {
                       {u.id !== user.id ? <Select value={u.role} onChange={(e) => s.updateUser(u.id, { role: e.target.value as Role })} className="!w-[130px] !h-8 !text-[12px]">{(Object.keys(roleLabel) as Role[]).map((r) => <option key={r} value={r}>{roleLabel[r]}</option>)}</Select> : <Chip className="w-[90px] justify-center">{roleLabel[u.role]}</Chip>}
                       <button onClick={() => setPwFor({ id: u.id, pw: '' })} className="text-[11.5px] muted hover:text-[var(--text)]">Password</button>
                       {u.id !== user.id && <button onClick={() => s.updateUser(u.id, { status: u.status === 'disabled' ? 'active' : 'disabled' })} className={cx('text-[11.5px] w-[52px]', u.status === 'disabled' ? 'text-[var(--danger)]' : 'muted hover:text-[var(--text)]')}>{u.status === 'disabled' ? 'Enable' : 'Disable'}</button>}
-                      {u.id !== user.id && <button onClick={() => { if (confirm(`Remove ${u.name}?`)) s.removeUser(u.id) }} className="muted hover:text-[var(--danger)]"><Trash2 size={13} /></button>}
+                      {u.id !== user.id && <button onClick={() => setConfirmRemove({ id: u.id, name: u.name })} className="muted hover:text-[var(--danger)]" aria-label={`Remove ${u.name}`}><Trash2 size={13} /></button>}
                     </div>
                   ))}
                 </div>
@@ -72,12 +75,15 @@ export default function Settings() {
                 <h2 className="text-[15px] font-semibold mb-4">Workspace</h2>
                 <Row title="Dark theme" right={<Toggle checked={s.theme === 'dark'} onChange={(v) => s.setTheme(v ? 'dark' : 'light')} />} />
                 <Row title="Arabic layout (RTL)" right={<Toggle checked={s.dir === 'rtl'} onChange={(v) => s.setDir(v ? 'rtl' : 'ltr')} />} />
+                <Row title="Themed cursor" desc="A Co-Create arrow and hand instead of the system cursor." right={<Toggle checked={s.themedCursor} onChange={s.setThemedCursor} />} />
+                <Row title="Seasonal touches" desc="A small badge on the logo and a greeting on Home during holidays: Middle East, India and international." right={<Toggle checked={s.seasonal} onChange={s.setSeasonal} />} />
+                {s.seasonal && <Row title="Preview a holiday" desc="Show one now, for a demo. Clears when you choose None." right={<Select value={s.holidayPreview ?? ''} onChange={(e) => s.setHolidayPreview(e.target.value || null)} className="!w-[220px] !h-8 !text-[12px]"><option value="">None (follow the calendar)</option>{ALL_HOLIDAYS.map((h) => <option key={h.id} value={h.id}>{h.emoji} {h.name}</option>)}</Select>} />}
                 <Row title="Change my password" right={<Button size="sm" onClick={() => setPwFor({ id: user.id, pw: '' })}>Change</Button>} />
                 {admin && <>
                   <div className="mt-6 text-[12px] font-semibold mb-1">Backup</div>
                   <Row title="Export workspace" desc="Agents, workflows, knowledge and your API abilities as JSON." right={<Button size="sm" onClick={exportWs}><Download size={13} /> Export</Button>} />
-                  <Row title="Import workspace" desc="Replaces the same sections from a file exported here." right={<><Button size="sm" onClick={() => fileRef.current?.click()}><Upload size={13} /> Import</Button><input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) f.text().then((t) => { const err = s.importWorkspace(t); alert(err ?? 'Workspace imported.') }); e.target.value = '' }} /></>} />
-                  <Row title="Reset pilot data" desc="Clears everything in this browser, including users and runs." right={<Button size="sm" onClick={() => { if (confirm('Reset all pilot data in this browser?')) { localStorage.removeItem('cocreate-v3'); location.href = '/login' } }}>Reset</Button>} />
+                  <Row title="Import workspace" desc="Replaces the same sections from a file exported here." right={<><Button size="sm" onClick={() => fileRef.current?.click()}><Upload size={13} /> Import</Button><input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) f.text().then((t) => { const err = s.importWorkspace(t); s.flashMsg(err ?? 'Workspace imported.', err ? 'danger' : 'ok') }); e.target.value = '' }} /></>} />
+                  <Row title="Reset pilot data" desc="Clears everything in this browser, including users and runs." right={<Button size="sm" onClick={() => setConfirmReset(true)}>Reset</Button>} />
                 </>}
                 <div className="text-[11.5px] muted mt-6">{BRAND.full} pilot · data lives in this browser.</div>
               </div>
@@ -86,6 +92,8 @@ export default function Settings() {
         </AnimatePresence>
       </div>
 
+      <Confirm open={!!confirmRemove} onClose={() => setConfirmRemove(null)} title={`Remove ${confirmRemove?.name}?`} danger confirmLabel="Remove" body="They can no longer sign in. Their past decisions stay in the audit log." onConfirm={() => confirmRemove && s.removeUser(confirmRemove.id)} />
+      <Confirm open={confirmReset} onClose={() => setConfirmReset(false)} title="Reset all pilot data?" danger confirmLabel="Reset" body="Everything in this browser is cleared: agents, workflows, runs, knowledge and users. This cannot be undone." onConfirm={() => { localStorage.removeItem('cocreate-v3'); location.href = '/login' }} />
       <Modal open={!!invite} onClose={() => setInvite(null)} title="Add user" width={480}>
         {invite && <div className="flex flex-col gap-4">
           <Field label="Name"><Input value={invite.name} onChange={(e) => setInvite({ ...invite, name: e.target.value })} /></Field>

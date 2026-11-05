@@ -4,8 +4,9 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Home, MessageSquare, Sparkles, Workflow, Wrench, BookOpen, ListChecks, Cpu, Settings, Sun, Moon, Languages, PanelLeftClose, PanelLeftOpen, LogOut, Bell, ShieldCheck, Clock, Info, CheckCheck, ChevronUp, Check } from 'lucide-react'
 import { useApp, useUser } from '@/store/app'
 import { BRAND, roleLabel } from '@/lib/data'
-import { tickSchedules, watchDocuments } from '@/lib/runner'
+import { tickSchedules, watchDocuments, reconcileRuns } from '@/lib/runner'
 import { BeinexMark } from './Logo'
+import { currentHoliday, holidayById } from '@/lib/holidays'
 import { Avatar, cx } from './ui'
 
 const groups: { title?: string; items: { to: string; label: string; icon: typeof Home; end?: boolean }[] }[] = [
@@ -16,7 +17,8 @@ const groups: { title?: string; items: { to: string; label: string; icon: typeof
 const kindIcon = { approval: ShieldCheck, run: ListChecks, schedule: Clock, info: Info }
 
 export default function Shell() {
-  const { theme, setTheme, dir, setDir, logout, notifications, markRead, schedulesPaused, runs } = useApp()
+  const { theme, setTheme, dir, setDir, logout, notifications, markRead, schedulesPaused, runs, themedCursor, seasonal, holidayPreview, flash } = useApp()
+  const holiday = seasonal ? (holidayPreview ? holidayById(holidayPreview) : currentHoliday()) : undefined
   const user = useUser()
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('nav-collapsed') === '1')
   const builder = /^\/workflows\/[^/]+/.test(useLocation().pathname)
@@ -30,6 +32,7 @@ export default function Shell() {
   const waiting = runs.filter((r) => r.status === 'waiting').length
 
   useEffect(() => { document.documentElement.classList.toggle('dark', theme === 'dark'); document.documentElement.dir = dir }, [theme, dir])
+  useEffect(() => { document.documentElement.classList.toggle('cursor-themed', themedCursor) }, [themedCursor])
   useEffect(() => { if (!builder) localStorage.setItem('nav-collapsed', collapsed ? '1' : '0') }, [collapsed, builder])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); nav('/chat') } if (e.key === 'Escape') setMenu(null) }
@@ -37,7 +40,7 @@ export default function Shell() {
     window.addEventListener('keydown', onKey); window.addEventListener('mousedown', onClick)
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onClick) }
   }, [nav])
-  useEffect(() => { const t = setInterval(() => { tickSchedules() }, 60_000); tickSchedules(); const off = watchDocuments(); return () => { clearInterval(t); off() } }, [])
+  useEffect(() => { reconcileRuns(); const t = setInterval(() => { tickSchedules() }, 60_000); tickSchedules(); const off = watchDocuments(); return () => { clearInterval(t); off() } }, [])
 
   if (!user) return <Navigate to="/login" replace />
   const editor = /^\/(agents|workflows)\/[^/]+/.test(loc.pathname) || loc.pathname.startsWith('/chat')
@@ -49,7 +52,7 @@ export default function Shell() {
         {/* brand + collapse */}
         <div className={cx('flex items-center gap-2.5 h-12 mb-2', collapsed ? 'justify-center' : 'px-1.5')}>
           <button onClick={() => nav('/')} className="flex items-center gap-2.5 text-left min-w-0">
-            <div className="w-9 h-9 rounded-[12px] grid place-items-center shrink-0" style={{ background: 'linear-gradient(145deg,#1a4a73,#10385b)', boxShadow: 'inset 2px 2px 5px rgba(255,255,255,.18), inset -3px -4px 8px rgba(0,0,0,.35), 0 8px 16px -10px rgba(16,56,91,.7)' }}><BeinexMark size={20} /></div>
+            <div className="relative w-9 h-9 rounded-[12px] grid place-items-center shrink-0" style={{ background: 'linear-gradient(145deg,#1a4a73,#10385b)', boxShadow: 'inset 2px 2px 5px rgba(255,255,255,.18), inset -3px -4px 8px rgba(0,0,0,.35), 0 8px 16px -10px rgba(16,56,91,.7)' }}><BeinexMark size={20} />{holiday && <span className="holiday-badge" title={`${holiday.name} · ${holiday.greeting}`} aria-label={holiday.name} role="img">{holiday.emoji}</span>}</div>
             {!collapsed && <div className="leading-tight min-w-0"><div className="display font-extrabold text-[14.5px] truncate">{BRAND.name}</div><div className="text-[10.5px] muted font-medium">by {BRAND.company}</div></div>}
           </button>
           {!collapsed && <button className="btn btn-ghost btn-sm btn-icon ml-auto" title="Collapse sidebar" onClick={() => setCollapsed(true)}><PanelLeftClose size={15} /></button>}
@@ -122,6 +125,9 @@ export default function Shell() {
       <main className={cx('flex-1 min-w-0 min-h-0', editor ? '' : 'scroll')}>
         <Outlet />
       </main>
+      <AnimatePresence>{flash && (
+        <motion.div key={flash.id} role="status" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} className={cx('fixed bottom-6 left-1/2 -translate-x-1/2 z-[70] pop rounded-full h-10 px-4 flex items-center gap-2 text-[13px] font-medium', flash.tone === 'danger' && 'text-[var(--danger)]', flash.tone === 'ok' && 'text-[var(--ok)]')}>{flash.text}</motion.div>
+      )}</AnimatePresence>
     </div>
   )
 }

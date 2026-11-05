@@ -158,7 +158,7 @@ export function Composer({ onSend, busy, onStop, placeholder, left, right, attac
   const fileRef = useRef<HTMLInputElement>(null)
   const ta = useRef<HTMLTextAreaElement>(null)
   const submit = () => { if (v.trim() || files.length) { onSend(v, files); setV(''); setFiles([]); if (ta.current) ta.current.style.height = 'auto' } }
-  const pick = async (list: FileList | null) => { if (!list) return; const out: Attachment[] = []; for (const f of Array.from(list)) { if (f.size > 1_500_000) { alert(`${f.name} is over 1.5 MB. Paste the relevant part instead.`); continue } out.push({ name: f.name, text: await f.text() }) } setFiles((x) => [...x, ...out]) }
+  const pick = async (list: FileList | null) => { if (!list) return; const out: Attachment[] = []; for (const f of Array.from(list)) { if (f.size > 1_500_000) { useApp.getState().flashMsg(`${f.name} is over 1.5 MB. Paste the relevant part instead.`, 'danger'); continue } out.push({ name: f.name, text: await f.text() }) } setFiles((x) => [...x, ...out]) }
   const total = useMemo(() => files.reduce((a, f) => a + f.text.length, 0), [files])
   return (
     <div className="flat p-1.5 pl-2 flex flex-col gap-1 focus-within:border-[var(--accent)] transition-colors">

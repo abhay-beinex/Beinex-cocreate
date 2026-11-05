@@ -58,6 +58,17 @@ export const tryStep = (wf: Workflow, nodeId: string, vars: Record<string, strin
 
 export const isRunning = (id: string) => running.has(id)
 
+/** Runs left as "running" by a reload or a closed tab cannot continue; mark them failed so they can be run again from the last step. */
+export function reconcileRuns() {
+  const s = useApp.getState()
+  for (const r of s.runs) {
+    if (r.status !== 'running' || running.has(r.id)) continue
+    const steps = [...r.steps, { name: 'Interrupted', ms: 0, status: 'failed' as const, output: 'The page was reloaded or closed while this run was in progress, so it could not continue. Use "Again from here" on the last finished step to resume.' }]
+    s.updateRun(r.id, { status: 'failed', cursor: null, finished: new Date().toISOString().slice(0, 16).replace('T', ' '), steps })
+    s.notify({ title: `Run interrupted: ${r.workflow}`, body: `${r.id} stopped when the page was reloaded. You can run it again from the last step.`, link: `/runs?open=${r.id}`, kind: 'run' })
+  }
+}
+
 const scheduleProblem = (wf: Workflow) => {
   const s = useApp.getState()
   if (!s.apiKey) return 'Models are not available, so the run could not start.'

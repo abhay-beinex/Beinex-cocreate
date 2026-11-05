@@ -21,7 +21,7 @@ export const roleDesc: Record<Role, string> = {
   admin: 'Everything, including users.',
 }
 
-export const DEMO_USER: User = { id: 'demo', name: 'Demo User', email: 'demo@beinex.com', password: 'cocreate', initials: 'DU', role: 'admin', title: 'Pilot administrator', status: 'active', lastActive: 'Never', createdAt: '2026-11-05' }
+export const DEMO_USER: User = { id: 'demo', name: 'Spencer', email: 'demo@beinex.com', password: 'cocreate', initials: 'S', role: 'admin', title: 'Pilot administrator', status: 'active', lastActive: 'Never', createdAt: '2026-11-05' }
 
 export type Autonomy = 1 | 2 | 3
 export type AgentSnapshot = { version: number; at: string; by: string; data: Omit<Agent, 'history'> }

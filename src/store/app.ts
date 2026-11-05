@@ -33,6 +33,11 @@ type State = {
   threads: Thread[]
   schedulesPaused: boolean
   caps: { user: number; org: number }
+  /** Seasonal touches (holiday badge and greetings), the themed cursor, and a holiday to preview */
+  seasonal: boolean
+  themedCursor: boolean
+  holidayPreview: string | null
+  flash: { id: number; text: string; tone?: 'ok' | 'danger' } | null
 
   login: (email: string, password: string) => string | null
   logout: () => void
@@ -81,6 +86,11 @@ type State = {
   setSchedulesPaused: (v: boolean) => void
   setCap: (k: 'user' | 'org', v: number) => void
   importWorkspace: (json: string) => string | null
+  setSeasonal: (v: boolean) => void
+  setThemedCursor: (v: boolean) => void
+  setHolidayPreview: (id: string | null) => void
+  /** A short message at the bottom of the screen, instead of a browser alert. */
+  flashMsg: (text: string, tone?: 'ok' | 'danger') => void
 }
 
 export const useApp = create<State>()(
@@ -110,6 +120,10 @@ export const useApp = create<State>()(
         threads: [],
         schedulesPaused: false,
         caps: { user: 5, org: 100 },
+        seasonal: true,
+        themedCursor: true,
+        holidayPreview: null,
+        flash: null,
 
         login: (email, password) => {
           const u = get().users.find((x) => x.email.toLowerCase() === email.trim().toLowerCase())
@@ -178,6 +192,10 @@ export const useApp = create<State>()(
         clearChat: (key) => { const c = { ...get().chats }; delete c[key]; set({ chats: c }) },
         setSchedulesPaused: (v) => { set({ schedulesPaused: v }); log(v ? 'Paused all schedules' : 'Resumed schedules', 'Workflows') },
         setCap: (k, v) => { set({ caps: { ...get().caps, [k]: v } }); log('Changed spend cap', k, `$${v}`) },
+        setSeasonal: (seasonal) => set({ seasonal }),
+        setThemedCursor: (themedCursor) => set({ themedCursor }),
+        setHolidayPreview: (holidayPreview) => set({ holidayPreview }),
+        flashMsg: (text, tone) => { const id = Date.now(); set({ flash: { id, text, tone } }); setTimeout(() => { if (get().flash?.id === id) set({ flash: null }) }, 3200) },
         importWorkspace: (json) => {
           try {
             const d = JSON.parse(json)
@@ -191,8 +209,8 @@ export const useApp = create<State>()(
     },
     {
       name: 'cocreate-v3', version: 3,
-      merge: (persisted, current) => { const m = { ...current, ...(persisted as object) } as State; if (!m.apiKey && ENV_KEY) m.apiKey = ENV_KEY; if (!m.users?.length) m.users = [DEMO_USER]; return m },
-      partialize: (s) => Object.fromEntries(Object.entries(s).filter(([k, v]) => !['models'].includes(k) && typeof v !== 'function')) as any,
+      merge: (persisted, current) => { const m = { ...current, ...(persisted as object) } as State; if (!m.apiKey && ENV_KEY) m.apiKey = ENV_KEY; if (!m.users?.length) m.users = [DEMO_USER]; m.users = m.users.map((u) => (u.id === 'demo' && (u.name === 'Demo User' || u.name === 'Vision') ? { ...u, name: DEMO_USER.name, initials: DEMO_USER.initials } : u)); m.flash = null; return m },
+      partialize: (s) => Object.fromEntries(Object.entries(s).filter(([k, v]) => !['models', 'flash'].includes(k) && typeof v !== 'function')) as any,
     },
   ),
 )

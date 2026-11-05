@@ -64,3 +64,22 @@ Where it is weaker than it looks:
 - No automated tests exist; correctness rests on typecheck plus manual runs. The engine would benefit from a small unit suite around template rendering, joins and re-run reconstruction.
 - The production bundle is one 1 MB chunk; code splitting of the builder and chat routes was deliberately left out.
 - Thread and run data live in local storage; large outputs will eventually hit its quota.
+
+## Round 3: platform polish, seasonal touches, pressure check
+
+- HIG-style polish: visible keyboard focus rings, themed selection colour, every scrollbar and native select styled to the theme (light and dark colour-scheme), reduced-motion respected (CSS and Framer Motion), no browser alert/confirm dialogs anywhere (themed Confirm dialogs and a bottom toast instead), Escape closes overlays, disabled controls show not-allowed.
+- Themed cursor: one restrained macOS-style navy arrow with a hairline white edge, used for everything clickable; I-beam in text fields; grab on the canvas. Toggle under Settings › Workspace.
+- Seasonal touches: a badge on the logo and a greeting on Home for Middle East, India and international holidays (Ramadan, both Eids, Hijri New Year, Nowruz, UAE Flag Day and National Day, Saudi, Qatar, Kuwait, Oman, Bahrain national days, Diwali, Onam, Lunar New Year, Christmas, New Year, Women's Day, Earth Day, Halloween). Lunar dates tabled 2025–2030. Toggle and a "Preview a holiday" selector under Settings › Workspace.
+- Demo user renamed to Spencer (existing browsers migrate on load).
+- Runs orphaned by a reload or closed tab are marked Failed with an "Interrupted" step and a notification, and can be run again from the last step.
+
+Pressure check in Chrome: two runs of the same workflow started concurrently from the builder and the list completed independently (17s and 29s) with correct branching; reload mid-run now degrades cleanly; no console errors from the app; local storage at 15 KB after a dozen runs.
+
+## Deployment readiness
+
+Ready for a demo and a pilot behind a login, with these conditions:
+- It is a browser-only build: schedules, page watches and link triggers only fire while a tab is open; nothing runs server-side. Do not promise unattended automation.
+- The model key ships in the built JavaScript (VITE_OPENROUTER_API_KEY). For anything beyond a trusted pilot, put a proxy in front of the model API and keep the key there.
+- Data lives in each browser's local storage: no sharing between people, no backup beyond Export under Settings.
+- Sign-in is a demo-grade password check, not an identity provider.
+- Add real unit tests around the engine before widening the audience.
