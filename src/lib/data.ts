@@ -3,9 +3,9 @@ export const BRAND = { name: 'Co-Create', company: 'Beinex', full: 'Beinex Co-Cr
 
 export const DEFAULT_MODEL = 'anthropic/claude-sonnet-5.5'
 export const MODEL_PROFILES = [
-  { id: 'fast', name: 'Fast', purpose: 'Quick replies, conditions, web search summaries', model: 'anthropic/claude-haiku-5.5' },
-  { id: 'balanced', name: 'Balanced', purpose: 'Default for new agents and the assistant', model: 'anthropic/claude-sonnet-5.5' },
-  { id: 'reasoning', name: 'Reasoning', purpose: 'Deep research, council synthesis, hard analysis', model: 'anthropic/claude-opus-5.5' },
+  { id: 'fast', name: 'Fast', purpose: 'Quick replies, actions and lookups', model: 'anthropic/claude-haiku-5.5' },
+  { id: 'balanced', name: 'Balanced', purpose: 'Most agents, conditions and the assistant', model: 'anthropic/claude-sonnet-5.5' },
+  { id: 'reasoning', name: 'Deep', purpose: 'Research and hard analysis', model: 'anthropic/claude-opus-5.5' },
 ] as const
 export type ProfileId = (typeof MODEL_PROFILES)[number]['id']
 

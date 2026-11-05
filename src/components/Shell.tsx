@@ -10,7 +10,7 @@ import { Avatar, cx } from './ui'
 
 const groups: { title?: string; items: { to: string; label: string; icon: typeof Home; end?: boolean }[] }[] = [
   { items: [{ to: '/', label: 'Home', icon: Home, end: true }, { to: '/chat', label: 'Chat', icon: MessageSquare }] },
-  { title: 'Build', items: [{ to: '/agents', label: 'Agents', icon: Sparkles }, { to: '/workflows', label: 'Workflows', icon: Workflow }, { to: '/tools', label: 'Tools', icon: Wrench }, { to: '/knowledge', label: 'Knowledge', icon: BookOpen }] },
+  { title: 'Build', items: [{ to: '/agents', label: 'Agents', icon: Sparkles }, { to: '/workflows', label: 'Workflows', icon: Workflow }, { to: '/tools', label: 'Abilities', icon: Wrench }, { to: '/knowledge', label: 'Knowledge', icon: BookOpen }] },
   { title: 'Operate', items: [{ to: '/runs', label: 'Runs', icon: ListChecks }, { to: '/models', label: 'Models', icon: Cpu }, { to: '/settings', label: 'Settings', icon: Settings }] },
 ]
 const kindIcon = { approval: ShieldCheck, run: ListChecks, schedule: Clock, info: Info }

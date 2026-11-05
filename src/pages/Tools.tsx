@@ -33,7 +33,7 @@ export default function Tools() {
 
   return (
     <Page className="max-w-[1080px] mx-auto pt-8 pb-16 px-4">
-      <PageHeader title="Tools" subtitle="Capabilities agents can use. Turn them on per agent in the agent editor." actions={editable && <Button variant="primary" onClick={() => { setEdit(blank(user.id)); setTestOut(''); setTestArgs('query=example') }}><Plus size={15} /> Custom tool</Button>} />
+      <PageHeader title="Abilities" subtitle="What agents can do. Built-in abilities are ready to use; add your own API as an ability." actions={editable && <Button variant="primary" onClick={() => { setEdit(blank(user.id)); setTestOut(''); setTestArgs('query=example') }}><Plus size={15} /> Add your API</Button>} />
       <Stagger className="flex flex-col gap-6" delay={0.06}>
         {cats.map((c) => (
           <Item key={c.id}>
@@ -51,9 +51,9 @@ export default function Tools() {
           </Item>
         ))}
         <Item>
-          <div className="flex items-center gap-2 mb-2 px-1"><Code2 size={14} className="muted" /><span className="text-[12px] font-semibold">Custom</span><span className="text-[12px] muted">· HTTP tools you define. The agent fills the parameters; the response is returned to it.</span></div>
+          <div className="flex items-center gap-2 mb-2 px-1"><Code2 size={14} className="muted" /><span className="text-[12px] font-semibold">Your API</span><span className="text-[12px] muted">· HTTP endpoints you define. The agent fills the parameters; the response comes back to it.</span></div>
           <div className="clay px-3 py-1">
-            {customTools.length === 0 && <div className="py-8 text-center text-[12.5px] muted">No custom tools yet. Add one to call any HTTP API that allows browser requests, such as a public data API or your own service.</div>}
+            {customTools.length === 0 && <div className="py-8 text-center text-[12.5px] muted">Nothing added yet. Connect any HTTP API that allows browser requests, such as a public data API or your own service.</div>}
             {customTools.map((t) => { const used = agents.filter((a) => a.tools.includes(t.name)).length; return (
               <div key={t.id} className="row">
                 <Tile color="#64748b" size={34}><Code2 size={15} /></Tile>

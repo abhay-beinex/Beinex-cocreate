@@ -48,7 +48,7 @@ export default function Runs() {
       {tab !== 'audit' ? (
         <Stagger className="clay px-3 py-1" delay={0.04}>
           <div className="row text-[11px] font-semibold uppercase tracking-wider muted !py-2"><span className="w-[70px]">Run</span><span className="flex-1">Workflow</span><span className="w-[100px]">Status</span><span className="w-[150px]">Trigger</span><span className="w-[70px] text-right">Duration</span><span className="w-[60px] text-right">Cost</span></div>
-          {list.length === 0 && <div className="py-10 text-center muted text-[13px]">{tab === 'approvals' ? 'Nothing waiting for approval.' : runs.length === 0 ? 'No runs yet. Run a workflow or use a gated tool in chat.' : 'No runs match.'}</div>}
+          {list.length === 0 && <div className="py-10 text-center muted text-[13px]">{tab === 'approvals' ? 'Nothing waiting for approval.' : runs.length === 0 ? 'No runs yet. Run a workflow, or ask an agent for something that needs approval.' : 'No runs match.'}</div>}
           {list.map((r) => (
             <Item key={r.id}>
               <button onClick={() => setOpenId(r.id)} className="row hover w-full text-left">

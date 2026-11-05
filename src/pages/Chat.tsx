@@ -70,7 +70,7 @@ export default function Chat() {
                   {models.slice(0, 300).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
               </label>} />
-            <div className="text-[11px] muted mt-2 px-1">{agent.tools.length} tools available. External actions are queued under Approvals for a person.</div>
+            <div className="text-[11px] muted mt-2 px-1">{agent.tools.length} abilities. Actions that reach outside wait for a person under Approvals.</div>
           </div>
         </footer>
       </section>

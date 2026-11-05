@@ -104,7 +104,7 @@ export default function Home() {
           </div>
         </Item>
       </Stagger>
-      <Rise delay={0.3}><div className="mt-10 text-[12px] muted px-1 flex items-center gap-1.5"><Globe size={12} /> Built-in tools: web search, deep research, read web pages, calculator, JavaScript sandbox, knowledge search, documents, email drafts and approvals. Add your own under Tools.</div></Rise>
+      <Rise delay={0.3}><div className="mt-10 text-[12px] muted px-1 flex items-center gap-1.5"><Globe size={12} /> Built-in abilities: web search, deep research, read web pages, calculator, JavaScript sandbox, knowledge search, documents, email drafts and approvals. Add your own API under Abilities.</div></Rise>
     </Page>
   )
 }

@@ -75,7 +75,7 @@ export default function Settings() {
                 <Row title="Change my password" right={<Button size="sm" onClick={() => setPwFor({ id: user.id, pw: '' })}>Change</Button>} />
                 {admin && <>
                   <div className="mt-6 text-[12px] font-semibold mb-1">Backup</div>
-                  <Row title="Export workspace" desc="Agents, councils, workflows, knowledge and custom tools as JSON." right={<Button size="sm" onClick={exportWs}><Download size={13} /> Export</Button>} />
+                  <Row title="Export workspace" desc="Agents, workflows, knowledge and your API abilities as JSON." right={<Button size="sm" onClick={exportWs}><Download size={13} /> Export</Button>} />
                   <Row title="Import workspace" desc="Replaces the same sections from a file exported here." right={<><Button size="sm" onClick={() => fileRef.current?.click()}><Upload size={13} /> Import</Button><input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) f.text().then((t) => { const err = s.importWorkspace(t); alert(err ?? 'Workspace imported.') }); e.target.value = '' }} /></>} />
                   <Row title="Reset pilot data" desc="Clears everything in this browser, including users and runs." right={<Button size="sm" onClick={() => { if (confirm('Reset all pilot data in this browser?')) { localStorage.removeItem('cocreate-v3'); location.href = '/login' } }}>Reset</Button>} />
                 </>}

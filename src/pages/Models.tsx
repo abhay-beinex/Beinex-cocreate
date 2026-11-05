@@ -25,7 +25,7 @@ export default function Models() {
 
   return (
     <Page className="max-w-[1080px] mx-auto pt-8 pb-16 px-4">
-      <PageHeader title="Models" subtitle="Choose which models the workspace uses. Profiles are used by tools, conditions and councils." actions={<Button onClick={refresh} disabled={loading}><RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh</Button>} />
+      <PageHeader title="Models" subtitle="Each thinking level maps to a model. Agents choose a level; conditions and actions use Balanced and Fast." actions={<Button onClick={refresh} disabled={loading}><RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh</Button>} />
       <Stagger className="grid md:grid-cols-3 gap-4 mb-8" delay={0.08}>
         {MODEL_PROFILES.map((p) => {
           const cur = profiles.find((x) => x.id === p.id)?.model ?? p.model
