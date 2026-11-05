@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ReactFlow, Background, Controls, addEdge, useNodesState, useEdgesState, Handle, Position, type Node, type Edge, type Connection, type NodeProps, BackgroundVariant } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import ReactMarkdown from 'react-markdown'
+import { Md } from '@/components/Md'
 import { ArrowLeft, Zap, Sparkles, Users, GitFork, UserCheck, Wrench, Bell, ArrowUp, Play, Trash2, X, Check, Pause } from 'lucide-react'
 import { useApp, useUser, can } from '@/store/app'
 import { workflowTemplates, type Brick, type StepData, type Workflow, type Run, type RunStep } from '@/lib/data'
@@ -224,7 +224,7 @@ export default function WorkflowEditor() {
                   {test.log.map((s, i) => (
                     <motion.li key={i} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} className="flat p-3">
                       <div className="flex items-center gap-2 text-[12.5px] font-semibold"><span className={cx('w-2 h-2 rounded-full', s.status === 'ok' ? 'bg-[var(--ok)]' : s.status === 'failed' ? 'bg-[var(--danger)]' : 'bg-[var(--warn)]')} />{s.name}<span className="muted font-normal ml-auto">{s.model ? `${s.model} · ` : ''}{(s.ms / 1000).toFixed(1)}s</span></div>
-                      {s.output && <div className="prose-chat text-[12px] muted mt-1.5"><ReactMarkdown>{s.output}</ReactMarkdown></div>}
+                      {s.output && <Md className="prose-chat text-[12px] muted mt-1.5">{s.output}</Md>}
                     </motion.li>
                   ))}
                   {test.running && test.active >= test.log.length && <li className="text-[12px] muted px-1">Running {order[test.active]?.data.label}…</li>}

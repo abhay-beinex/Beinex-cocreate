@@ -122,7 +122,7 @@ export const useApp = create<State>()(
         setApiKey: (apiKey) => { set({ apiKey }); log(apiKey ? 'Connected OpenRouter key' : 'Removed OpenRouter key', 'OpenRouter') },
         setDefaultModel: (defaultModel) => { set({ defaultModel }); log('Changed default model', defaultModel) },
         setProfileModel: (id, model) => { set({ profiles: get().profiles.map((p) => (p.id === id ? { ...p, model } : p)) }); log('Changed model profile', id, model) },
-        setModels: (models) => set({ models, modelsFetchedAt: Date.now() }),
+        setModels: (models) => set({ models: [...models].sort((a, b) => a.name.localeCompare(b.name)), modelsFetchedAt: Date.now() }),
 
         upsertAgent: (a) => { const exists = get().agents.some((x) => x.id === a.id); set({ agents: exists ? get().agents.map((x) => (x.id === a.id ? a : x)) : [a, ...get().agents] }); log(exists ? 'Saved agent' : 'Created agent', `${a.name} v${a.version}`) },
         deleteAgent: (id) => { log('Deleted agent', get().agents.find((a) => a.id === id)?.name ?? id); set({ agents: get().agents.filter((a) => a.id !== id) }) },
@@ -130,7 +130,7 @@ export const useApp = create<State>()(
         deleteCouncil: (id) => { log('Deleted council', get().councils.find((c) => c.id === id)?.name ?? id); set({ councils: get().councils.filter((c) => c.id !== id) }) },
         upsertWorkflow: (w) => { const exists = get().workflows.some((x) => x.id === w.id); set({ workflows: exists ? get().workflows.map((x) => (x.id === w.id ? w : x)) : [w, ...get().workflows] }); log(exists ? 'Saved workflow' : 'Created workflow', `${w.name} v${w.version}`) },
         deleteWorkflow: (id) => { log('Deleted workflow', get().workflows.find((w) => w.id === id)?.name ?? id); set({ workflows: get().workflows.filter((w) => w.id !== id) }) },
-        addRun: (r) => set({ runs: [r, ...get().runs] }),
+        addRun: (r) => { const max = get().runs.reduce((m, x) => Math.max(m, parseInt(x.id.replace(/\D/g, ''), 10) || 0), 1288); set({ runs: [{ ...r, id: `R-${max + 1}` }, ...get().runs] }) },
         updateRun: (id, p) => set({ runs: get().runs.map((r) => (r.id === id ? { ...r, ...p } : r)) }),
         decideRun: (id, decision) => {
           set({ runs: get().runs.map((r) => (r.id === id ? { ...r, status: decision, decidedBy: actor(), steps: r.steps.map((s) => (s.status === 'waiting' ? { ...s, status: decision === 'approved' ? 'ok' : 'skipped', ms: s.ms || 1200 } : s)) } : r)), suggestions: get().suggestions.map((s) => (s.link?.includes(id) ? { ...s, status: 'history' } : s)) })

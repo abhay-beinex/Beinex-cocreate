@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import ReactMarkdown from 'react-markdown'
+import { Md } from '@/components/Md'
 import { Fingerprint, ShieldCheck } from 'lucide-react'
 import { useApp, useUser, can } from '@/store/app'
 import type { Run } from '@/lib/data'
@@ -82,7 +82,7 @@ export default function Runs() {
                 {open.steps.map((s, i) => (
                   <li key={i} className="px-3 py-2.5">
                     <div className="flex items-center gap-3"><span className={cx('w-2 h-2 rounded-full', s.status === 'ok' ? 'bg-[var(--ok)]' : s.status === 'failed' ? 'bg-[var(--danger)]' : s.status === 'skipped' ? 'bg-[var(--muted)]' : 'bg-[var(--warn)]')} /><span className="flex-1 text-[13px] font-medium">{s.name}</span><span className="text-[11.5px] muted">{s.model ? `${s.model} · ` : ''}{s.ms ? `${(s.ms / 1000).toFixed(1)}s` : s.status === 'waiting' ? 'pending' : s.status}{s.tokens ? ` · ${s.tokens.toLocaleString()} tok` : ''}</span></div>
-                    {s.output && <div className="prose-chat text-[12px] muted mt-1.5 pl-5"><ReactMarkdown>{s.output}</ReactMarkdown></div>}
+                    {s.output && <Md className="prose-chat text-[12px] muted mt-1.5 pl-5">{s.output}</Md>}
                   </li>
                 ))}
               </ol>
@@ -97,7 +97,7 @@ export default function Runs() {
         {gate && (
           <div className="flex flex-col gap-4">
             <div className="text-[13px]">{gate.summary}</div>
-            {gate.steps.filter((s) => s.output && s.status === 'ok').map((s, i) => <div key={i} className="flat p-3 text-[12.5px]"><div className="font-semibold mb-1">{s.name}</div><div className="prose-chat muted"><ReactMarkdown>{s.output!}</ReactMarkdown></div></div>)}
+            {gate.steps.filter((s) => s.output && s.status === 'ok').map((s, i) => <div key={i} className="flat p-3 text-[12.5px]"><div className="font-semibold mb-1">{s.name}</div><Md className="prose-chat muted">{s.output!}</Md></div>)}
             <div className="text-[12px] muted">Approving signs the decision with your account and seals the run. Rejecting halts the transaction.</div>
             <div className="flex gap-2 justify-end">
               <Button onClick={() => { decideRun(gate.id, 'rejected'); setGate(null) }}>Reject</Button>

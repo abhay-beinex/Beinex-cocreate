@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Sparkles, Plus, ChevronDown, Users } from 'lucide-react'
 import { useApp } from '@/store/app'
@@ -28,7 +28,8 @@ export default function Chat() {
   const activeModel = model || agent.model
   const chat = useAgentChat(agent, `chat:${key}`)
 
-  useEffect(() => { const q = params.get('q'); if (q) { setParams({}, { replace: true }); chat.send(q, activeModel) } }, [params]) // eslint-disable-line react-hooks/exhaustive-deps
+  const sentQ = useRef<string | null>(null)
+  useEffect(() => { const q = params.get('q'); if (q && sentQ.current !== q) { sentQ.current = q; setParams({}, { replace: true }); chat.send(q, activeModel) } }, [params]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const list = [{ id: 'assistant', name: ASSISTANT.name }, ...agents.map((a) => ({ id: a.id, name: a.name }))].filter((a) => a.name.toLowerCase().includes(filter.toLowerCase()))
 

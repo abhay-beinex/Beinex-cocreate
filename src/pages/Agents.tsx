@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import ReactMarkdown from 'react-markdown'
+import { Md } from '@/components/Md'
 import { Plus, Sparkles, Users, Play, Trash2, Workflow as WorkflowIcon, Check } from 'lucide-react'
 import { useApp, useUser } from '@/store/app'
 import { councilTemplates, roleLabel, type Agent, type Council } from '@/lib/data'
@@ -162,13 +162,13 @@ function CouncilDrawer({ council, onClose, onDelete }: { council: Council | null
           {findings.map((f, i) => (
             <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flat p-3">
               <div className="text-[12px] font-semibold mb-1 flex items-center gap-2"><Tile color={colorFor(f.agent)} size={20} radius={6}><Sparkles size={10} /></Tile>{f.agent}</div>
-              <div className="prose-chat text-[12.5px]"><ReactMarkdown>{f.text || '…'}</ReactMarkdown></div>
+              <Md className="prose-chat text-[12.5px]">{f.text || '…'}</Md>
             </motion.div>
           ))}
           {synthesis && (
             <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="clay-sm p-4">
               <div className="text-[12px] font-semibold mb-1">Council recommendation · for {users.find((u) => u.id === draft.gatekeeper)?.name}</div>
-              <div className="prose-chat text-[13px]"><ReactMarkdown>{synthesis}</ReactMarkdown></div>
+              <Md className="prose-chat text-[13px]">{synthesis}</Md>
             </motion.div>
           )}
         </div>

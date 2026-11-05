@@ -19,7 +19,7 @@ export const TOOLS: ToolMeta[] = [
 export const toolDefs = (names: string[]): ToolDef[] => names.map((n) => DEFS[n]).filter(Boolean)
 
 const DEFS: Record<string, ToolDef> = {
-  lookup_invoice: { type: 'function', function: { name: 'lookup_invoice', description: 'Look up invoices by invoice number (e.g. INV-20931) or supplier name. Returns amount, VAT, TRN, PO, date and status.', parameters: { type: 'object', properties: { query: { type: 'string', description: 'Invoice number or supplier name' } }, required: ['query'] } } },
+  lookup_invoice: { type: 'function', function: { name: 'lookup_invoice', description: 'Look up invoices by invoice number (e.g. INV-20931) or supplier name. Returns amount, VAT, TRN, PO, date, status and the supplier contact email.', parameters: { type: 'object', properties: { query: { type: 'string', description: 'Invoice number or supplier name' } }, required: ['query'] } } },
   lookup_purchase_order: { type: 'function', function: { name: 'lookup_purchase_order', description: 'Look up a purchase order by number (e.g. PO-4471).', parameters: { type: 'object', properties: { po: { type: 'string' } }, required: ['po'] } } },
   find_duplicates: { type: 'function', function: { name: 'find_duplicates', description: 'Find other invoices that share the same supplier, amount and PO as the given invoice within 14 days.', parameters: { type: 'object', properties: { invoice: { type: 'string' } }, required: ['invoice'] } } },
   chart_of_accounts: { type: 'function', function: { name: 'chart_of_accounts', description: 'List GL accounts with their cost centres and tax codes. Optionally filter by keyword.', parameters: { type: 'object', properties: { keyword: { type: 'string' } } } } },
@@ -40,7 +40,7 @@ export function runTool(name: string, rawArgs: string, ctx: ToolContext): string
   const q = String(args.query ?? args.name ?? args.invoice ?? args.po ?? '').toLowerCase()
   switch (name) {
     case 'lookup_invoice': {
-      const hits = invoices.filter((i) => i.id.toLowerCase().includes(q) || i.supplier.toLowerCase().includes(q))
+      const hits = invoices.filter((i) => i.id.toLowerCase().includes(q) || i.supplier.toLowerCase().includes(q)).map((i) => ({ ...i, supplierEmail: suppliers.find((s) => s.name === i.supplier)?.email }))
       return hits.length ? JSON.stringify(hits) : `No invoice matches "${args.query}".`
     }
     case 'lookup_purchase_order': {

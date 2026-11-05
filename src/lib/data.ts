@@ -272,13 +272,13 @@ export const purchaseOrders = [
   { id: 'PO-4455', supplier: 'Majid Events', amount: 12400, currency: 'AED', description: 'Town hall event November', goodsReceived: true, costCentre: 'CC-210 Marketing' },
 ]
 export const suppliers = [
-  { name: 'Al Futtaim Logistics', trn: '100234567800003', licenceExpiry: '2027-03-14', contractExpiry: '2027-06-30', onboarded: '2021-04-02', risk: 'Low', openPOs: 3 },
-  { name: 'Emirates Steel', trn: '100987654300002', licenceExpiry: '2027-01-20', contractExpiry: '2026-12-05', onboarded: '2019-09-11', risk: 'Low', openPOs: 1 },
-  { name: 'DP World', trn: '100555666700001', licenceExpiry: '2027-08-01', contractExpiry: '2027-08-01', onboarded: '2018-02-14', risk: 'Low', openPOs: 2 },
-  { name: 'Gulf Print Co.', trn: '', licenceExpiry: '2026-11-17', contractExpiry: '2027-02-28', onboarded: '2026-10-10', risk: 'Medium', openPOs: 2 },
-  { name: 'Nova Facilities', trn: '', licenceExpiry: '2027-05-30', contractExpiry: '2027-05-30', onboarded: '2026-10-22', risk: 'Medium', openPOs: 1 },
-  { name: 'Desert Tech Supplies', trn: '', licenceExpiry: '2027-02-10', contractExpiry: '2027-02-10', onboarded: '2026-10-25', risk: 'Medium', openPOs: 0 },
-  { name: 'Majid Events', trn: '100111222300004', licenceExpiry: '2027-04-18', contractExpiry: '2027-04-18', onboarded: '2023-06-01', risk: 'Low', openPOs: 1 },
+  { name: 'Al Futtaim Logistics', email: 'ap@alfuttaimlogistics.ae', trn: '100234567800003', licenceExpiry: '2027-03-14', contractExpiry: '2027-06-30', onboarded: '2021-04-02', risk: 'Low', openPOs: 3 },
+  { name: 'Emirates Steel', email: 'receivables@emiratessteel.com', trn: '100987654300002', licenceExpiry: '2027-01-20', contractExpiry: '2026-12-05', onboarded: '2019-09-11', risk: 'Low', openPOs: 1 },
+  { name: 'DP World', email: 'billing@dpworld.com', trn: '100555666700001', licenceExpiry: '2027-08-01', contractExpiry: '2027-08-01', onboarded: '2018-02-14', risk: 'Low', openPOs: 2 },
+  { name: 'Gulf Print Co.', email: 'accounts@gulfprint.ae', trn: '', licenceExpiry: '2026-11-17', contractExpiry: '2027-02-28', onboarded: '2026-10-10', risk: 'Medium', openPOs: 2 },
+  { name: 'Nova Facilities', email: 'finance@novafacilities.ae', trn: '', licenceExpiry: '2027-05-30', contractExpiry: '2027-05-30', onboarded: '2026-10-22', risk: 'Medium', openPOs: 1 },
+  { name: 'Desert Tech Supplies', email: 'sales@deserttech.ae', trn: '', licenceExpiry: '2027-02-10', contractExpiry: '2027-02-10', onboarded: '2026-10-25', risk: 'Medium', openPOs: 0 },
+  { name: 'Majid Events', email: 'accounts@majidevents.ae', trn: '100111222300004', licenceExpiry: '2027-04-18', contractExpiry: '2027-04-18', onboarded: '2023-06-01', risk: 'Low', openPOs: 1 },
 ]
 export const chartOfAccounts = [
   { account: '6100', name: 'Freight & logistics', costCentres: ['CC-310'], taxCode: 'VAT-5' },

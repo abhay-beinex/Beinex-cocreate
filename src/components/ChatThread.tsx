@@ -1,6 +1,6 @@
 // Shared chat thread + composer used by Chat, agent preview and councils. Runs agents with tools.
 import { useEffect, useRef, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
+import { Md } from '@/components/Md'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowUp, Square, Sparkles, Wrench, Check, ShieldCheck, KeyRound } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -12,7 +12,7 @@ import { Avatar, Tile, cx } from './ui'
 export type AgentLike = { id: string; name: string; description: string; instructions: string; model: string; tools: string[]; knowledge: string[]; samplePrompts: string[] }
 
 export function useAgentChat(agent: AgentLike, storeKey?: string) {
-  const { apiKey, libraries, chats, setChat, logAudit } = useApp()
+  const { apiKey, libraries, chats, setChat, logAudit, addRun } = useApp()
   const [local, setLocal] = useState<ChatMsg[]>([])
   const msgs = storeKey ? chats[storeKey] ?? [] : local
   const save = (m: ChatMsg[]) => (storeKey ? setChat(storeKey, m) : setLocal(m))
@@ -38,7 +38,16 @@ export function useAgentChat(agent: AgentLike, storeKey?: string) {
         if (ev.type === 'text') cur.content += ev.text
         else if (ev.type === 'tool_start') cur.tools = [...(cur.tools ?? []), { name: ev.name, args: ev.args }]
         else if (ev.type === 'tool_end') cur.tools = (cur.tools ?? []).map((t) => (t.name === ev.name && !t.result ? { ...t, result: ev.result } : t))
-        else if (ev.type === 'gated') logAudit('Queued for approval', ev.tool, JSON.stringify(ev.args).slice(0, 120))
+        else if (ev.type === 'gated') {
+          const label = ev.tool === 'draft_email' ? `Email draft to ${ev.args.to ?? 'supplier'}: ${ev.args.subject ?? ''}` : `Ledger posting ${ev.args.invoice ?? ''} · ${ev.args.account ?? ''} · AED ${ev.args.amount ?? ''}`
+          logAudit('Queued for approval', ev.tool, label.slice(0, 120))
+          addRun({ id: `R-${1300 + Math.floor(Math.random() * 600)}`, workflowId: 'chat', workflow: `Chat · ${agent.name}`, trigger: 'Chat · gated action', status: 'waiting', started: new Date().toISOString().slice(0, 16).replace('T', ' '), duration: '—', cost: 0.004, summary: label,
+            steps: [{ name: agent.name, model: (model ?? agent.model).split('/')[1], ms: 2400, status: 'ok', output: ev.tool === 'draft_email' ? `**To:** ${ev.args.to}
+
+**Subject:** ${ev.args.subject}
+
+${ev.args.body}` : JSON.stringify(ev.args, null, 2) }, { name: ev.tool === 'draft_email' ? 'Send-off (human)' : 'Finance approval', ms: 0, status: 'waiting' }] })
+        }
         else if (ev.type === 'error') { cur.content += (cur.content ? '\n\n' : '') + `Error: ${ev.message}`; cur.error = true }
         update()
       }
@@ -75,7 +84,7 @@ export function Thread({ msgs, agent, compact, onPrompt }: { msgs: ChatMsg[]; ag
                   {m.tools!.map((t, i) => <ToolCard key={i} name={t.name} args={t.args} result={t.result} />)}
                 </div>
               )}
-              {m.role === 'assistant' ? (m.content ? <div className="prose-chat"><ReactMarkdown>{m.content}</ReactMarkdown></div> : !m.tools?.length || m.tools.every((t) => t.result) ? <Typing /> : null) : m.content}
+              {m.role === 'assistant' ? (m.content ? <Md className="prose-chat">{m.content}</Md> : !m.tools?.length || m.tools.every((t) => t.result) ? <Typing /> : null) : m.content}
             </div>
             {m.role === 'user' && <Avatar initials="You" size={28} className="mt-0.5" />}
           </motion.div>
@@ -98,8 +107,11 @@ function ToolCard({ name, args, result }: { name: string; args: string; result?:
         <span className="muted truncate flex-1">{args.slice(0, 80)}</span>
         {result ? <Check size={13} className="text-[var(--ok)]" /> : <motion.span className="w-2 h-2 rounded-full bg-[var(--accent)]" animate={{ opacity: [1, 0.3, 1] }} transition={{ repeat: Infinity, duration: 1 }} />}
       </button>
-      {open && <pre className="px-3 pb-3 text-[11px] muted whitespace-pre-wrap max-h-48 overflow-auto">{result ?? 'Running…'}</pre>}
-      {gated && result && <div className="px-3 pb-2 text-[11px] text-[var(--warn)] font-medium">Queued for human approval. Nothing was sent or posted.</div>}
+      {open && (name === 'draft_email' ? <div className="px-3 pb-3 text-[12px] whitespace-pre-wrap max-h-60 overflow-auto">{(() => { try { const a = JSON.parse(args); return `To: ${a.to}
+Subject: ${a.subject}
+
+${a.body}` } catch { return args } })()}</div> : <pre className="px-3 pb-3 text-[11px] muted whitespace-pre-wrap max-h-48 overflow-auto">{result ?? 'Running…'}</pre>)}
+      {gated && result && <div className="px-3 pb-2 text-[11px] text-[var(--warn)] font-medium">Queued under Runs › Approvals. Nothing was sent or posted.</div>}
     </motion.div>
   )
 }
