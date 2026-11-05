@@ -81,10 +81,10 @@ export async function runTool(name: string, rawArgs: string, ctx: ToolContext): 
     }
     switch (name) {
       case 'web_search':
-        if (!ctx.key) return 'Web search is not available: model access is not configured.'
+        if (!ctx.key) return 'Web search is not available right now.'
         return await webAnswer(ctx, `Search the web for: ${args.query}\nReturn the most relevant findings as concise bullets with the source URL after each bullet. Include dates where relevant.`, ctx.models.fast, 5, 900)
       case 'deep_research':
-        if (!ctx.key) return 'Deep research is not available: model access is not configured.'
+        if (!ctx.key) return 'Deep research is not available right now.'
         return await webAnswer(ctx, `Do thorough research on: ${args.topic}${args.focus ? `\nFocus: ${args.focus}` : ''}\nCover background, current state, key players, numbers, risks and open questions. Use several searches with different angles. Return a structured report with headings, concise bullets, and a source URL after each factual claim. Finish with a short list of the best sources.`, ctx.models.reasoning, 10, 2500)
       case 'read_url': {
         const url = String(args.url ?? '').trim(); if (!/^https?:\/\//i.test(url)) return 'Provide a full http(s) URL.'

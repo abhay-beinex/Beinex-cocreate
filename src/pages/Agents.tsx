@@ -114,7 +114,7 @@ export default function Agents() {
             <div className="text-[12px] font-semibold mb-1.5 flex items-center gap-1.5"><Wand2 size={13} className="accent-ink" /> Describe what it should do</div>
             <Textarea rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="e.g. An agent that monitors our competitors' pricing pages weekly and drafts a short update for the sales team" />
             <div className="flex items-center justify-between mt-2">
-              <span className="text-[11.5px] muted">{apiKey ? 'The model writes the instructions and picks the tools. You can edit everything after.' : 'Model access is not configured; a blank agent is created instead.'}</span>
+              <span className="text-[11.5px] muted">{apiKey ? 'The model writes the instructions and picks the tools. You can edit everything after.' : 'Models are not available right now; a blank agent is created instead.'}</span>
               <Button variant="primary" size="sm" onClick={generate} disabled={!desc.trim() || generating}>{generating ? 'Designing…' : 'Create'}</Button>
             </div>
           </div>
@@ -159,7 +159,7 @@ function CouncilDrawer({ council, onClose, onDelete }: { council: Council | null
   const dirty = JSON.stringify(draft) !== JSON.stringify(council)
 
   const simulate = async () => {
-    if (!apiKey) { setSynthesis('Model access is not configured.'); return }
+    if (!apiKey) { setSynthesis('Models are not available right now.'); return }
     setBusy(true); setFindings([]); setSynthesis('')
     const out: { agent: string; text: string }[] = []
     for (const id of draft.members) {

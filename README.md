@@ -17,7 +17,7 @@ One demo account exists: `demo@beinex.com` / `cocreate` (admin). Add more users 
 
 ## Models
 
-Models are served through OpenRouter behind the scenes; the UI never mentions it. Put the key in `.env` as `VITE_OPENROUTER_API_KEY=...` (see `.env.example`), or an admin pastes it under Settings › Model access. Users pick models per agent and under Models (Fast / Balanced / Reasoning profiles).
+Models are served through OpenRouter behind the scenes; the UI never mentions it. Put the key in `.env` as `VITE_OPENROUTER_API_KEY=...` (see `.env.example`). There is no key UI; users only pick models per agent and under Models (Fast / Balanced / Reasoning profiles).
 
 ## What is in the pilot
 
@@ -30,6 +30,6 @@ Models are served through OpenRouter behind the scenes; the UI never mentions it
 - Runs: runs with step outputs and cost, approvals that resume workflows, audit log
 - Notifications: in-app bell for approvals, finished runs and schedules
 - Governance: pause all schedules; daily spend caps per user and workspace enforced from real usage
-- Settings: model access (admin), users with passwords and roles, workspace export/import/reset
+- Settings: users with passwords and roles, governance, workspace export/import/reset
 
 The workspace starts empty. All data lives in the browser (local storage).

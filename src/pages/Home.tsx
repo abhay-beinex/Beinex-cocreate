@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowUp, Sparkles, Workflow, BookOpen, KeyRound, Check, ChevronRight, ShieldCheck, ListChecks, Globe } from 'lucide-react'
+import { ArrowUp, Sparkles, Workflow, BookOpen, Check, ChevronRight, ShieldCheck, ListChecks, Globe } from 'lucide-react'
 import { useApp, useUser, can } from '@/store/app'
 import { roleLabel } from '@/lib/data'
 import { Button, Tile, colorFor, cx } from '@/components/ui'
@@ -12,7 +12,7 @@ const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good 
 export default function Home() {
   const user = useUser()!
   const nav = useNavigate()
-  const { agents, workflows, runs, libraries, apiKey } = useApp()
+  const { agents, workflows, runs, libraries } = useApp()
   const [q, setQ] = useState('')
   const [focus, setFocus] = useState(false)
   const admin = can(user, 'admin')
@@ -22,7 +22,6 @@ export default function Home() {
   const recent = runs.slice(0, 4)
   const hasDocs = libraries.some((l) => l.docs.length > 0)
   const steps = [
-    ...(admin ? [{ done: !!apiKey, label: 'Set up model access', desc: 'One key for every model', icon: KeyRound, to: '/settings?tab=models', color: '#64748b' }] : []),
     { done: agents.length > 0, label: 'Create an agent', desc: 'Describe it or start from a template', icon: Sparkles, to: '/agents?new=1', color: '#0ea5e9' },
     { done: hasDocs, label: 'Add knowledge', desc: 'Documents agents can cite', icon: BookOpen, to: '/knowledge', color: '#8b5cf6' },
     { done: workflows.length > 0, label: 'Build a workflow', desc: 'Chain agents with a human gate', icon: Workflow, to: '/workflows', color: '#10b981' },

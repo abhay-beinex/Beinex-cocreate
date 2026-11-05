@@ -62,7 +62,7 @@ export async function execute(run: Run, wf: Workflow, ctx: EngineCtx): Promise<R
       if (d.brick === 'trigger') {
         step.output = `Started with:\n${run.input ?? ''}`
       } else if (d.brick === 'agent' || d.brick === 'council' || d.brick === 'tool' || d.brick === 'logic') {
-        if (!ctx.key) { step.status = 'failed'; step.output = 'Model access is not configured. Ask an admin to add a model key under Settings.'; }
+        if (!ctx.key) { step.status = 'failed'; step.output = 'Models are not available right now. Contact your administrator.'; }
         else if (!ctx.canSpend()) { step.status = 'failed'; step.output = 'Daily spend cap reached for this user. Raise the cap under Settings › Governance or try tomorrow.' }
         else if (d.brick === 'agent') {
           const a = ctx.agents.find((x) => x.id === d.agentId)

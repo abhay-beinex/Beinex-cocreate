@@ -46,7 +46,7 @@ export default function Models() {
         <Segmented value={cap} onChange={setCap} items={[{ id: 'all', label: 'All' }, { id: 'tools', label: 'Tool calling' }, { id: 'vision', label: 'Vision' }]} />
         <span className="text-[12.5px] muted ml-auto">{models.length ? `${models.length} models · default is used by new agents and the assistant` : ''}</span>
       </div>
-      {err && <div className="text-[13px] text-[var(--danger)] mb-4">{err}. <button className="underline" onClick={() => nav('/settings?tab=models')}>Check model access</button></div>}
+      {err && <div className="text-[13px] text-[var(--danger)] mb-4">{err}</div>}
       <div className="clay px-3 py-1">
         <div className="row text-[11px] font-semibold uppercase tracking-wider muted !py-2"><span className="flex-1">Model</span><span className="w-[180px]">Capabilities</span><span className="w-[80px] text-right">Context</span><span className="w-[90px] text-right">Prompt</span><span className="w-[90px] text-right">Output</span><span className="w-[110px]" /></div>
         {!models.length && <div className="py-10 text-center muted text-[13px]">{loading ? 'Loading…' : 'No models loaded.'}</div>}

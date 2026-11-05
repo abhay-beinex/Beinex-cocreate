@@ -2,8 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowUp, Square, Sparkles, Wrench, Check, ShieldCheck, KeyRound } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
-import { useApp, useUser, can, profileModels, type ChatMsg } from '@/store/app'
+import { useApp, useUser, profileModels, type ChatMsg } from '@/store/app'
 import { runAgentTurn } from '@/lib/agentRun'
 import { TOOLS } from '@/lib/tools'
 import type { Autonomy } from '@/lib/data'
@@ -26,7 +25,7 @@ export function useAgentChat(agent: AgentLike, storeKey?: string) {
     const asst: ChatMsg = { id: crypto.randomUUID(), role: 'assistant', content: '', tools: [], at: Date.now() }
     const history = [...msgs, user]
     save([...history, asst])
-    if (!s.apiKey) { save([...history, { ...asst, error: true, content: 'Model access is not configured. An admin can add a model key under Settings › Model access.' }]); return }
+    if (!s.apiKey) { save([...history, { ...asst, error: true, content: 'Models are not available right now. Please contact your administrator.' }]); return }
     if (!s.canSpend()) { save([...history, { ...asst, error: true, content: 'Your daily spend cap is reached. Ask an admin to raise it under Settings › Governance.' }]); return }
     setBusy(true); abort.current = new AbortController()
     const cur = { ...asst }
@@ -57,7 +56,6 @@ export function useAgentChat(agent: AgentLike, storeKey?: string) {
 
 export function Thread({ msgs, agent, compact, onPrompt }: { msgs: ChatMsg[]; agent: AgentLike; compact?: boolean; onPrompt?: (p: string) => void }) {
   const bottom = useRef<HTMLDivElement>(null)
-  const nav = useNavigate()
   const apiKey = useApp((s) => s.apiKey)
   const user = useUser()
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs.length, msgs[msgs.length - 1]?.content.length, msgs[msgs.length - 1]?.tools?.length])
@@ -69,7 +67,7 @@ export function Thread({ msgs, agent, compact, onPrompt }: { msgs: ChatMsg[]; ag
           <motion.div animate={{ y: [0, -4, 0] }} transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}><Tile color="#10385b" size={44} radius={14} className="mx-auto mb-4"><Sparkles size={20} /></Tile></motion.div>
           <h2 className="display text-[18px] font-bold">{compact ? 'Try it' : 'How can I help?'}</h2>
           {!compact && <p className="muted text-[12.5px] mt-1">{agent.description}</p>}
-          {!apiKey && <div className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] font-medium text-[var(--warn)]"><KeyRound size={13} /> Model access is not configured.{can(user, 'admin') && <button onClick={() => nav('/settings?tab=models')} className="underline">Set it up</button>}</div>}
+          {!apiKey && <div className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] font-medium text-[var(--warn)]"><KeyRound size={13} /> Models are not available right now. Contact your administrator.</div>}
           {onPrompt && <div className="flex flex-wrap justify-center gap-2 mt-5">{agent.samplePrompts.map((p) => <button key={p} onClick={() => onPrompt(p)} className="btn btn-sm !font-medium">{p}</button>)}</div>}
         </motion.div>
       )}

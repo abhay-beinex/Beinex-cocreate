@@ -16,7 +16,7 @@ export const roleLabel: Record<Role, string> = { builder: 'Builder', approver: '
 export const roleDesc: Record<Role, string> = {
   builder: 'Creates agents, workflows and knowledge. Cannot approve.',
   approver: 'Signs off on gated actions and can also build.',
-  security: 'Pauses schedules, sets spend caps and model access. Can approve.',
+  security: 'Pauses schedules and sets spend caps. Can approve.',
   auditor: 'Read-only access to runs and the audit log.',
   admin: 'Everything, including users.',
 }

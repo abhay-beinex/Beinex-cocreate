@@ -131,7 +131,7 @@ export default function WorkflowEditor() {
           <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.2 }} className="absolute bottom-4 left-1/2 -translate-x-1/2 glass rounded-[16px] p-1.5 flex items-center gap-0.5">
             {bricks.map((b) => <motion.button whileHover={{ y: -2 }} whileTap={{ scale: 0.95 }} key={b.id} onClick={() => addBrick(b.id)} title={`Add ${b.label}`} className="flex flex-col items-center gap-1 w-[60px] py-1.5 rounded-[11px] hover:bg-[var(--clay-dark)]"><Tile color={b.color} size={28} radius={9}><b.icon size={13} /></Tile><span className="text-[10.5px] font-medium muted">{b.label}</span></motion.button>)}
             <span className="w-px h-8 bg-[var(--line)] mx-1" />
-            <motion.button whileHover={{ y: -2 }} onClick={() => setCopilot((c) => ({ ...c, open: !c.open }))} className={cx('flex flex-col items-center gap-1 w-[60px] py-1.5 rounded-[11px] hover:bg-[var(--clay-dark)]', copilot.open && 'bg-[var(--clay-dark)]')} disabled={!apiKey} title={apiKey ? undefined : 'Model access is not configured'}><Tile color="#10385b" size={28} radius={9}><Sparkles size={13} /></Tile><span className="text-[10.5px] font-medium muted">Copilot</span></motion.button>
+            <motion.button whileHover={{ y: -2 }} onClick={() => setCopilot((c) => ({ ...c, open: !c.open }))} className={cx('flex flex-col items-center gap-1 w-[60px] py-1.5 rounded-[11px] hover:bg-[var(--clay-dark)]', copilot.open && 'bg-[var(--clay-dark)]')} disabled={!apiKey} title={apiKey ? undefined : 'Models are not available right now'}><Tile color="#10385b" size={28} radius={9}><Sparkles size={13} /></Tile><span className="text-[10.5px] font-medium muted">Copilot</span></motion.button>
           </motion.div>
         )}
 
@@ -193,7 +193,7 @@ export default function WorkflowEditor() {
               <div className="px-4 h-12 flex items-center gap-2 border-b hairline"><Play size={14} className="muted" /><span className="text-[13px] font-semibold flex-1">Run workflow</span><button className="btn btn-ghost btn-sm btn-icon" onClick={() => setPanel('none')}><X size={14} /></button></div>
               <div className="p-4 flex flex-col gap-3">
                 <Field label="Input" hint="Becomes the first message of the run."><Textarea rows={4} value={runInput} onChange={(e) => setRunInput(e.target.value)} placeholder="e.g. Research the latest changes to UAE corporate tax" autoFocus /></Field>
-                {!apiKey && <div className="text-[12px] text-[var(--warn)]">Model access is not configured. Agent, council, condition and action steps will fail.</div>}
+                {!apiKey && <div className="text-[12px] text-[var(--warn)]">Models are not available right now. Agent, council, condition and action steps will fail.</div>}
                 {(dirty || isNew) && <div className="text-[12px] muted">The workflow is saved first.</div>}
                 <Button variant="primary" onClick={run} disabled={!runInput.trim() || !!running}><Play size={13} /> {running ? 'Starting…' : 'Run now'}</Button>
                 <div className="text-[11.5px] muted">Progress is shown under Runs. Steps that need a person pause the run until they decide.</div>
