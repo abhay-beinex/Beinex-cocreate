@@ -1,6 +1,6 @@
 // Small shared pieces for showing agents: ability wells, thinking meter, agent card, readiness ring.
 import { motion } from 'framer-motion'
-import { MessageSquare, MoreHorizontal } from 'lucide-react'
+import { MessageSquare, MoreHorizontal, FlaskConical, Workflow } from 'lucide-react'
 import type { Agent, CustomTool } from '@/lib/data'
 import { abilityOf, THINKING, thinkingOf } from '@/lib/agentVocab'
 import { AgentAvatar } from './AgentAvatar'
@@ -28,7 +28,8 @@ export function ThinkingMeter({ model, profiles, defaultModel, withLabel = true 
   )
 }
 
-export function AgentCard({ a, custom, profiles, defaultModel, onOpen, onChat, menu, selected, onSelect, selectable }: { a: Agent; custom: CustomTool[]; profiles: { id: string; model: string }[]; defaultModel: string; onOpen: () => void; onChat: () => void; menu?: React.ReactNode; selected?: boolean; onSelect?: () => void; selectable?: boolean }) {
+export function AgentCard({ a, custom, profiles, defaultModel, onOpen, onChat, menu, selected, onSelect, selectable, usedIn = 0 }: { a: Agent; custom: CustomTool[]; profiles: { id: string; model: string }[]; defaultModel: string; onOpen: () => void; onChat: () => void; menu?: React.ReactNode; selected?: boolean; onSelect?: () => void; selectable?: boolean; usedIn?: number }) {
+  const tests = a.tests ?? []; const ran = tests.filter((t) => t.last); const passed = ran.filter((t) => t.last!.pass).length
   return (
     <motion.div whileHover={{ y: -3 }} onClick={onOpen} className={cx('clay p-5 cursor-pointer flex flex-col gap-3 min-h-[196px] relative overflow-hidden group', selected && 'outline outline-2 outline-[var(--accent)]')}>
       <div className="absolute -right-10 -top-10 w-32 h-32 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style={{ background: `radial-gradient(circle, ${a.color ?? '#0ea5e9'}33, transparent 70%)` }} />
@@ -40,6 +41,11 @@ export function AgentCard({ a, custom, profiles, defaultModel, onOpen, onChat, m
       </div>
       <p className="text-[12.5px] muted leading-relaxed line-clamp-2 min-h-[36px]">{a.description || 'No description yet.'}</p>
       <AbilityWells tools={a.tools} custom={custom} />
+      <div className="flex items-center gap-1.5 text-[11px] muted flex-wrap">
+        {tests.length > 0 && <span className={cx('inline-flex items-center gap-1 h-5 px-1.5 rounded-full font-medium', ran.length === 0 ? 'bg-[var(--clay-dark)]' : passed === ran.length ? 'text-[var(--ok)] bg-[color-mix(in_srgb,var(--ok)_12%,transparent)]' : 'text-[var(--danger)] bg-[color-mix(in_srgb,var(--danger)_12%,transparent)]')} title="Tests passed"><FlaskConical size={10} /> {ran.length === 0 ? `${tests.length} test${tests.length === 1 ? '' : 's'}` : `${passed}/${ran.length} pass`}</span>}
+        {usedIn > 0 && <span className="inline-flex items-center gap-1 h-5 px-1.5 rounded-full bg-[var(--clay-dark)] font-medium"><Workflow size={10} /> {usedIn} workflow{usedIn === 1 ? '' : 's'}</span>}
+        {a.knowledge.length > 0 && <span className="inline-flex items-center h-5 px-1.5 rounded-full bg-[var(--clay-dark)] font-medium">{a.knowledge.length} librar{a.knowledge.length === 1 ? 'y' : 'ies'}</span>}
+      </div>
       <div className="mt-auto flex items-center gap-2 pt-1">
         <ThinkingMeter model={a.model} profiles={profiles} defaultModel={defaultModel} />
         <div className="flex-1" />

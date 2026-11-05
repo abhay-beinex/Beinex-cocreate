@@ -5,7 +5,7 @@ import { useBlocker, useNavigate, useParams, useSearchParams } from 'react-route
 import { AnimatePresence, motion } from 'framer-motion'
 import { ReactFlow, ReactFlowProvider, Background, BackgroundVariant, Controls, MiniMap, useNodesState, useEdgesState, useReactFlow, type Connection } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { ArrowLeft, Play, Check, Pause, X, Trash2, MoreHorizontal, Download, Copy, LayoutGrid, AlertTriangle, CheckCircle2, Clock, Zap, Sparkles, ArrowUp, ExternalLink, ChevronDown, ChevronRight, Loader2, Hourglass, ThumbsUp, ThumbsDown, History, SlidersHorizontal, ListChecks, Plus, Link2, Eye, FileInput, Wrench, Globe, Workflow as WorkflowIcon, Search, RotateCw, Braces, FlaskConical } from 'lucide-react'
+import { ArrowLeft, Play, Check, Pause, X, Trash2, MoreHorizontal, Download, Copy, LayoutGrid, AlertTriangle, CheckCircle2, Clock, Zap, Sparkles, ArrowUp, ExternalLink, ChevronDown, ChevronRight, Loader2, Hourglass, ThumbsUp, ThumbsDown, History, SlidersHorizontal, ListChecks, Plus, Link2, Eye, FileInput, Wrench, Globe, Workflow as WorkflowIcon, Search, RotateCw, Braces, FlaskConical, Undo2, Redo2, Minus } from 'lucide-react'
 import { useApp, useUser, can } from '@/store/app'
 import { workflowTemplates, roleLabel, type Brick, type StepData, type Workflow, type Schedule, type Run, type RunStep, type WfNode, type WfEdge, type TriggerType, type RuleOp } from '@/lib/data'
 import { streamChat } from '@/lib/openrouter'
@@ -14,7 +14,8 @@ import { CONNECTORS, connectorTool } from '@/lib/connectors'
 import { startRun, resumeRun, isRunning, rerunFrom, tryStep, checkWatch } from '@/lib/runner'
 import { varsAfter } from '@/lib/engine'
 import { parseJsonLoose } from '@/lib/json'
-import { BRICKS, brickOf, uid, autoLayout, checkFlow, newStep, stepLine, varsBefore, keyOf, producesVar, nestedNodes, ruleLabel, NODE_W, type Problem } from '@/lib/flow'
+import { BRICKS, brickOf, uid, autoLayout, checkFlow, newStep, stepLine, varsBefore, keyOf, producesVar, nestedNodes, ruleLabel, branchesOf, NODE_W, type Problem } from '@/lib/flow'
+import { branchTone } from '@/components/FlowNodes'
 import { THINKING, INDEPENDENCE, thinkingOf } from '@/lib/agentVocab'
 import { nodeTypes, edgeTypes, type FlowNode, type BranchEdge, type StepStatus, type FlowUi } from '@/components/FlowNodes'
 import { Button, Chip, Confirm, Field, Input, Select, Segmented, Textarea, Tile, cx } from '@/components/ui'
@@ -28,8 +29,11 @@ const branchOf = (brick: Brick | undefined, label?: string): string | undefined 
   const l = (label ?? '').toLowerCase()
   if (brick === 'logic') return l.startsWith('no') ? 'no' : 'yes'
   if (brick === 'loop') return l.startsWith('done') ? 'done' : 'each'
+  if (brick === 'classify') return l || undefined
   return undefined
 }
+/** Distance from a point to the straight segment between two points. */
+const segDist = (p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) => { const dx = b.x - a.x, dy = b.y - a.y; const l2 = dx * dx + dy * dy || 1; const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2)); return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy)) }
 const toFlowNodes = (ns: WfNode[]): FlowNode[] => ns.map((n) => ({ id: n.id, type: 'step', position: n.position, data: { ...n.data, ui: blankUi } }))
 const toFlowEdges = (es: WfEdge[], ns: WfNode[]): BranchEdge[] => es.map((e) => { const src = ns.find((n) => n.id === e.source)?.data.brick; const label = branchOf(src, e.label); return { id: e.id, source: e.source, target: e.target, type: 'branch', sourceHandle: label, data: { label } } })
 const triggerText = (m: Meta) => m.triggerType === 'schedule' ? `Every ${m.schedule.every} at ${m.schedule.at}` : m.triggerType === 'link' ? 'By link' : m.triggerType === 'watch' ? `Page watched every ${m.watch.every >= 60 ? `${m.watch.every / 60}h` : `${m.watch.every}m`}` : m.triggerType === 'event' ? 'When a document is added' : 'By hand'
@@ -54,8 +58,9 @@ export default function WorkflowEditor() {
 }
 
 type Sel = { kind: 'node' | 'edge'; id: string } | null
-type Adding = { after: string; branch?: string } | null
-type PlanStep = { brick: Brick; label: string; sub?: string; prompt?: string; agentId?: string; tool?: string; after?: string; branch?: string; approver?: string; items?: string; code?: string; url?: string; method?: string; input?: string; rule?: StepData['rule'] }
+type Adding = { after?: string; branch?: string; edge?: string; position?: { x: number; y: number } } | null
+type Snap = { nodes: FlowNode[]; edges: BranchEdge[] }
+type PlanStep = { brick: Brick; label: string; sub?: string; prompt?: string; agentId?: string; tool?: string; after?: string; branch?: string; approver?: string; wait?: number; assign?: { key: string; value: string }[]; fields?: { name: string; description: string }[]; categories?: string[]; items?: string; code?: string; url?: string; method?: string; input?: string; rule?: StepData['rule'] }
 type Plan = { name?: string; description?: string; add: PlanStep[]; remove: string[]; set: { label: string; patch: Partial<StepData> }[] }
 type AssistMsg = { role: 'user' | 'assistant'; text: string; plan?: Plan; applied?: boolean }
 
@@ -115,32 +120,59 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
   const lookup = useMemo(() => ({ agentName: (id?: string) => agents.find((a) => a.id === id)?.name, userName: (id?: string) => users.find((u) => u.id === id)?.name, toolLabel: (id?: string) => TOOLS.find((t) => t.name === id)?.label ?? customTools.find((t) => t.name === id)?.label, councilName: (id?: string) => councils.find((c) => c.id === id)?.name, workflowName: (id?: string) => workflows.find((w) => w.id === id)?.name }), [agents, users, customTools, councils, workflows])
   const lineFor = useCallback((d: StepData) => {
     if (d.brick === 'trigger') return meta.triggerType === 'manual' ? d.sub || 'Run with an input' : meta.triggerType === 'watch' ? (meta.watch.url || 'Give the page address to watch') : triggerText(meta)
-    if (!['logic', 'loop', 'code', 'http', 'flow', 'parallel'].includes(d.brick) && d.sub?.trim()) return d.sub
+    if (!['logic', 'loop', 'code', 'http', 'flow', 'parallel', 'wait', 'set', 'extract', 'classify'].includes(d.brick) && d.sub?.trim()) return d.sub
     return stepLine(d, lookup)
   }, [meta, lookup])
 
   // ---------- graph ops ----------
   const select = (s: Sel) => { setSel(s); setAdding(null); setPalette(false) }
-  const addStep = useCallback((brick: Brick, opts: { after?: string; branch?: string; position?: { x: number; y: number }; extra?: Partial<StepData> } = {}) => {
-    if (brick === 'trigger' && nodes.some((n) => n.data.brick === 'trigger')) return
-    const after = opts.after ? nodes.find((n) => n.id === opts.after) : undefined
+  // ---------- history (undo / redo) ----------
+  const latest = useRef<Snap>({ nodes, edges }); latest.current = { nodes, edges }
+  const history = useRef<{ past: Snap[]; future: Snap[]; lastPatch: number }>({ past: [], future: [], lastPatch: 0 })
+  const commit = useCallback(() => { const h = history.current; h.past = [...h.past.slice(-49), latest.current]; h.future = [] }, [])
+  const restore = (snap: Snap) => { setNodes(snap.nodes); setEdges(snap.edges); setSel(null) }
+  const undo = useCallback(() => { const h = history.current; const prev = h.past.pop(); if (!prev) return; h.future.push(latest.current); restore(prev) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const redo = useCallback(() => { const h = history.current; const next = h.future.pop(); if (!next) return; h.past.push(latest.current); restore(next) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const addStep = useCallback((brick: Brick, opts: { after?: string; branch?: string; edge?: string; position?: { x: number; y: number }; extra?: Partial<StepData> } = {}) => {
+    if (brick === 'trigger' && nodes.some((n) => n.data.brick !== undefined && n.data.brick === 'trigger')) return
+    commit()
+    const edge = opts.edge ? edges.find((e) => e.id === opts.edge) : undefined
+    const after = edge ? nodes.find((n) => n.id === edge.source) : opts.after ? nodes.find((n) => n.id === opts.after) : undefined
+    const branchWanted = edge ? edge.data?.label : opts.branch ?? (after?.data.brick === 'classify' ? after.data.categories?.[0]?.toLowerCase() : undefined)
     const id = uid()
     const siblings = after ? edges.filter((e) => e.source === after.id).length : 0
-    const position = opts.position ?? (after ? { x: after.position.x + NODE_W + 92, y: after.position.y + (opts.branch === 'no' || opts.branch === 'done' ? 150 : opts.branch === 'yes' || opts.branch === 'each' ? -40 : after.data.brick === 'parallel' ? siblings * 140 - 70 : 0) } : { x: 60 + nodes.length * 40, y: 160 + nodes.length * 30 })
+    const tgt = edge ? nodes.find((n) => n.id === edge.target) : undefined
+    const position = opts.position ?? (edge && after && tgt ? { x: (after.position.x + tgt.position.x) / 2, y: (after.position.y + tgt.position.y) / 2 + 60 } : after ? { x: after.position.x + NODE_W + 92, y: after.position.y + (opts.branch === 'no' || opts.branch === 'done' ? 150 : opts.branch === 'yes' || opts.branch === 'each' ? -40 : after.data.brick === 'parallel' ? siblings * 140 - 70 : 0) } : { x: 60 + nodes.length * 40, y: 160 + nodes.length * 30 })
     const data: StepData = { ...newStep(brick, { model: defaultModel, approver: approvers[0]?.id }, opts.extra), ...(opts.extra?.agentId ? { label: agents.find((a) => a.id === opts.extra!.agentId)?.name ?? brickOf(brick).label } : {}) }
     setNodes((ns) => [...ns, { id, type: 'step', position, data: { ...data, ui: blankUi } }])
-    if (after) setEdges((es) => wire(es, after, id, brick, opts.branch))
+    if (after) setEdges((es) => wire(es, after, id, brick, branchWanted))
     setSel({ kind: 'node', id }); setAdding(null); setPalette(false)
     setTimeout(() => ensureVisible(position), 20)
     return id
-  }, [nodes, edges, defaultModel, approvers, agents, setNodes, setEdges]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [nodes, edges, defaultModel, approvers, agents, setNodes, setEdges, commit]) // eslint-disable-line react-hooks/exhaustive-deps
+  /** Duplicate the selected step next to itself, unconnected. */
+  const duplicateNode = useCallback((id: string) => {
+    const n = nodes.find((x) => x.id === id); if (!n || n.data.brick === 'trigger') return
+    commit(); const nid = uid()
+    setNodes((ns) => [...ns, { ...n, id: nid, selected: false, position: { x: n.position.x + 48, y: n.position.y + 72 }, data: { ...n.data, label: `${n.data.label} copy`, key: undefined } }])
+    setSel({ kind: 'node', id: nid })
+  }, [nodes, setNodes, commit])
+  /** Dragging a connection out and dropping it on empty canvas opens the palette to add the next step there. */
+  const onConnectEnd = useCallback((event: MouseEvent | TouchEvent, state: { isValid: boolean | null; fromNode: { id: string } | null; fromHandle: { id?: string | null } | null }) => {
+    if (state.isValid || !state.fromNode || !editable) return
+    const pt = 'changedTouches' in event ? event.changedTouches[0] : (event as MouseEvent)
+    const p = rf.screenToFlowPosition({ x: pt.clientX, y: pt.clientY })
+    setAdding({ after: state.fromNode.id, branch: state.fromHandle?.id ?? undefined, position: { x: p.x, y: p.y - 40 } }); setSel({ kind: 'node', id: state.fromNode.id }); setPalette(true)
+  }, [editable, rf])
   const onConnect = useCallback((c: Connection) => {
     if (!c.source || !c.target || c.source === c.target) return
     const src = nodes.find((n) => n.id === c.source); const tgt = nodes.find((n) => n.id === c.target)
     if (!src || !tgt || tgt.data.brick === 'trigger') return
     const branch = branchOf(src.data.brick, c.sourceHandle ?? undefined)
+    commit()
     setEdges((es) => es.some((e) => e.source === c.source && e.target === c.target) ? es : [...es, { id: `e${uid()}`, source: c.source!, target: c.target!, type: 'branch', sourceHandle: branch, data: { label: branch } }])
-  }, [nodes, setEdges])
+  }, [nodes, setEdges, commit])
   /** Connect a new step after `from`. If `from` already continues on that branch, the new step is inserted into the chain. */
   const wire = (es: BranchEdge[], from: FlowNode, newId: string, newBrick: Brick, branch?: string): BranchEdge[] => {
     const label = branchOf(from.data.brick, branch)
@@ -149,10 +181,10 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
     if (existing && newBrick !== 'parallel') { const nl = branchOf(newBrick, undefined); out = out.map((e) => (e.id === existing.id ? { ...e, source: newId, sourceHandle: nl, data: { label: nl } } : e)) }
     return [...out, { id: `e${uid()}`, source: from.id, target: newId, type: 'branch', sourceHandle: label, data: { label } }]
   }
-  const removeNode = (id: string) => { setNodes((ns) => ns.filter((n) => n.id !== id)); setEdges((es) => es.filter((e) => e.source !== id && e.target !== id)); setSel(null) }
-  const removeEdge = (id: string) => { setEdges((es) => es.filter((e) => e.id !== id)); setSel(null) }
-  const flipEdge = (id: string) => setEdges((es) => es.map((e) => { if (e.id !== id || !e.data?.label) return e; const l = e.data.label; const nl = l === 'yes' ? 'no' : l === 'no' ? 'yes' : l === 'each' ? 'done' : 'each'; return { ...e, sourceHandle: nl, data: { label: nl } } }))
-  const patch = (id: string, p: Partial<StepData>) => setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...p } } : n)))
+  const removeNode = (id: string) => { commit(); setNodes((ns) => ns.filter((n) => n.id !== id)); setEdges((es) => es.filter((e) => e.source !== id && e.target !== id)); setSel(null) }
+  const removeEdge = (id: string) => { commit(); setEdges((es) => es.filter((e) => e.id !== id)); setSel(null) }
+  const flipEdge = (id: string) => { commit(); setEdges((es) => es.map((e) => { if (e.id !== id || !e.data?.label) return e; const l = e.data.label; const nl = l === 'yes' ? 'no' : l === 'no' ? 'yes' : l === 'each' ? 'done' : 'each'; return { ...e, sourceHandle: nl, data: { label: nl } } })) }
+  const patch = (id: string, p: Partial<StepData>) => { if (Date.now() - history.current.lastPatch > 1200) { commit(); history.current.lastPatch = Date.now() } setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...p } } : n))) }
   const ensureVisible = (p: { x: number; y: number }) => {
     const vp = rf.getViewport(); const cw = (canvasRef.current?.clientWidth ?? 800) - RIGHT_W - 24; const ch = canvasRef.current?.clientHeight ?? 600
     let { x, y } = vp
@@ -180,10 +212,11 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
   }, [rf, viewportFor])
   const arrange = useCallback((ns?: FlowNode[], es?: BranchEdge[]) => {
     const srcN = ns ?? nodes; const srcE = es ?? edges
+    if (!ns) commit()
     const laid = autoLayout(srcN.map((n) => { const { ui: _ui, ...data } = n.data; return { id: n.id, type: 'step' as const, position: n.position, data } }), srcE.map((e) => ({ id: e.id, source: e.source, target: e.target, label: e.data?.label })))
     setNodes((cur) => cur.map((n) => ({ ...n, position: laid.find((l) => l.id === n.id)?.position ?? n.position })))
     setTimeout(() => focus(laid, true), 30)
-  }, [nodes, edges, setNodes, focus])
+  }, [nodes, edges, setNodes, focus, commit])
 
   // ---------- persistence ----------
   const persist = (status?: Workflow['status']) => {
@@ -199,8 +232,14 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName) || (e.target as HTMLElement)?.isContentEditable
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') { e.preventDefault(); if (editable && dirty) persist() }
       if (e.key === 'Escape') { setSel(null); setAdding(null); setMenu(false); setPalette(false) }
+      if (typing || !editable) return
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo() }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo() }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); if (sel?.kind === 'node') duplicateNode(sel.id) }
+      if (e.key === 'Tab' && !palette) { e.preventDefault(); setPalette(true) }
     }
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey)
   })
@@ -219,6 +258,7 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
   // ---------- assistant ----------
   const flowSummary = useCallback(() => nodes.map((n) => `- ${n.data.brick}:"${n.data.label}"${producesVar(n.data.brick) ? ` → {{${keyOf(n.data)}}}` : ''}${n.data.prompt ? ` (${n.data.prompt.slice(0, 80)})` : n.data.sub ? ` (${n.data.sub.slice(0, 80)})` : ''}`).join('\n') + '\nConnections: ' + edges.map((e) => `${nameOf(e.source)}${e.data?.label ? `[${e.data.label}]` : ''}→${nameOf(e.target)}`).join(', '), [nodes, edges]) // eslint-disable-line react-hooks/exhaustive-deps
   const applyPlan = useCallback((plan: Plan, msgIndex: number) => {
+    commit()
     let ns = [...nodes]; let es = [...edges]
     const find = (label?: string) => ns.find((n) => n.data.label.toLowerCase() === (label ?? '').toLowerCase())
     for (const lbl of plan.remove ?? []) { const n = find(lbl); if (n && n.data.brick !== 'trigger') { ns = ns.filter((x) => x.id !== n.id); es = es.filter((e) => e.source !== n.id && e.target !== n.id) } }
@@ -230,7 +270,7 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
       const agent = s.agentId ? agents.find((a) => a.id === s.agentId) : undefined
       const tool = s.tool && [...TOOLS, ...customTools].some((t) => t.name === s.tool) ? s.tool : undefined
       const approver = s.approver ? approvers.find((u) => u.name.toLowerCase() === String(s.approver).toLowerCase() || u.email.toLowerCase() === String(s.approver).toLowerCase() || u.id === s.approver || u.name.toLowerCase().includes(String(s.approver).toLowerCase()))?.id : undefined
-      const data: StepData = { ...newStep(s.brick, { model: defaultModel, approver: approver ?? approvers[0]?.id }), label: String(s.label || brickOf(s.brick).label).slice(0, 40), sub: s.brick === 'logic' && !s.rule ? String(s.sub ?? s.prompt ?? '') : s.brick === 'human' ? String(s.sub ?? '') : '', prompt: s.brick === 'agent' || s.brick === 'tool' ? (s.prompt ? String(s.prompt) : undefined) : undefined, ...(agent ? { agentId: agent.id, model: agent.model } : {}), ...(s.brick === 'tool' ? { tool: tool ?? 'save_document' } : {}), ...(s.brick === 'logic' && s.rule ? { mode: 'rule' as const, rule: s.rule } : {}), ...(s.items ? { items: s.items } : {}), ...(s.code ? { code: s.code } : {}), ...(s.url ? { url: s.url, method: (s.method as StepData['method']) ?? 'GET' } : {}), ...(s.input ? { input: s.input } : {}) }
+      const data: StepData = { ...newStep(s.brick, { model: defaultModel, approver: approver ?? approvers[0]?.id }), label: String(s.label || brickOf(s.brick).label).slice(0, 40), sub: s.brick === 'logic' && !s.rule ? String(s.sub ?? s.prompt ?? '') : s.brick === 'human' ? String(s.sub ?? '') : '', prompt: s.brick === 'agent' || s.brick === 'tool' ? (s.prompt ? String(s.prompt) : undefined) : undefined, ...(agent ? { agentId: agent.id, model: agent.model } : {}), ...(s.brick === 'tool' ? { tool: tool ?? 'save_document' } : {}), ...(s.brick === 'logic' && s.rule ? { mode: 'rule' as const, rule: s.rule } : {}), ...(s.items ? { items: s.items } : {}), ...(s.code ? { code: s.code } : {}), ...(s.url ? { url: s.url, method: (s.method as StepData['method']) ?? 'GET' } : {}), ...(s.input ? { input: s.input } : {}), ...(s.wait ? { wait: Number(s.wait) || 30 } : {}), ...(Array.isArray(s.assign) ? { assign: s.assign.filter((a: any) => a && typeof a.key === 'string').map((a: any) => ({ key: a.key, value: String(a.value ?? '') })) } : {}), ...(Array.isArray(s.fields) ? { fields: s.fields.filter((f: any) => f && typeof f.name === 'string').map((f: any) => ({ name: f.name, description: String(f.description ?? '') })) } : {}), ...(Array.isArray(s.categories) ? { categories: s.categories.filter((c: unknown) => typeof c === 'string') } : {}) }
       const from = s.after === 'end' || !s.after ? prev : find(s.after) ?? prev
       const node: FlowNode = { id, type: 'step', position: { x: 0, y: 0 }, data: { ...data, ui: blankUi } }
       ns = [...ns, node]
@@ -242,24 +282,24 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
     setTimeout(() => arrange(ns, es), 20)
     setAssist((a) => ({ ...a, log: a.log.map((m, i) => (i === msgIndex ? { ...m, applied: true } : m)) }))
     setSel(null); setFlowTab('checks')
-  }, [nodes, edges, agents, customTools, defaultModel, approvers, setNodes, setEdges, arrange])
+  }, [nodes, edges, agents, customTools, defaultModel, approvers, setNodes, setEdges, arrange, commit])
   const runAssistant = useCallback(async (text: string) => {
     const q = text.trim(); if (!q || !apiKey) return
     setAssist((a) => ({ input: '', busy: true, log: [...a.log, { role: 'user', text: q }] }))
     const last = wfRuns[0]
     const lastRun = last ? `Last run ${last.id}: ${last.status}. Steps: ${last.steps.map((s) => `${s.name}=${s.status}${s.status === 'failed' ? ` (${(s.output ?? '').slice(0, 200)})` : ''}`).join('; ')}` : 'No runs yet.'
     const sys = `You are the Co-Create Assistant inside a workflow builder. Be brief and concrete; the person is a colleague. You can answer questions about the flow or propose changes.
-Steps available: agent (AI does work; "prompt" = instructions; optional "agentId"), logic (condition; either "sub" plain-language check judged by a model, or "rule": {"left":"{{var}}","op":"contains|not_contains|equals|not_equals|empty|not_empty|gt|lt|matches","right":"text"}; the step after it on "yes" runs when true; add a step with "branch":"no" for the other path), human (a person approves; the run pauses; "approver" = the person's name from: ${approvers.map((u) => u.name).join(', ')}; "sub" = note), tool (call one ability: ${TOOLS.filter((t) => t.category !== 'Reasoning').map((t) => t.name).join(', ')}${customTools.length ? ', ' + customTools.map((t) => t.name).join(', ') : ''}; "prompt" = guidance), notify (in-app notification), loop (repeat for each item; "items" = template like "{{input}}" or empty to extract from the last result; the step after it on "each" handles one item and may use {{item}}; the step on "done" runs after all items; the loop's results are {{<loop key>}}), parallel (every outgoing step runs at once; they join at the first step they all connect to), code (JavaScript, "code" with vars.* available, return a value), http ("url", "method"), flow (run another workflow).
+Steps available: agent (AI does work; "prompt" = instructions; optional "agentId"), logic (condition; either "sub" plain-language check judged by a model, or "rule": {"left":"{{var}}","op":"contains|not_contains|equals|not_equals|empty|not_empty|gt|lt|matches","right":"text"}; the step after it on "yes" runs when true; add a step with "branch":"no" for the other path), human (a person approves; the run pauses; "approver" = the person's name from: ${approvers.map((u) => u.name).join(', ')}; "sub" = note), tool (call one ability: ${TOOLS.filter((t) => t.category !== 'Reasoning').map((t) => t.name).join(', ')}${customTools.length ? ', ' + customTools.map((t) => t.name).join(', ') : ''}; "prompt" = guidance), notify (in-app notification), loop (repeat for each item; "items" = template like "{{input}}" or empty to extract from the last result; the step after it on "each" handles one item and may use {{item}}; the step on "done" runs after all items; the loop's results are {{<loop key>}}), parallel (every outgoing step runs at once; they join at the first step they all connect to), code (JavaScript, "code" with vars.* available, return a value), http ("url", "method"), flow (run another workflow), wait ("wait" seconds), set ("assign": [{"key":"name","value":"template"}], no model), extract ("fields": [{"name","description"}]; result is JSON at {{key.field}}), classify ("categories": ["A","B"]; a model picks one; the step after it with "branch":"A" runs for that category).
 Every producing step stores its result as {{key}} where key is the label in snake_case; a step may set "input" to a template such as "Topic: {{input}}\\n\\n{{research}}" to receive only that instead of everything so far. Labels are 1-3 words and unique.
 Available agents: ${agents.map((a) => `${a.id} = ${a.name} (${a.description})`).join('; ') || 'none, so leave agentId out and write prompts'}. Other workflows: ${workflows.filter((w) => w.id !== base.id).map((w) => w.name).join(', ') || 'none'}. Knowledge libraries: ${libraries.map((l) => l.name).join(', ')}.
 Current flow "${meta.name}":\n${flowSummary()}\n${lastRun}
-Reply with ONE JSON object and nothing else, no prose before or after: {"reply":"one to three short sentences for the person","changes":{"name":"only when the flow is untitled","description":"optional","add":[{"brick":"agent|logic|human|tool|notify|loop|parallel|code|http|flow","label":"...","after":"label of the step it follows or \\"end\\"","branch":"yes|no|each|done (only after logic or loop)","prompt":"...","sub":"...","agentId":"...","tool":"...","approver":"...","items":"...","code":"...","url":"...","input":"..."}],"remove":["labels to delete"],"set":[{"label":"existing label","patch":{"prompt":"...","sub":"...","label":"..."}}]}}. Leave "changes" out when only answering. Added steps chain in order: the first follows "after", each next one follows the previous added step unless it names its own "after". A step added after X is inserted between X and whatever X led to, so "before Y" means after the step that precedes Y.`
+Reply with ONE JSON object and nothing else, no prose before or after: {"reply":"one to three short sentences for the person","changes":{"name":"only when the flow is untitled","description":"optional","add":[{"brick":"agent|logic|human|tool|notify|loop|parallel|code|http|flow|wait|set|extract|classify","label":"...","after":"label of the step it follows or \\"end\\"","branch":"yes|no|each|done (only after logic or loop)","prompt":"...","sub":"...","agentId":"...","tool":"...","approver":"...","items":"...","code":"...","url":"...","input":"..."}],"remove":["labels to delete"],"set":[{"label":"existing label","patch":{"prompt":"...","sub":"...","label":"..."}}]}}. Leave "changes" out when only answering. Added steps chain in order: the first follows "after", each next one follows the previous added step unless it names its own "after". A step added after X is inserted between X and whatever X led to, so "before Y" means after the step that precedes Y.`
     let acc = ''
     try {
       for await (const ev of streamChat({ key: apiKey, model: defaultModel, messages: [{ role: 'system', content: sys }, ...assist.log.slice(-6).map((m) => ({ role: m.role, content: m.text })), { role: 'user' as const, content: q }], temperature: 0 })) { if (ev.type === 'delta') acc += ev.text; if (ev.type === 'usage') store.recordSpend(ev.usage.cost ?? 0) }
       const j = parseJsonLoose(acc)
       const c = j.changes
-      const add: PlanStep[] = Array.isArray(c?.add) ? c.add.filter((s: any) => ['agent', 'logic', 'human', 'tool', 'notify', 'loop', 'parallel', 'code', 'http', 'flow'].includes(s.brick)) : []
+      const add: PlanStep[] = Array.isArray(c?.add) ? c.add.filter((s: any) => ['agent', 'logic', 'human', 'tool', 'notify', 'loop', 'parallel', 'code', 'http', 'flow', 'wait', 'set', 'extract', 'classify'].includes(s.brick)) : []
       const plan: Plan | undefined = c && (add.length || c.remove?.length || c.set?.length) ? { name: typeof c.name === 'string' ? c.name : undefined, description: typeof c.description === 'string' ? c.description : undefined, add, remove: Array.isArray(c.remove) ? c.remove.filter((x: unknown) => typeof x === 'string') : [], set: Array.isArray(c.set) ? c.set.filter((x: any) => x && typeof x.label === 'string' && x.patch && typeof x.patch === 'object') : [] } : undefined
       setAssist((a) => ({ ...a, busy: false, log: [...a.log, { role: 'assistant', text: String(j.reply ?? (plan ? 'Here is what I would change.' : 'Done.')), plan }] }))
       if (plan && nodes.filter((n) => n.data.brick !== 'trigger').length === 0 && buildText && !builtRef.current) { builtRef.current = true; setTimeout(() => setAssist((a) => { const i = a.log.length - 1; applyPlan(plan, i); return a }), 10) }
@@ -270,7 +310,10 @@ Reply with ONE JSON object and nothing else, no prose before or after: {"reply":
 
   // ---------- drag and drop ----------
   const onDragOver = (e: DragEvent) => { if (e.dataTransfer.types.includes(DT)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(true) } }
-  const onDrop = (e: DragEvent) => { e.preventDefault(); setDragOver(false); const raw = e.dataTransfer.getData(DT); if (!raw) return; const { brick, extra } = JSON.parse(raw) as { brick: Brick; extra?: Partial<StepData> }; const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); addStep(brick, { position: { x: p.x - NODE_W / 2, y: p.y - 40 }, extra }) }
+  const onDrop = (e: DragEvent) => { e.preventDefault(); setDragOver(false); const raw = e.dataTransfer.getData(DT); if (!raw) return; const { brick, extra } = JSON.parse(raw) as { brick: Brick; extra?: Partial<StepData> }; const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); const hit = edgeNear(p); if (hit) addStep(brick, { edge: hit, extra }); else addStep(brick, { position: { x: p.x - NODE_W / 2, y: p.y - 40 }, extra }) }
+  /** The connection closest to a canvas point, when within reach. */
+  const edgeNear = (p: { x: number; y: number }) => { let best: { id: string; d: number } | null = null; for (const e of edges) { const a = nodes.find((n) => n.id === e.source); const b = nodes.find((n) => n.id === e.target); if (!a || !b) continue; const d = segDist(p, { x: a.position.x + NODE_W, y: a.position.y + 52 }, { x: b.position.x, y: b.position.y + 52 }); if (d < 34 && (!best || d < best.d)) best = { id: e.id, d } } return best?.id }
+  const onPaneDouble = (e: React.MouseEvent) => { if (!editable || !(e.target as HTMLElement).classList?.contains('react-flow__pane')) return; const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); setSel(null); setAdding({ position: { x: p.x - NODE_W / 2, y: p.y - 40 } }); setPalette(true) }
 
   // ---------- render data ----------
   const rfNodes = useMemo<FlowNode[]>(() => nodes.map((n) => {
@@ -281,19 +324,19 @@ Reply with ONE JSON object and nothing else, no prose before or after: {"reply":
       trigger: n.data.brick === 'trigger' ? { kind: meta.triggerType, text: triggerText(meta) } : undefined }
     return { ...n, selected: sel?.kind === 'node' && sel.id === n.id, data: { ...n.data, ui } }
   }), [nodes, agents, lineFor, statusOf, problems, editable, profiles, defaultModel, users, meta, sel, nested])
-  const rfEdges = useMemo<BranchEdge[]>(() => edges.map((e) => ({ ...e, selected: sel?.kind === 'edge' && sel.id === e.id, data: { ...e.data, active: statusOf.get(e.source) === 'ok' && (statusOf.get(e.target) === 'running'), editable, onDelete: removeEdge, onFlip: flipEdge } })), [edges, sel, statusOf, editable]) // eslint-disable-line react-hooks/exhaustive-deps
+  const rfEdges = useMemo<BranchEdge[]>(() => edges.map((e) => ({ ...e, selected: sel?.kind === 'edge' && sel.id === e.id, data: { ...e.data, active: statusOf.get(e.source) === 'ok' && (statusOf.get(e.target) === 'running'), editable, onDelete: removeEdge, onFlip: flipEdge, onInsert: (id) => { const e = edges.find((x) => x.id === id); if (!e) return; setAdding({ after: e.source, branch: e.data?.label, edge: id }); setSel({ kind: 'edge', id }); setPalette(true) } } })), [edges, sel, statusOf, editable]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const statusTone = meta.status === 'live' ? 'ok' : meta.status === 'paused' ? 'warn' : undefined
   const showRight = !!selectedNode || !!selectedEdge || !assistantOpen
-  const addTarget = (): { after?: string; branch?: string } => adding ? { after: adding.after, branch: adding.branch } : selectedNode ? { after: selectedNode.id, branch: selectedNode.data.brick === 'logic' ? 'yes' : selectedNode.data.brick === 'loop' ? 'each' : undefined } : { after: [...nodes].reverse().find((n) => !edges.some((e) => e.source === n.id) && n.data.brick !== 'parallel')?.id }
+  const addTarget = (): { after?: string; branch?: string; edge?: string; position?: { x: number; y: number } } => adding ? { after: adding.after, branch: adding.branch, edge: adding.edge, position: adding.position } : selectedNode ? { after: selectedNode.id, branch: selectedNode.data.brick === 'logic' ? 'yes' : selectedNode.data.brick === 'loop' ? 'each' : selectedNode.data.brick === 'classify' ? selectedNode.data.categories?.[0]?.toLowerCase() : undefined } : { after: [...nodes].reverse().find((n) => !edges.some((e) => e.source === n.id) && n.data.brick !== 'parallel')?.id }
   const lastRun = wfRuns[0]
   const sampleVars = useMemo(() => (lastRun ? varsAfter(lastRun, lastRun.steps.length) : { input: runInput }), [lastRun, runInput])
 
   return (
     <div className="h-full flex gap-3">
-      <div ref={canvasRef} className={cx('flex-1 min-w-0 clay relative overflow-hidden transition-all', dragOver && 'drop-hint')} onDragOver={onDragOver} onDragLeave={() => setDragOver(false)} onDrop={onDrop}>
+      <div ref={canvasRef} className={cx('flex-1 min-w-0 clay relative overflow-hidden transition-all', dragOver && 'drop-hint')} onDragOver={onDragOver} onDragLeave={() => setDragOver(false)} onDrop={onDrop} onDoubleClick={onPaneDouble}>
         {size && <ReactFlow<FlowNode, BranchEdge> defaultViewport={viewportFor(nodes, size)} nodes={rfNodes} edges={rfEdges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
-          onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect}
+          onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onConnectEnd={onConnectEnd as any} onNodeDragStart={() => commit()} connectionRadius={36} elevateNodesOnSelect
           onNodeClick={(_, n) => select({ kind: 'node', id: n.id })} onEdgeClick={(_, e) => select({ kind: 'edge', id: e.id })} onPaneClick={() => { setSel(null); setAdding(null); setPalette(false); setMenu(false) }}
           onNodesDelete={(ds) => { if (ds.some((d) => d.id === sel?.id)) setSel(null) }} onEdgesDelete={(ds) => { if (ds.some((d) => d.id === sel?.id)) setSel(null) }}
           minZoom={0.3} maxZoom={1.6} proOptions={{ hideAttribution: true }}
@@ -303,10 +346,10 @@ Reply with ONE JSON object and nothing else, no prose before or after: {"reply":
           {nodes.length > 4 && !drawer && <MiniMap pannable zoomable position="bottom-left" nodeColor={(n) => brickOf((n.data as FlowNode['data']).brick).color} nodeStrokeWidth={0} maskColor="transparent" style={{ width: 150, height: 84, marginLeft: 64 }} />}
         </ReactFlow>}
         {nodes.length <= 1 && !palette && (
-          <div className="absolute inset-x-0 top-[55%] grid place-items-center pointer-events-none" style={{ paddingRight: showRight ? RIGHT_W : 0 }}>
+          <div className="absolute inset-x-0 bottom-10 grid place-items-center pointer-events-none" style={{ paddingRight: showRight ? RIGHT_W : 0 }}>
             <div className="text-center max-w-[360px]">
               <div className="text-[13.5px] font-semibold">Build the workflow</div>
-              <div className="text-[12.5px] muted mt-1 leading-relaxed">Press <b>+</b> for steps, abilities and connectors, hover Start and press <b>+</b>, or open the assistant and describe the whole flow.</div>
+              <div className="text-[12.5px] muted mt-1 leading-relaxed">Press <b>+</b> or <b>Tab</b> for steps, abilities and connectors; drag a connection out of Start and drop it; double-click the canvas; or open the assistant and describe the whole flow.</div>
             </div>
           </div>
         )}
@@ -314,11 +357,11 @@ Reply with ONE JSON object and nothing else, no prose before or after: {"reply":
         {/* ---------- floating header ---------- */}
         <header className="absolute top-3 left-3 right-3 h-12 glass rounded-[16px] px-2.5 flex items-center gap-2 z-30">
           <button onClick={() => nav('/workflows')} className="btn btn-ghost btn-sm btn-icon" title="Back to workflows"><ArrowLeft size={16} /></button>
-          <input value={meta.name} onChange={(e) => setMeta({ ...meta, name: e.target.value })} disabled={!editable} placeholder="Name this workflow" aria-label="Workflow name" className="display font-bold text-[14.5px] bg-transparent outline-0 w-[220px] truncate rounded-md px-1.5 hover:bg-[var(--clay-dark)] focus:bg-[var(--clay-dark)] transition-colors" />
-          <Chip tone={statusTone as any}>{meta.status === 'live' ? 'Live' : meta.status === 'paused' ? 'Paused' : 'Draft'} · v{meta.version}</Chip>
-          {dirty && <span className="text-[11.5px] muted">Unsaved</span>}
+          <input value={meta.name} onChange={(e) => setMeta({ ...meta, name: e.target.value })} disabled={!editable} placeholder="Name this workflow" aria-label="Workflow name" className="display font-bold text-[14.5px] bg-transparent outline-0 w-[140px] lg:w-[220px] truncate rounded-md px-1.5 hover:bg-[var(--clay-dark)] focus:bg-[var(--clay-dark)] transition-colors" />
+          <Chip tone={statusTone as any} className="whitespace-nowrap shrink-0">{meta.status === 'live' ? 'Live' : meta.status === 'paused' ? 'Paused' : 'Draft'} · v{meta.version}</Chip>
+          {dirty && <span className="text-[11.5px] muted whitespace-nowrap hidden lg:inline">Unsaved</span>}
           <div className="flex-1" />
-          <button onClick={() => { setSel(null); setFlowTab('checks') }} className={cx('chip !h-8 hover:text-[var(--text)]', problems.length ? 'chip-warn' : 'chip-ok')}>{problems.length ? <><AlertTriangle size={12} /> {problems.length} to fix</> : <><CheckCircle2 size={12} /> Ready</>}</button>
+          <button onClick={() => { setSel(null); setFlowTab('checks') }} className={cx('chip !h-8 hover:text-[var(--text)] whitespace-nowrap shrink-0', problems.length ? 'chip-warn' : 'chip-ok')}>{problems.length ? <><AlertTriangle size={12} /> {problems.length} to fix</> : <><CheckCircle2 size={12} /> Ready</>}</button>
           <button onClick={() => arrange()} className="btn btn-ghost btn-sm btn-icon" title="Tidy up the layout"><LayoutGrid size={15} /></button>
           {editable && <Button size="sm" onClick={() => persist()} disabled={!dirty}><Check size={13} /> Save</Button>}
           <Button size="sm" variant="primary" onClick={() => { setSel(null); setDrawer(!drawer) }} disabled={problems.length > 0 && !drawer} title={problems[0]?.text}><Play size={13} /> {drawer ? 'Hide run' : 'Test run'}</Button>
@@ -341,6 +384,9 @@ Reply with ONE JSON object and nothing else, no prose before or after: {"reply":
             <button onClick={() => { setPalette(!palette); if (!palette) setAdding(null) }} className={cx('btn btn-ghost btn-icon !w-9 !h-9', palette && 'bg-[var(--surface-2)] text-[var(--text)]')} title="Add a step" aria-label="Add a step" aria-expanded={palette}><Plus size={18} /></button>
             <button onClick={() => setAssistantOpen(!assistantOpen)} className={cx('btn btn-ghost btn-icon !w-9 !h-9', assistantOpen && 'bg-[var(--surface-2)] text-[var(--accent-ink)]')} title="Co-Create Assistant" aria-label="Co-Create Assistant" aria-expanded={assistantOpen}><Sparkles size={17} /></button>
             <button onClick={() => { setSel(null); setDrawer(!drawer) }} className={cx('btn btn-ghost btn-icon !w-9 !h-9 relative', drawer && 'bg-[var(--surface-2)] text-[var(--text)]')} title="Runs" aria-label="Runs"><History size={17} />{liveRun?.status === 'running' && <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse" />}</button>
+            <div className="h-px bg-[var(--line)] mx-1 my-0.5" />
+            <button onClick={undo} className="btn btn-ghost btn-icon !w-9 !h-9" title="Undo (Ctrl+Z)" aria-label="Undo"><Undo2 size={16} /></button>
+            <button onClick={redo} className="btn btn-ghost btn-icon !w-9 !h-9" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><Redo2 size={16} /></button>
           </div>
         )}
         <AnimatePresence>{palette && editable && (
@@ -398,7 +444,7 @@ function Palette({ onClose, adding, nameOf, hasTrigger, customTools, workflows, 
   const drag = (e: DragEvent, brick: Brick, extra?: Partial<StepData>) => { e.dataTransfer.setData(DT, JSON.stringify({ brick, extra })); e.dataTransfer.effectAllowed = 'move' }
   const abilities = [...TOOLS.filter((t) => t.category !== 'Reasoning').map((t) => ({ name: t.name, label: t.label, desc: t.desc, gated: t.write })), ...customTools.map((t) => ({ name: t.name, label: t.label, desc: t.description, gated: false }))]
   const all = q.trim().length > 0
-  const branchWord = (b?: string) => (b === 'yes' ? 'Yes' : b === 'no' ? 'No' : b === 'each' ? 'Each item' : b === 'done' ? 'When done' : '')
+  const branchWord = (b?: string) => (b === 'yes' ? 'Yes' : b === 'no' ? 'No' : b === 'each' ? 'Each item' : b === 'done' ? 'When done' : b ? b.charAt(0).toUpperCase() + b.slice(1) : '')
   return (
     <motion.div initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -6 }} transition={{ duration: 0.15 }} className="absolute left-[62px] top-[68px] bottom-3 w-[330px] glass rounded-[18px] z-30 flex flex-col overflow-hidden">
       <div className="p-3 pb-2 flex flex-col gap-2 border-b hairline">
@@ -406,7 +452,7 @@ function Palette({ onClose, adding, nameOf, hasTrigger, customTools, workflows, 
           <div className="relative flex-1"><Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 muted" /><input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search steps, abilities, connectors" aria-label="Search" className="input !h-9 !pl-8 !text-[12.5px]" /></div>
           <button onClick={onClose} className="btn btn-ghost btn-sm btn-icon" aria-label="Close"><X size={14} /></button>
         </div>
-        {adding ? <div className="text-[11.5px] leading-snug px-0.5">Adding after <b>{nameOf(adding.after)}</b>{adding.branch && <> on <b>{branchWord(adding.branch)}</b></>}.</div> : <div className="text-[11.5px] muted leading-snug px-0.5">Click to add after the selected step, or drag onto the canvas.</div>}
+        {adding?.edge ? <div className="text-[11.5px] leading-snug px-0.5">Inserting into the connection after <b>{nameOf(adding.after!)}</b>{adding.branch && <> on <b>{branchWord(adding.branch)}</b></>}.</div> : adding?.after ? <div className="text-[11.5px] leading-snug px-0.5">Adding after <b>{nameOf(adding.after)}</b>{adding.branch && <> on <b>{branchWord(adding.branch)}</b></>}.</div> : adding?.position ? <div className="text-[11.5px] leading-snug px-0.5">Adding at the spot you chose. Connect it afterwards.</div> : <div className="text-[11.5px] muted leading-snug px-0.5">Click to add after the selected step, or drag onto the canvas.</div>}
         {!all && <Segmented value={tab} onChange={setTab} items={[{ id: 'steps', label: 'Steps' }, { id: 'abilities', label: 'Abilities' }, { id: 'connectors', label: 'Connectors' }, { id: 'workflows', label: 'Flows' }]} />}
       </div>
       <div className="flex-1 min-h-0 scroll p-2 flex flex-col gap-1">
@@ -649,7 +695,7 @@ function StepInspector({ node, editable, onClose, onRemove, patch, meta, setMeta
   const [advanced, setAdvanced] = useState(false)
   const [tryState, setTry] = useState<{ open: boolean; input: string; busy: boolean; result?: RunStep }>({ open: false, input: sampleVars.input ?? '', busy: false })
   const [checking, setChecking] = useState<string>('')
-  const canTry = ['agent', 'tool', 'code', 'http', 'logic', 'flow', 'notify'].includes(d.brick)
+  const canTry = ['agent', 'tool', 'code', 'http', 'logic', 'flow', 'notify', 'set', 'extract', 'classify'].includes(d.brick)
   const runTry = async () => {
     setTry((t) => ({ ...t, busy: true, result: undefined }))
     try { const r = await tryStep(wfForTry(), node.id, { ...sampleVars, input: tryState.input }); setTry((t) => ({ ...t, busy: false, result: r })) }
@@ -825,6 +871,38 @@ function StepInspector({ node, editable, onClose, onRemove, patch, meta, setMeta
           </>
         )}
 
+        {d.brick === 'wait' && <Field label="Wait for" hint="Up to 10 minutes. The run stays open while it waits."><div className="flex items-center gap-2"><Input type="number" min={1} max={600} value={d.wait ?? 30} onChange={(e) => patch({ wait: Math.min(600, Math.max(1, +e.target.value || 1)) })} className="!w-[110px]" /><span className="text-[12.5px] muted">seconds</span></div></Field>}
+
+        {d.brick === 'set' && (
+          <Field label="Variables" hint="Each value is a template. Later steps use {{name}}.">
+            <div className="flex flex-col gap-2">
+              {(d.assign ?? []).map((a, i) => <div key={i} className="flex items-start gap-2"><Input value={a.key} onChange={(e) => patch({ assign: (d.assign ?? []).map((x, j) => (j === i ? { ...x, key: e.target.value } : x)) })} placeholder="name" className="!w-[120px] font-mono !text-[12px]" /><textarea rows={1} value={a.value} onChange={(e) => patch({ assign: (d.assign ?? []).map((x, j) => (j === i ? { ...x, value: e.target.value } : x)) })} placeholder="{{input}}" className="input font-mono !text-[12px] flex-1" /><button type="button" onClick={() => patch({ assign: (d.assign ?? []).filter((_, j) => j !== i) })} className="btn btn-ghost btn-sm btn-icon shrink-0" aria-label="Remove variable"><Minus size={13} /></button></div>)}
+              <button type="button" onClick={() => patch({ assign: [...(d.assign ?? []), { key: '', value: '' }] })} className="text-[12px] accent-ink font-medium text-left hover:underline inline-flex items-center gap-1"><Plus size={12} /> Add a variable</button>
+              <VarChips vars={vars} onInsert={(k) => { const a = d.assign ?? []; if (!a.length) return; patch({ assign: a.map((x, j) => (j === a.length - 1 ? { ...x, value: x.value + `{{${k}}}` } : x)) }) }} />
+            </div>
+          </Field>
+        )}
+
+        {d.brick === 'extract' && (
+          <>
+            <Field label="Fields to extract" hint="The Fast model fills them from what the step receives and stores JSON you can read as {{key.field}}.">
+              <div className="flex flex-col gap-2">
+                {(d.fields ?? []).map((f, i) => <div key={i} className="flex items-start gap-2"><Input value={f.name} onChange={(e) => patch({ fields: (d.fields ?? []).map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })} placeholder="field" className="!w-[120px] font-mono !text-[12px]" /><Input value={f.description} onChange={(e) => patch({ fields: (d.fields ?? []).map((x, j) => (j === i ? { ...x, description: e.target.value } : x)) })} placeholder="what it holds" className="flex-1" /><button type="button" onClick={() => patch({ fields: (d.fields ?? []).filter((_, j) => j !== i) })} className="btn btn-ghost btn-sm btn-icon shrink-0" aria-label="Remove field"><Minus size={13} /></button></div>)}
+                <button type="button" onClick={() => patch({ fields: [...(d.fields ?? []), { name: '', description: '' }] })} className="text-[12px] accent-ink font-medium text-left hover:underline inline-flex items-center gap-1"><Plus size={12} /> Add a field</button>
+              </div>
+            </Field>
+            <TemplateField label="What it reads" hint="Leave empty to read everything so far." value={d.input ?? ''} onChange={(v) => patch({ input: v })} vars={vars} rows={2} placeholder="{{research}}" />
+          </>
+        )}
+
+        {d.brick === 'classify' && (
+          <>
+            <Field label="Categories" hint="One per line. A model picks exactly one and the run continues on that branch; the pick is stored as the step's variable."><Textarea rows={4} value={(d.categories ?? []).join('\n')} onChange={(e) => patch({ categories: e.target.value.split('\n').map((c) => c.replace(/\s+/g, ' ').trim()).filter((c, i, a) => c && a.indexOf(c) === i).slice(0, 8) })} placeholder={'Question\nRequest\nComplaint\nOther'} /></Field>
+            <TemplateField label="What it reads" hint="Leave empty to read the latest result." value={d.input ?? ''} onChange={(v) => patch({ input: v })} vars={vars} rows={2} placeholder="{{input}}" />
+            <Branches pairs={branchesOf(d).map((b) => [b.id, b.label, branchTone(b.id)] as [string, string, string])} branchTarget={branchTarget} editable={editable} onSelect={onSelect} onAdd={onAdd} emptyNo="Ends the run" />
+          </>
+        )}
+
         {d.brick === 'notify' && <TemplateField label="Message" hint="Leave empty to send the latest result. Everyone in the workspace sees it under Notifications." value={d.input ?? ''} onChange={(v) => patch({ input: v })} vars={vars} rows={2} placeholder="e.g. Prices moved: {{check}}" />}
 
         {d.brick === 'council' && (
@@ -838,7 +916,7 @@ function StepInspector({ node, editable, onClose, onRemove, patch, meta, setMeta
           <Field label="Stored as" hint="Later steps use this name inside double braces."><div className="flex items-center gap-2"><span className="muted text-[13px]">{'{{'}</span><Input value={d.key ?? ''} onChange={(e) => patch({ key: e.target.value })} placeholder={keyOf({ ...d, key: undefined })} className="font-mono !text-[12px]" /><span className="muted text-[13px]">{'}}'}</span></div></Field>
         )}
 
-        {['agent', 'council', 'tool', 'code', 'http', 'flow', 'logic', 'loop', 'parallel'].includes(d.brick) && (
+        {['agent', 'council', 'tool', 'code', 'http', 'flow', 'logic', 'loop', 'parallel', 'extract', 'classify'].includes(d.brick) && (
           <div>
             <button type="button" onClick={() => setAdvanced(!advanced)} className="text-[12px] font-semibold inline-flex items-center gap-1 muted hover:text-[var(--text)]">{advanced ? <ChevronDown size={13} /> : <ChevronRight size={13} />} If it fails</button>
             {advanced && (
@@ -867,13 +945,13 @@ function StepInspector({ node, editable, onClose, onRemove, patch, meta, setMeta
           </div>
         )}
 
-        {!['logic', 'loop', 'parallel'].includes(d.brick) && next.length > 0 && (
+        {!['logic', 'loop', 'parallel', 'classify'].includes(d.brick) && next.length > 0 && (
           <div className="pt-2 border-t hairline">
             <div className="text-[11px] font-semibold uppercase tracking-wider muted mb-1.5">Then</div>
             {next.map((n) => <button key={n.id} type="button" onClick={() => onSelect(n.id)} className="w-full flex items-center gap-2 text-[12.5px] py-1 hover:underline text-left"><Tile color={brickOf(n.data.brick).color} size={20} radius={6}>{(() => { const J = brickOf(n.data.brick).icon; return <J size={10} /> })()}</Tile><span className="truncate">{n.data.label}</span><ChevronRight size={12} className="muted ml-auto" /></button>)}
           </div>
         )}
-        {!['logic', 'loop', 'parallel'].includes(d.brick) && editable && <button type="button" onClick={() => onAdd()} className="text-[12px] accent-ink font-medium text-left hover:underline inline-flex items-center gap-1"><Plus size={12} /> Add a step after this one</button>}
+        {!['logic', 'loop', 'parallel', 'classify'].includes(d.brick) && editable && <button type="button" onClick={() => onAdd()} className="text-[12px] accent-ink font-medium text-left hover:underline inline-flex items-center gap-1"><Plus size={12} /> Add a step after this one</button>}
       </fieldset>
     </div>
   )

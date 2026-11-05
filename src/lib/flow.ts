@@ -1,5 +1,5 @@
 // Flow builder vocabulary and graph helpers shared by the canvas, inspector, engine and list page.
-import { Zap, Sparkles, Users, GitFork, UserCheck, Wrench, Bell, Repeat, Split, Code2, Globe, Workflow as WorkflowIcon } from 'lucide-react'
+import { Zap, Sparkles, Users, GitFork, UserCheck, Wrench, Bell, Repeat, Split, Code2, Globe, Workflow as WorkflowIcon, Timer, Braces, ScanSearch, Signpost } from 'lucide-react'
 import type { Brick, StepData, WfEdge, WfNode, Workflow } from './data'
 import { refs, slug } from './template'
 
@@ -14,14 +14,20 @@ export const BRICKS: BrickInfo[] = [
   { id: 'logic', label: 'Condition', tag: 'If', desc: 'Branch on a rule or a plain-language check', icon: GitFork, color: '#8b5cf6', group: 'Flow' },
   { id: 'loop', label: 'Repeat for each', tag: 'Repeat', desc: 'Run the next steps once per item in a list', icon: Repeat, color: '#f97316', group: 'Flow' },
   { id: 'parallel', label: 'Split', tag: 'Split', desc: 'Run every outgoing branch at the same time', icon: Split, color: '#14b8a6', group: 'Flow' },
+  { id: 'classify', label: 'Route by category', tag: 'Route', desc: 'A model sorts the input into one of your categories; each gets its own branch', icon: Signpost, color: '#a855f7', group: 'Flow' },
+  { id: 'wait', label: 'Wait', tag: 'Wait', desc: 'Pause for a number of seconds before the next step', icon: Timer, color: '#64748b', group: 'Flow' },
   { id: 'flow', label: 'Run a workflow', tag: 'Workflow', desc: 'Run another workflow as one step', icon: WorkflowIcon, color: '#6366f1', group: 'Flow' },
+  { id: 'set', label: 'Set variables', tag: 'Set', desc: 'Define or reshape variables with templates, no model involved', icon: Braces, color: '#0369a1', group: 'Data' },
+  { id: 'extract', label: 'Extract fields', tag: 'Extract', desc: 'Pull named fields out of text into JSON you can reference', icon: ScanSearch, color: '#be185d', group: 'Data' },
   { id: 'code', label: 'Run code', tag: 'Code', desc: 'JavaScript over the variables, no model involved', icon: Code2, color: '#0f766e', group: 'Data' },
   { id: 'http', label: 'Call an API', tag: 'API', desc: 'An HTTP request with the result stored as a variable', icon: Globe, color: '#2563eb', group: 'Data' },
   { id: 'council', label: 'Council', tag: 'Council', desc: 'Several agents deliberate on one case', icon: Users, color: '#6366f1', soon: true, group: 'Core' },
 ]
 export const brickOf = (b: Brick): BrickInfo => BRICKS.find((x) => x.id === b) ?? BRICKS[1]
 /** Steps whose output is stored as a variable */
-export const producesVar = (b: Brick) => ['agent', 'council', 'tool', 'code', 'http', 'flow', 'loop'].includes(b)
+export const producesVar = (b: Brick) => ['agent', 'council', 'tool', 'code', 'http', 'flow', 'loop', 'extract', 'classify'].includes(b)
+/** Outgoing branches of a step that has more than one: [handle id, label] pairs. */
+export const branchesOf = (d: StepData): { id: string; label: string }[] => d.brick === 'logic' ? [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }] : d.brick === 'loop' ? [{ id: 'each', label: 'Each' }, { id: 'done', label: 'Done' }] : d.brick === 'classify' ? (d.categories ?? []).filter((c) => c.trim()).map((c) => ({ id: c.trim().toLowerCase(), label: c.trim() })) : []
 export const keyOf = (d: StepData) => (d.key?.trim() ? slug(d.key) : slug(d.label))
 
 export const uid = () => `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`
@@ -125,7 +131,7 @@ export function checkFlow(nodes: WfNode[], edges: WfEdge[], ctx: { hasAgent: (id
   if (nodes.length === 1 && triggers.length === 1) out.push({ text: 'Add a step after Start, such as an Agent.' })
   if (ctx.triggerType === 'watch' && !/^https?:\/\//.test(ctx.watchUrl ?? '')) out.push({ nodeId: triggers[0]?.id, text: 'Start: give the page address to watch.' })
   const nested = nestedNodes(nodes, edges)
-  const known = new Set(['input', 'item', 'index', 'count', 'now', 'trigger', ...nodes.filter((n) => producesVar(n.data.brick)).map((n) => keyOf(n.data))])
+  const known = new Set(['input', 'item', 'index', 'count', 'now', 'trigger', ...nodes.filter((n) => producesVar(n.data.brick)).map((n) => keyOf(n.data)), ...nodes.flatMap((n) => (n.data.assign ?? []).map((a) => slug(a.key)))])
   for (const n of nodes) {
     const d = n.data; const name = d.label || brickOf(d.brick).label
     if (d.brick === 'agent' && !ctx.hasAgent(d.agentId) && !d.prompt?.trim()) out.push({ nodeId: n.id, text: `${name}: pick an agent or write what this step should do.` })
@@ -142,6 +148,13 @@ export function checkFlow(nodes: WfNode[], edges: WfEdge[], ctx: { hasAgent: (id
     if (d.brick === 'loop') {
       if (!nextOf(edges, n.id, 'each')) out.push({ nodeId: n.id, text: `${name}: connect the Each branch to the step that handles one item.` })
     }
+    if (d.brick === 'classify') {
+      const cats = branchesOf(d)
+      if (cats.length < 2) out.push({ nodeId: n.id, text: `${name}: give at least two categories.` })
+      else if (!cats.some((c) => edges.some((e) => e.source === n.id && (e.label ?? '').toLowerCase() === c.id))) out.push({ nodeId: n.id, text: `${name}: connect at least one category to a step.` })
+    }
+    if (d.brick === 'set' && !(d.assign ?? []).some((a) => a.key.trim())) out.push({ nodeId: n.id, text: `${name}: add at least one variable.` })
+    if (d.brick === 'extract' && !(d.fields ?? []).some((f) => f.name.trim())) out.push({ nodeId: n.id, text: `${name}: name at least one field to extract.` })
     if (d.brick === 'parallel' && outEdges(edges, n.id).length < 2) out.push({ nodeId: n.id, text: `${name}: connect at least two branches.` })
     if (d.brick === 'tool' && !d.tool) out.push({ nodeId: n.id, text: `${name}: choose the ability to call.` })
     if (d.brick === 'code' && !d.code?.trim()) out.push({ nodeId: n.id, text: `${name}: write the code to run.` })
@@ -151,7 +164,7 @@ export function checkFlow(nodes: WfNode[], edges: WfEdge[], ctx: { hasAgent: (id
       else if (d.workflowId === ctx.selfId) out.push({ nodeId: n.id, text: `${name}: a workflow cannot run itself.` })
     }
     if (d.brick !== 'trigger' && !edges.some((e) => e.target === n.id)) out.push({ nodeId: n.id, text: `${name} is not connected to anything before it.` })
-    for (const tpl of [d.input, d.prompt, d.items, d.url, d.body, d.rule?.left, d.rule?.right]) for (const r of refs(tpl)) if (!known.has(r)) out.push({ nodeId: n.id, text: `${name}: {{${r}}} is not produced by any step.` })
+    for (const tpl of [d.input, d.prompt, d.items, d.url, d.body, d.rule?.left, d.rule?.right, ...(d.assign ?? []).map((a) => a.value)]) for (const r of refs(tpl)) if (!known.has(r)) out.push({ nodeId: n.id, text: `${name}: {{${r}}} is not produced by any step.` })
   }
   return out
 }
@@ -165,6 +178,10 @@ export const newStep = (brick: Brick, defaults: { model: string; approver?: stri
   ...(brick === 'loop' ? { items: '', maxItems: 10 } : {}),
   ...(brick === 'code' ? { code: '// vars holds every variable so far, e.g. vars.input\nreturn vars.input.split("\\n").length + " lines"' } : {}),
   ...(brick === 'http' ? { method: 'GET' as const, url: '', headers: '', body: '' } : {}),
+  ...(brick === 'wait' ? { wait: 30 } : {}),
+  ...(brick === 'set' ? { assign: [{ key: 'topic', value: '{{input}}' }] } : {}),
+  ...(brick === 'extract' ? { fields: [{ name: 'summary', description: 'One-sentence summary' }] } : {}),
+  ...(brick === 'classify' ? { categories: ['Question', 'Request', 'Other'] } : {}),
   ...extra,
 })
 
@@ -183,6 +200,10 @@ export function stepLine(d: StepData, lookup: { agentName?: (id?: string) => str
     case 'code': return d.code?.split('\n').find((l) => l.trim() && !l.trim().startsWith('//'))?.trim().slice(0, 60) || 'Write the code to run'
     case 'http': return d.url?.trim() ? `${d.method ?? 'GET'} ${d.url.trim()}` : 'Give the address to call'
     case 'flow': return lookup.workflowName?.(d.workflowId) ?? 'Pick the workflow to run'
+    case 'wait': return `Wait ${d.wait ?? 30}s`
+    case 'set': return (d.assign ?? []).filter((a) => a.key.trim()).map((a) => `{{${slug(a.key)}}}`).join(', ') || 'Add a variable'
+    case 'extract': return (d.fields ?? []).filter((f) => f.name.trim()).map((f) => f.name).join(', ') || 'Name the fields'
+    case 'classify': return (d.categories ?? []).filter(Boolean).join(' · ') || 'Give the categories'
   }
 }
 
@@ -196,7 +217,11 @@ export function varsBefore(nodes: WfNode[], edges: WfEdge[], nodeId: string): { 
   const out: { key: string; label: string; brick: Brick | 'builtin' }[] = [{ key: 'input', label: 'The run input', brick: 'builtin' }]
   const nested = nestedNodes(nodes, edges)
   if (nested.get(nodeId) === 'loop') out.push({ key: 'item', label: 'Current item', brick: 'builtin' }, { key: 'index', label: 'Item number', brick: 'builtin' }, { key: 'count', label: 'Number of items', brick: 'builtin' })
-  for (const n of nodes) if (before.has(n.id) && producesVar(n.data.brick)) out.push({ key: keyOf(n.data), label: n.data.label, brick: n.data.brick })
+  for (const n of nodes) if (before.has(n.id)) {
+    if (producesVar(n.data.brick)) out.push({ key: keyOf(n.data), label: n.data.label, brick: n.data.brick })
+    if (n.data.brick === 'extract') for (const f of n.data.fields ?? []) if (f.name.trim()) out.push({ key: `${keyOf(n.data)}.${slug(f.name)}`, label: `${n.data.label} · ${f.name}`, brick: 'extract' })
+    if (n.data.brick === 'set') for (const a of n.data.assign ?? []) if (a.key.trim()) out.push({ key: slug(a.key), label: `${n.data.label} · ${a.key}`, brick: 'set' })
+  }
   out.push({ key: 'now', label: 'Date and time', brick: 'builtin' })
   return out
 }

@@ -1,10 +1,10 @@
 // Custom React Flow node and edge for the flow builder: step cards with live run status, labelled branch handles
-// (yes/no, each/done), variable badges and labelled edges.
+// (yes/no, each/done, one per category), variable badges, and edges with branch pills and an insert button.
 import { memo } from 'react'
 import { Handle, Position, BaseEdge, EdgeLabelRenderer, getBezierPath, type Node, type Edge, type NodeProps, type EdgeProps } from '@xyflow/react'
 import { Plus, Check, X, Loader2, Hourglass, Clock, Zap, Link2, Eye, FileInput } from 'lucide-react'
 import type { StepData } from '@/lib/data'
-import { brickOf, NODE_W, producesVar, keyOf } from '@/lib/flow'
+import { brickOf, NODE_W, producesVar, keyOf, branchesOf } from '@/lib/flow'
 import { Tile, cx } from './ui'
 import { AgentAvatar } from './AgentAvatar'
 
@@ -44,13 +44,15 @@ function AddButton({ onClick, title, className, style }: { onClick: () => void; 
 }
 
 const triggerIcon = { manual: Zap, schedule: Clock, link: Link2, watch: Eye, event: FileInput } as const
+/** Colour of a branch pill by its id. */
+export const branchTone = (id: string) => (id === 'yes' || id === 'each' ? 'var(--ok)' : id === 'no' ? 'var(--danger)' : id === 'done' ? 'var(--muted)' : 'var(--accent-deep)')
 
 export const StepNodeView = memo(function StepNodeView({ id, data, selected }: NodeProps<FlowNode>) {
   const b = brickOf(data.brick); const Icon = b.icon; const ui = data.ui
-  const isLogic = data.brick === 'logic'; const isLoop = data.brick === 'loop'; const isStart = data.brick === 'trigger'
-  const two = isLogic || isLoop
-  const labels: [string, string] = isLogic ? ['Yes', 'No'] : ['Each', 'Done']
+  const isStart = data.brick === 'trigger'
+  const outs = branchesOf(data)
   const TI = isStart && ui.trigger ? triggerIcon[ui.trigger.kind] : Icon
+  const handleCls = '!w-2.5 !h-2.5 !bg-[var(--surface-2)] !border-2'
   return (
     <div className="group relative" style={{ width: NODE_W }}>
       <div className={cx('relative rounded-[16px] bg-[var(--surface-2)] border transition-all duration-200', selected ? 'border-[var(--accent)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_18%,transparent),0_14px_28px_-16px_var(--clay-drop)]' : 'border-[var(--line)] shadow-[0_10px_24px_-16px_var(--clay-drop)] group-hover:border-[color-mix(in_srgb,var(--accent)_45%,var(--line))]', ui.status && statusRing[ui.status], ui.status === 'running' && 'animate-pulse-ring', ui.problem && !selected && 'border-dashed border-[var(--warn)]', ui.nested && 'bg-[color-mix(in_srgb,var(--surface-2)_92%,' + (ui.nested === 'loop' ? '#f97316' : '#14b8a6') + ')]')}>
@@ -73,25 +75,24 @@ export const StepNodeView = memo(function StepNodeView({ id, data, selected }: N
             {producesVar(data.brick) && <span className="inline-flex items-center h-6 px-2 rounded-full font-mono text-[10.5px] text-[var(--accent-ink)] bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] truncate" title="Use this step's result in later steps">{`{{${keyOf(data)}}}`}</span>}
           </div>
         )}
-        {two && (
-          <div className="px-3 pb-2.5 flex items-center justify-end gap-1.5 text-[10.5px] font-semibold">
-            <span className="h-5 px-2 rounded-full bg-[color-mix(in_srgb,var(--ok)_14%,transparent)] text-[var(--ok)]">{labels[0]} ↗</span>
-            <span className={cx('h-5 px-2 rounded-full', isLogic ? 'bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] text-[var(--danger)]' : 'bg-[var(--clay-dark)] muted')}>{labels[1]} ↘</span>
+        {outs.length > 0 && (
+          <div className="px-3 pb-2.5 flex items-center justify-end gap-1 text-[10.5px] font-semibold flex-wrap">
+            {outs.map((o) => <span key={o.id} className="h-5 px-2 rounded-full truncate max-w-[110px]" style={{ color: branchTone(o.id), background: `color-mix(in srgb, ${branchTone(o.id)} 13%, transparent)` }}>{o.label} ↗</span>)}
           </div>
         )}
       </div>
 
-      {!isStart && <Handle type="target" position={Position.Left} className="!w-2.5 !h-2.5 !bg-[var(--surface-2)] !border-2 !border-[var(--muted)]" />}
-      {two ? (
-        <>
-          <Handle id={isLogic ? 'yes' : 'each'} type="source" position={Position.Right} style={{ top: '38%' }} className="!w-2.5 !h-2.5 !bg-[var(--surface-2)] !border-2 !border-[var(--ok)]" />
-          <Handle id={isLogic ? 'no' : 'done'} type="source" position={Position.Right} style={{ top: '72%' }} className={cx('!w-2.5 !h-2.5 !bg-[var(--surface-2)] !border-2', isLogic ? '!border-[var(--danger)]' : '!border-[var(--muted)]')} />
-          {ui.editable && ui.onAdd && <AddButton title={`Add a step on the ${labels[0]} branch`} onClick={() => ui.onAdd!(id, isLogic ? 'yes' : 'each')} className="-right-8" style={{ top: 'calc(38% - 12px)' }} />}
-          {ui.editable && ui.onAdd && <AddButton title={`Add a step on the ${labels[1]} branch`} onClick={() => ui.onAdd!(id, isLogic ? 'no' : 'done')} className="-right-8" style={{ top: 'calc(72% - 12px)' }} />}
-        </>
+      {!isStart && <Handle type="target" position={Position.Left} className={cx(handleCls, '!border-[var(--muted)]')} />}
+      {outs.length > 0 ? (
+        outs.map((o, i) => { const top = `${((i + 1) / (outs.length + 1)) * 100}%`; return (
+          <span key={o.id}>
+            <Handle id={o.id} type="source" position={Position.Right} style={{ top }} className={handleCls} />
+            {ui.editable && ui.onAdd && <AddButton title={`Add a step on the ${o.label} branch`} onClick={() => ui.onAdd!(id, o.id)} className="-right-8" style={{ top: `calc(${top} - 12px)` }} />}
+          </span>
+        ) })
       ) : (
         <>
-          <Handle type="source" position={Position.Right} className="!w-2.5 !h-2.5 !bg-[var(--surface-2)] !border-2 !border-[var(--muted)]" />
+          <Handle type="source" position={Position.Right} className={cx(handleCls, '!border-[var(--muted)]')} />
           {ui.editable && ui.onAdd && <AddButton title={data.brick === 'parallel' ? 'Add a branch' : 'Add a step after this one'} onClick={() => ui.onAdd!(id)} className="-right-8 top-1/2 -translate-y-1/2" />}
         </>
       )}
@@ -99,26 +100,25 @@ export const StepNodeView = memo(function StepNodeView({ id, data, selected }: N
   )
 })
 
-export type BranchEdge = Edge<{ label?: string; active?: boolean; editable?: boolean; onDelete?: (id: string) => void; onFlip?: (id: string) => void }, 'branch'>
+export type BranchEdge = Edge<{ label?: string; active?: boolean; editable?: boolean; onDelete?: (id: string) => void; onFlip?: (id: string) => void; onInsert?: (id: string) => void }, 'branch'>
 
-const toneOf = (label: string) => (label.startsWith('yes') || label.startsWith('each') ? 'var(--ok)' : label.startsWith('no') ? 'var(--danger)' : label.startsWith('done') ? 'var(--muted)' : undefined)
-const textOf = (label: string) => (label.startsWith('yes') ? 'Yes' : label.startsWith('no') ? 'No' : label.startsWith('each') ? 'Each' : label.startsWith('done') ? 'Done' : '')
+const textOf = (label: string) => (label === 'yes' ? 'Yes' : label === 'no' ? 'No' : label === 'each' ? 'Each' : label === 'done' ? 'Done' : label.charAt(0).toUpperCase() + label.slice(1))
 
 export const BranchEdgeView = memo(function BranchEdgeView({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, selected, data }: EdgeProps<BranchEdge>) {
   const [path, lx, ly] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, curvature: 0.35 })
   const label = (data?.label ?? '').toLowerCase()
-  const tone = toneOf(label)
+  const tone = label ? branchTone(label) : undefined
+  const flippable = label === 'yes' || label === 'no' || label === 'each' || label === 'done'
   return (
     <>
       <BaseEdge id={id} path={path} style={{ stroke: selected ? 'var(--accent)' : tone ?? 'var(--muted)', strokeWidth: selected ? 2.2 : 1.7, opacity: selected || data?.active ? 1 : 0.75, strokeDasharray: data?.active ? '6 6' : undefined }} className={data?.active ? 'edge-flow' : undefined} />
-      {(tone || selected) && (
-        <EdgeLabelRenderer>
-          <div className="nodrag nopan absolute flex items-center gap-1" style={{ transform: `translate(-50%,-50%) translate(${lx}px,${ly}px)`, pointerEvents: 'all' }}>
-            {tone && <button type="button" onClick={() => data?.editable && data?.onFlip?.(id)} title={data?.editable ? 'Switch branch' : undefined} className="h-5 px-2 rounded-full text-[10.5px] font-semibold text-white shadow-sm" style={{ background: tone }}>{textOf(label)}</button>}
-            {selected && data?.editable && <button type="button" onClick={() => data?.onDelete?.(id)} title="Remove connection" className="w-5 h-5 rounded-full grid place-items-center bg-[var(--surface-2)] border border-[var(--line)] text-[var(--muted)] hover:text-[var(--danger)] shadow-sm"><X size={11} strokeWidth={2.6} /></button>}
-          </div>
-        </EdgeLabelRenderer>
-      )}
+      <EdgeLabelRenderer>
+        <div className={cx('nodrag nopan absolute flex items-center gap-1 edge-tools', !tone && !selected && 'edge-tools-quiet')} style={{ transform: `translate(-50%,-50%) translate(${lx}px,${ly}px)`, pointerEvents: 'all' }} onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+          {tone && <button type="button" onClick={() => data?.editable && flippable && data?.onFlip?.(id)} title={data?.editable && flippable ? 'Switch branch' : undefined} className="h-5 px-2 rounded-full text-[10.5px] font-semibold text-white shadow-sm max-w-[120px] truncate" style={{ background: tone }}>{textOf(label)}</button>}
+          {data?.editable && data?.onInsert && <button type="button" onClick={() => data.onInsert?.(id)} title="Insert a step here" aria-label="Insert a step here" className="edge-plus w-5 h-5 rounded-full grid place-items-center bg-[var(--surface-2)] border border-[var(--line)] text-[var(--muted)] hover:text-white hover:bg-[var(--accent)] hover:border-transparent shadow-sm"><Plus size={11} strokeWidth={2.6} /></button>}
+          {selected && data?.editable && <button type="button" onClick={() => data?.onDelete?.(id)} title="Remove connection" aria-label="Remove connection" className="w-5 h-5 rounded-full grid place-items-center bg-[var(--surface-2)] border border-[var(--line)] text-[var(--muted)] hover:text-[var(--danger)] shadow-sm"><X size={11} strokeWidth={2.6} /></button>}
+        </div>
+      </EdgeLabelRenderer>
     </>
   )
 })

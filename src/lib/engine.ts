@@ -68,12 +68,35 @@ export function makeEngine(run: Run, wf: Workflow, ctx: EngineCtx) {
   /** Runs one step once. Returns the step record and, for conditions, the branch taken. */
   async function runStep(node: WfNode, st: State, lane?: string): Promise<{ step: RunStep; branch?: string }> {
     const d = node.data; const key = keyOf(d); const s0 = Date.now()
-    const step: RunStep = { name: d.label, nodeId: node.id, brick: d.brick, ms: 0, status: 'ok', lane, key: ['agent', 'council', 'tool', 'code', 'http', 'flow'].includes(d.brick) ? key : undefined }
+    const step: RunStep = { name: d.label, nodeId: node.id, brick: d.brick, ms: 0, status: 'ok', lane, key: ['agent', 'council', 'tool', 'code', 'http', 'flow', 'extract', 'classify'].includes(d.brick) ? key : undefined }
     const r = (tpl?: string) => render(tpl ?? '', st.vars)
     const stepInput = d.input?.trim() ? r(d.input) : st.context
     let branch: string | undefined
     try {
       if (d.brick === 'trigger') step.output = `Started with:\n${run.input ?? ''}`
+      else if (d.brick === 'wait') { const secs = Math.min(600, Math.max(1, d.wait ?? 30)); await sleep(secs * 1000); step.output = `Waited ${secs} second${secs === 1 ? '' : 's'}.` }
+      else if (d.brick === 'set') {
+        const lines: string[] = []
+        for (const a of d.assign ?? []) { if (!a.key.trim()) continue; const k = slug(a.key); const v = r(a.value); st.vars[k] = v; lines.push(`{{${k}}} = ${v.slice(0, 200).replace(/\n/g, ' ')}`) }
+        step.output = lines.join('\n') || 'Nothing to set.'
+      }
+      else if (d.brick === 'extract' || d.brick === 'classify') {
+        const g = guard(); if (g) { step.status = 'failed'; step.output = g }
+        else if (d.brick === 'extract') {
+          const fields = (d.fields ?? []).filter((f) => f.name.trim())
+          let ans = ''
+          for await (const ev of streamChat({ key: ctx.key, model: ctx.models.fast, temperature: 0, messages: [{ role: 'system', content: `Extract these fields from the text and reply with ONE JSON object and nothing else. Keys: ${fields.map((f) => `"${slug(f.name)}" (${f.description || f.name})`).join(', ')}. Use null when a field is not present. Keep values short.` }, { role: 'user', content: stepInput.slice(0, 12000) }] })) { if (ev.type === 'delta') ans += ev.text; if (ev.type === 'usage') { spend(ev.usage.cost ?? 0); step.cost = ev.usage.cost } }
+          const obj = parseJsonLoose(ans)
+          const json = JSON.stringify(obj, null, 2)
+          step.model = short(ctx.models.fast); step.output = '```json\n' + json + '\n```'; st.vars[key] = JSON.stringify(obj); st.last = json
+        } else {
+          const cats = (d.categories ?? []).map((c) => c.trim()).filter(Boolean)
+          let ans = ''
+          for await (const ev of streamChat({ key: ctx.key, model: ctx.models.balanced, temperature: 0, max_tokens: 60, messages: [{ role: 'system', content: `Sort the text into exactly one of these categories: ${cats.join(' | ')}. Reply with the category name only, spelled exactly as given.` }, { role: 'user', content: stepInput.slice(0, 12000) }] })) { if (ev.type === 'delta') ans += ev.text; if (ev.type === 'usage') { spend(ev.usage.cost ?? 0); step.cost = ev.usage.cost } }
+          const pick = cats.find((c) => c.toLowerCase() === ans.trim().toLowerCase()) ?? cats.find((c) => ans.toLowerCase().includes(c.toLowerCase())) ?? cats[cats.length - 1]
+          branch = pick.toLowerCase(); step.branch = pick; step.model = short(ctx.models.balanced); step.output = `Category → **${pick}**`; st.vars[key] = pick
+        }
+      }
       else if (d.brick === 'agent' || d.brick === 'council' || d.brick === 'tool' || (d.brick === 'logic' && d.mode !== 'rule')) {
         const g = guard(); if (g) { step.status = 'failed'; step.output = g }
         else if (d.brick === 'agent') {
@@ -156,7 +179,7 @@ export function makeEngine(run: Run, wf: Workflow, ctx: EngineCtx) {
   /** Runs a step with retries and the step's on-error choice. Pushes the step record. */
   async function runWithRetries(node: WfNode, st: State, lane?: string): Promise<{ ok: boolean; branch?: string }> {
     const d = node.data
-    const attempts = ['agent', 'council', 'tool', 'code', 'http', 'flow', 'logic'].includes(d.brick) ? Math.max(1, (d.retries ?? 0) + 1) : 1
+    const attempts = ['agent', 'council', 'tool', 'code', 'http', 'flow', 'logic', 'extract', 'classify'].includes(d.brick) ? Math.max(1, (d.retries ?? 0) + 1) : 1
     let last: { step: RunStep; branch?: string } | null = null
     for (let i = 1; i <= attempts; i++) {
       last = await runStep(node, st, lane)
@@ -249,7 +272,7 @@ export function makeEngine(run: Run, wf: Workflow, ctx: EngineCtx) {
       const { ok, branch } = await runWithRetries(node, st, opts.lane)
       if (!ok) return 'failed'
       cursor = nextOf(wf.edges, node.id, branch)
-      if (d.brick === 'logic' && !cursor && branch === 'no') return 'done'
+      if ((d.brick === 'logic' || d.brick === 'classify') && !cursor) return 'done'
     }
     return 'done'
   }

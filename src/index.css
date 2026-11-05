@@ -179,3 +179,10 @@ textarea.input { height: auto; padding: 10px 12px; resize: vertical; line-height
 .brick-card { cursor: grab; }
 .brick-card:active { cursor: grabbing; }
 .drop-hint { outline: 2px dashed color-mix(in srgb, var(--accent) 50%, transparent); outline-offset: -8px; }
+
+/* edge tools: the insert button only shows when the edge is hovered or selected */
+.edge-tools .edge-plus { opacity: 0; transition: opacity .15s, transform .15s; }
+.edge-tools:hover .edge-plus, .react-flow__edge.selected + .react-flow__edgelabel-renderer .edge-plus { opacity: 1; }
+.edge-tools-quiet { min-width: 28px; min-height: 28px; justify-content: center; }
+.edge-tools-quiet:hover .edge-plus { opacity: 1; }
+.react-flow__edge:hover ~ .react-flow__edgelabel-renderer .edge-plus { opacity: 1; }

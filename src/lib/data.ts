@@ -84,7 +84,7 @@ export type Run = {
   rerunOf?: { runId: string; step: number }
 }
 
-export type Brick = 'trigger' | 'agent' | 'council' | 'logic' | 'human' | 'tool' | 'notify' | 'loop' | 'parallel' | 'code' | 'http' | 'flow'
+export type Brick = 'trigger' | 'agent' | 'council' | 'logic' | 'human' | 'tool' | 'notify' | 'loop' | 'parallel' | 'code' | 'http' | 'flow' | 'wait' | 'set' | 'extract' | 'classify'
 export type RuleOp = 'contains' | 'not_contains' | 'equals' | 'not_equals' | 'empty' | 'not_empty' | 'gt' | 'lt' | 'matches'
 export type StepData = {
   brick: Brick; label: string; sub?: string; prompt?: string; model?: string; agentId?: string; councilId?: string; tool?: string; approver?: string; retries?: number; timeout?: number; costCap?: number
@@ -105,6 +105,14 @@ export type StepData = {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; url?: string; headers?: string; body?: string
   /** Call-a-workflow step */
   workflowId?: string
+  /** Wait step: seconds */
+  wait?: number
+  /** Set variables step */
+  assign?: { key: string; value: string }[]
+  /** Extract fields step */
+  fields?: { name: string; description: string }[]
+  /** Route by category step */
+  categories?: string[]
 }
 export type WfNode = { id: string; type: 'step'; position: { x: number; y: number }; data: StepData }
 export type WfEdge = { id: string; source: string; target: string; label?: string }

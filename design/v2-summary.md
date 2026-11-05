@@ -43,3 +43,24 @@ Parallel template (3 branches, join, variables), loop template (3 items, lanes, 
 - A workflow run as a step cannot pause for approval.
 - Page watches and schedules fire only while the app is open in a browser.
 - Connectors must allow browser requests; REST Countries was replaced by the World Bank API for that reason.
+
+## Round 2 (same day): list pages, canvas feel, more steps
+
+- Workflows list: always-visible "Start from" template strip with step chains, trigger tiles coloured by status, last-run status inline, waiting/failed chips, a "Needs you" filter, Pause/Resume in the row menu.
+- Agents list: brief-first hero copy, "Blank" start, cards show tests pass rate, workflows using the agent and attached libraries.
+- Canvas: drag a connection out and drop it on empty canvas to add the next step there; "+" on any connection inserts between; dropping a palette item on a connection inserts; double-click the canvas to add at that spot; Tab opens the palette; undo/redo (Ctrl+Z, Ctrl+Shift+Z) with toolbar buttons; Ctrl+D duplicates; snapping to connect within 36px; header fits narrow windows.
+- New steps: Route by category (model picks one of your categories, one branch each), Wait, Set variables (templates, no model), Extract fields (JSON you can read as {{key.field}}). All reachable to the assistant and to "Try this step".
+
+## Honest evaluation
+
+What is genuinely good: the engine is real (loops, branches, variables, retries, re-runs all executed on the live key), the assistant proposes before it applies, and every new control was exercised in the browser at least once.
+
+Where it is weaker than it looks:
+- Visual QA was done mostly by reading page text because the preview pane was hidden; the four redesigns were screenshotted in a narrow 800px pane, not at a real desktop size. Spacing and wrapping at 1440px and in dark mode deserve a human pass.
+- The browser-only architecture caps the product: no inbound webhooks or email, schedules and page watches run only while a tab is open, and connectors depend on third-party CORS. A thin server would unlock all of that.
+- Assistant quality depends on a JSON contract with a general model; the parser is tolerant now, but a bad plan still needs a human to notice (for example a step placed on the wrong branch). Plans are not validated against the checks before Apply.
+- Agent tests are judged by a model, so pass/fail has noise; drafted tests were too thin until the prompt was changed to include data. Treat the pass rate as a signal, not a gate.
+- Parallel branches merge context in branch order and cannot pause for approval; loops run items sequentially (no concurrency); a workflow called as a step cannot wait for a person. These are documented limits, not bugs, but n8n and Dify handle more cases.
+- No automated tests exist; correctness rests on typecheck plus manual runs. The engine would benefit from a small unit suite around template rendering, joins and re-run reconstruction.
+- The production bundle is one 1 MB chunk; code splitting of the builder and chat routes was deliberately left out.
+- Thread and run data live in local storage; large outputs will eventually hit its quota.

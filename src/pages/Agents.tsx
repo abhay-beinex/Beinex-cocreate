@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Users, Play, Trash2, Workflow as WorkflowIcon, Check, MessageSquare, Pencil, Copy, MoreHorizontal, LayoutGrid, List, Eye, CheckSquare, Square, ArrowUp, Search, PenLine, BarChart3, LifeBuoy, ListChecks } from 'lucide-react'
+import { Plus, Users, Play, Trash2, Workflow as WorkflowIcon, Check, MessageSquare, Pencil, Copy, MoreHorizontal, LayoutGrid, List, Eye, CheckSquare, Square, ArrowUp, Search, PenLine, BarChart3, LifeBuoy, ListChecks, Sparkles } from 'lucide-react'
 import { useApp, useUser, can, profileModels } from '@/store/app'
 import { councilTemplates, roleLabel, type Agent, type Council } from '@/lib/data'
 import { runAgentTurn } from '@/lib/agentRun'
@@ -13,7 +13,7 @@ import { AgentCard, AbilityWells, ThinkingMeter } from '@/components/AgentBits'
 import { Md } from '@/components/Md'
 
 const since = (d: string) => { const days = Math.round((Date.now() - new Date(d).getTime()) / 86400000); return days <= 0 ? 'today' : days === 1 ? 'yesterday' : days < 30 ? `${days} days ago` : d }
-const starts = [{ label: 'Research', icon: Search, color: '#0ea5e9', tpl: 'research' }, { label: 'Writing', icon: PenLine, color: '#8b5cf6', tpl: 'writer' }, { label: 'Data', icon: BarChart3, color: '#10b981', tpl: 'analyst' }, { label: 'Support', icon: LifeBuoy, color: '#f59e0b', tpl: 'support' }, { label: 'Step by step', icon: ListChecks, color: '#64748b', tpl: '' }]
+const starts = [{ label: 'Research', icon: Search, color: '#0ea5e9', tpl: 'research' }, { label: 'Writing', icon: PenLine, color: '#8b5cf6', tpl: 'writer' }, { label: 'Data', icon: BarChart3, color: '#10b981', tpl: 'analyst' }, { label: 'Support', icon: LifeBuoy, color: '#f59e0b', tpl: 'support' }, { label: 'Blank', icon: ListChecks, color: '#64748b', tpl: '' }]
 
 export default function Agents() {
   const nav = useNavigate()
@@ -75,10 +75,10 @@ export default function Agents() {
     <Page className="max-w-[1120px] mx-auto pt-7 pb-16 px-4">
       {editable && (
         <div className={cx('clay mb-5', agents.length === 0 ? 'p-8' : 'p-2.5 pl-5')}>
-          {agents.length === 0 && <><div className="text-[12px] muted font-semibold">No agents yet</div><h1 className="display text-[26px] font-extrabold mt-1">What should your next agent do?</h1></>}
+          {agents.length === 0 && <><div className="text-[12px] muted font-semibold">No agents yet</div><h1 className="display text-[26px] font-extrabold mt-1">What should your next agent do?</h1><div className="text-[13px] muted mt-1">Describe it in a sentence. The Co-Create Assistant drafts the name, abilities, instructions and tests; you review and create.</div></>}
           <div className={cx('flex items-center gap-2', agents.length === 0 ? 'mt-4 pressed rounded-[18px] p-2 pl-4' : '')}>
-            {agents.length > 0 && <span className="text-[13px] font-semibold whitespace-nowrap hidden md:block">Next agent</span>}
-            <input value={ask} onChange={(e) => setAsk(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && goAsk()} placeholder={agents.length === 0 ? 'Answer IT questions from our handbook and escalate the rest' : 'Describe what it should do…'} className="flex-1 bg-transparent outline-0 text-[14px] min-w-0 h-9" />
+            {agents.length > 0 && <span className="text-[13px] font-semibold whitespace-nowrap hidden md:flex items-center gap-1.5"><Sparkles size={14} className="accent-ink" /> Next agent</span>}
+            <input value={ask} onChange={(e) => setAsk(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && goAsk()} placeholder={agents.length === 0 ? 'Answer IT questions from our handbook and escalate the rest' : 'Describe what it should do and the assistant drafts it…'} className="flex-1 bg-transparent outline-0 text-[14px] min-w-0 h-9" />
             <motion.button whileTap={{ scale: 0.9 }} onClick={goAsk} className="btn btn-primary btn-icon !rounded-full !w-9 !h-9" title="Start"><ArrowUp size={16} /></motion.button>
           </div>
           <div className={cx('flex flex-wrap gap-1.5', agents.length === 0 ? 'mt-4' : 'mt-2')}>
@@ -111,8 +111,8 @@ export default function Agents() {
       {tab !== 'councils' ? (
         agents.length === 0 ? null : list.length === 0 ? <div className="clay"><Empty title="No agents match" body="Try a different search or filter." /></div> : view === 'grid' ? (
           <Stagger className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4" delay={0.05}>
-            {list.map((a) => <Item key={a.id}><AgentCard a={a} custom={customTools} profiles={profiles} defaultModel={defaultModel} onOpen={() => nav(`/agents/${a.id}`)} onChat={() => nav(`/chat/${a.id}`)} menu={<AgentMenu a={a} />} selectable={editable} selected={selected.includes(a.id)} onSelect={() => setSelected((s) => (s.includes(a.id) ? s.filter((x) => x !== a.id) : [...s, a.id]))} /></Item>)}
-            {editable && <Item><button onClick={() => nav('/agents/new')} className="w-full h-full min-h-[196px] rounded-[24px] border-2 border-dashed border-[var(--line)] flex flex-col items-center justify-center gap-2 text-center hover:bg-[var(--clay-dark)] transition-colors"><span className="clay-sm w-11 h-11 rounded-[14px] grid place-items-center muted"><Plus size={18} /></span><span className="text-[13.5px] font-semibold">New agent</span><span className="text-[12px] muted px-6">Describe it, pick a template or build step by step</span></button></Item>}
+            {list.map((a) => <Item key={a.id}><AgentCard a={a} custom={customTools} profiles={profiles} defaultModel={defaultModel} onOpen={() => nav(`/agents/${a.id}`)} onChat={() => nav(`/chat/${a.id}`)} usedIn={usedIn(a)} menu={<AgentMenu a={a} />} selectable={editable} selected={selected.includes(a.id)} onSelect={() => setSelected((s) => (s.includes(a.id) ? s.filter((x) => x !== a.id) : [...s, a.id]))} /></Item>)}
+            {editable && <Item><button onClick={() => nav('/agents/new')} className="w-full h-full min-h-[196px] rounded-[24px] border-2 border-dashed border-[var(--line)] flex flex-col items-center justify-center gap-2 text-center hover:bg-[var(--clay-dark)] transition-colors"><span className="clay-sm w-11 h-11 rounded-[14px] grid place-items-center muted"><Plus size={18} /></span><span className="text-[13.5px] font-semibold">New agent</span><span className="text-[12px] muted px-6">Describe it and the assistant drafts the rest, or pick a template</span></button></Item>}
           </Stagger>
         ) : (
           <Stagger className="clay px-3 py-1" delay={0.04}>
