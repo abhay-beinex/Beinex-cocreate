@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useBlocker } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Sparkles, ArrowUp, Trash2, Lock, ChevronDown, ChevronRight, RotateCcw, Download, Upload, History, Copy, MessageSquare, Zap, Scale, Brain, Check, X, Globe, BookOpen, Send, Code2, Workflow as WorkflowIcon } from 'lucide-react'
+import { ArrowLeft, Sparkles, ArrowUp, Trash2, Lock, ChevronDown, ChevronRight, RotateCcw, Download, Upload, History, Copy, MessageSquare, Zap, Scale, Brain, Check, X, Globe, BookOpen, Send, Code2, Workflow as WorkflowIcon, MoreHorizontal } from 'lucide-react'
 import { useApp, useUser, can } from '@/store/app'
 import { BRAND, MODEL_PROFILES, type Agent, type Autonomy } from '@/lib/data'
 import { streamChat, listModels } from '@/lib/openrouter'
@@ -37,6 +37,7 @@ export default function AgentEditor() {
   const [draft, setDraft] = useState<Agent | undefined>(stored)
   const [advanced, setAdvanced] = useState(false)
   const [avatarOpen, setAvatarOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
   const [assist, setAssist] = useState<{ open: boolean; input: string; busy: boolean; log: { role: 'user' | 'assistant'; text: string }[] }>({ open: false, input: '', busy: false, log: [] })
   const [confirm, setConfirm] = useState<null | { kind: 'delete' } | { kind: 'rollback'; version: number } | { kind: 'publish' } | { kind: 'unpublish' }>(null)
   const [toast, setToast] = useState('')
@@ -125,10 +126,23 @@ export default function AgentEditor() {
         <Button size="sm" onClick={() => nav(`/chat/${draft.id}`)}><MessageSquare size={13} /> {draft.status === 'live' ? 'Open in Chat' : 'Preview in Chat'}</Button>
         {editable && <Button onClick={() => save()} disabled={!dirty}>Save</Button>}
         {editable && (draft.status === 'draft' ? <Button variant="primary" onClick={() => (issues.length ? setConfirm({ kind: 'publish' }) : save('live'))}>Publish</Button> : <Button onClick={() => setConfirm({ kind: 'unpublish' })}><RotateCcw size={13} /> Unpublish</Button>)}
+        <div className="relative">
+          <button onClick={() => setMoreOpen((o) => !o)} className="btn btn-ghost btn-icon" title="More actions"><MoreHorizontal size={16} /></button>
+          <AnimatePresence>
+            {moreOpen && (
+              <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="absolute right-0 top-full mt-1 w-[200px] glass rounded-[14px] p-1.5 z-30 text-[13px]" onClick={() => setMoreOpen(false)}>
+                {editable && <button onClick={duplicate} className="w-full flex items-center gap-2 px-2 h-9 rounded-[9px] hover:bg-[var(--clay-dark)]"><Copy size={14} /> Duplicate</button>}
+                <button onClick={() => download(`${draft.name.replace(/\s+/g, '-').toLowerCase()}.agent.json`, JSON.stringify({ name: draft.name, description: draft.description, instructions: draft.instructions, model: draft.model, tools: draft.tools, knowledge: draft.knowledge, autonomy: draft.autonomy, samplePrompts: draft.samplePrompts, icon: draft.icon, color: draft.color }, null, 2))} className="w-full flex items-center gap-2 px-2 h-9 rounded-[9px] hover:bg-[var(--clay-dark)]"><Download size={14} /> Export JSON</button>
+                {editable && <button onClick={() => fileRef.current?.click()} className="w-full flex items-center gap-2 px-2 h-9 rounded-[9px] hover:bg-[var(--clay-dark)]"><Upload size={14} /> Import JSON</button>}
+                {editable && <button onClick={() => setConfirm({ kind: 'delete' })} className="w-full flex items-center gap-2 px-2 h-9 rounded-[9px] hover:bg-[var(--clay-dark)] text-[var(--danger)]"><Trash2 size={14} /> Delete agent</button>}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </header>
 
       <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_minmax(380px,0.8fr)] gap-3">
-        <div className="clay scroll" onClick={() => avatarOpen && setAvatarOpen(false)}>
+        <div className="clay scroll" onClick={() => { if (avatarOpen) setAvatarOpen(false); if (moreOpen) setMoreOpen(false) }}>
           <fieldset disabled={!editable} className="max-w-[680px] mx-auto px-6 py-6 flex flex-col gap-4 disabled:opacity-80">
             <div className="clay-sm p-3">
               <button type="button" onClick={() => setAssist((a) => ({ ...a, open: !a.open }))} className="w-full flex items-center gap-3 text-left">

@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Users, Play, Trash2, Workflow as WorkflowIcon, Check, Wand2, MessageSquare, Pencil, Copy, MoreHorizontal, LayoutGrid, List, Upload, ArrowRight, Sparkles, Eye } from 'lucide-react'
+import { Plus, Users, Play, Trash2, Workflow as WorkflowIcon, Check, Wand2, MessageSquare, Pencil, Copy, MoreHorizontal, LayoutGrid, List, Eye, CheckSquare, Square } from 'lucide-react'
 import { useApp, useUser, can, profileModels } from '@/store/app'
-import { agentTemplates, councilTemplates, roleLabel, GOVERNED, type Agent, type Council } from '@/lib/data'
+import { councilTemplates, roleLabel, type Agent, type Council } from '@/lib/data'
+import { CreateAgentDialog } from '@/components/CreateAgent'
 import { runAgentTurn } from '@/lib/agentRun'
 import { streamChat, listModels } from '@/lib/openrouter'
-import { TOOLS } from '@/lib/tools'
 import { Button, Chip, Confirm, Dot, Drawer, Empty, Field, Input, Modal, PageHeader, SearchBox, Segmented, Select, Textarea, Tile, Toggle, colorFor, cx } from '@/components/ui'
 import { Page, Stagger, Item } from '@/components/motion'
 import { AgentAvatar } from '@/components/AgentAvatar'
@@ -25,8 +25,8 @@ export default function Agents() {
   const [status, setStatus] = useState<'all' | 'live' | 'draft'>('all')
   const [view, setView] = useState<'grid' | 'list'>(() => (localStorage.getItem('agents-view') as 'list') || 'grid')
   const [creating, setCreating] = useState(false)
-  const [desc, setDesc] = useState('')
-  const [designing, setDesigning] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string[]>([])
+  const [bulkDelete, setBulkDelete] = useState(false)
   const [menu, setMenu] = useState<string | null>(null)
   const [toDelete, setToDelete] = useState<Agent | null>(null)
   const [templates, setTemplates] = useState(false)
@@ -43,27 +43,6 @@ export default function Agents() {
   useEffect(() => { const close = () => setMenu(null); window.addEventListener('click', close); return () => window.removeEventListener('click', close) }, [])
 
   const newId = () => `agent-${Date.now().toString(36)}`
-  const createFromTemplate = (t?: Partial<typeof agentTemplates[number]>) => {
-    const a: Agent = { id: newId(), name: t?.name ?? 'New agent', description: t?.description ?? '', instructions: t?.instructions ?? `You are a helpful assistant. ${GOVERNED}`, model: t?.model ?? defaultModel, tools: t?.tools ?? [], knowledge: t?.tools?.includes('search_knowledge') ? ['company'] : [], autonomy: 2, status: 'draft', version: 1, samplePrompts: t?.samplePrompts ?? [], updatedAt: new Date().toISOString().slice(0, 10), createdBy: user.id, icon: t?.icon, color: t?.color }
-    upsertAgent(a); setCreating(false); setDesc(''); nav(`/agents/${a.id}`)
-  }
-  const generate = async () => {
-    const text = desc.trim(); if (!text) return
-    if (!apiKey) { createFromTemplate({ name: 'New agent', description: text.slice(0, 90), instructions: `${text}\n\n${GOVERNED}` }); return }
-    setDesigning('Reading your description…')
-    const sys = `You design AI agents for a governed enterprise platform. Available tools: ${[...TOOLS.map((t) => `${t.name} (${t.desc})`), ...customTools.map((t) => `${t.name} (${t.description})`)].join('; ')}. Icons: sparkles, bot, search, pen, chart, support, globe, shield, book, calculator, mail, briefcase, scale, idea, megaphone, wrench. Given a description, reply ONLY with JSON: {"name": "2-4 words", "description": "one line", "icon": "one icon id", "instructions": "a complete system prompt in second person, 120-250 words, covering purpose, how to answer, what to refuse, ending with: ${GOVERNED}", "tools": ["tool_name", ...], "samplePrompts": ["...", "...", "..."]}. Choose only the tools that are needed.`
-    let acc = ''
-    const t0 = Date.now()
-    const tick = setInterval(() => { const s = Math.round((Date.now() - t0) / 1000); setDesigning(s < 4 ? 'Reading your description…' : s < 9 ? 'Writing the instructions…' : s < 14 ? 'Choosing tools and prompts…' : 'Almost there…') }, 1000)
-    try {
-      for await (const ev of streamChat({ key: apiKey, model: defaultModel, messages: [{ role: 'system', content: sys }, { role: 'user', content: text }], temperature: 0.3 })) { if (ev.type === 'delta') acc += ev.text; if (ev.type === 'usage') store.recordSpend(ev.usage.cost ?? 0) }
-      const j = JSON.parse(acc.replace(/^```json?|```$/g, '').trim())
-      const tools = (j.tools ?? []).filter((t: string) => TOOLS.some((x) => x.name === t) || customTools.some((x) => x.name === t))
-      createFromTemplate({ name: j.name ?? 'New agent', description: j.description ?? '', instructions: j.instructions ?? '', tools, samplePrompts: Array.isArray(j.samplePrompts) ? j.samplePrompts : [], icon: typeof j.icon === 'string' ? j.icon : undefined })
-    } catch { createFromTemplate({ name: 'New agent', description: text.slice(0, 90), instructions: `${text}\n\n${GOVERNED}`, tools: ['web_search', 'search_knowledge'] }) }
-    finally { clearInterval(tick); setDesigning(null) }
-  }
-  const importFile = (f: File) => { f.text().then((s) => { try { const j = JSON.parse(s); createFromTemplate({ name: j.name, description: j.description, instructions: j.instructions, tools: Array.isArray(j.tools) ? j.tools : [], samplePrompts: Array.isArray(j.samplePrompts) ? j.samplePrompts : [], model: j.model, icon: j.icon, color: j.color }) } catch { alert('That file is not a valid agent export.') } }) }
   const duplicate = (a: Agent) => { const id = newId(); upsertAgent({ ...a, id, name: `${a.name} (copy)`, status: 'draft', version: 1, history: undefined, createdBy: user.id, updatedAt: new Date().toISOString().slice(0, 10) }); nav(`/agents/${id}`) }
   const createCouncil = (t?: typeof councilTemplates[number]) => {
     const c: Council = { id: `council-${Date.now().toString(36)}`, status: 'draft', name: t?.name ?? 'New council', description: t?.description ?? '', members: agents.slice(0, 3).map((a) => a.id), mode: t?.mode ?? 'consensus', gatekeeper: users.find((u) => u.role === 'approver' || u.role === 'admin')?.id ?? user.id, model: t?.model ?? profiles.find((p) => p.id === 'reasoning')?.model ?? defaultModel }
@@ -103,6 +82,19 @@ export default function Agents() {
         {tab === 'agents' && <div className="ml-auto seg"><button className={cx(view === 'grid' && 'on')} onClick={() => setView('grid')} title="Cards"><LayoutGrid size={14} /></button><button className={cx(view === 'list' && 'on')} onClick={() => setView('list')} title="List"><List size={14} /></button></div>}
       </div>
 
+      <AnimatePresence>
+        {tab === 'agents' && selected.length > 0 && (
+          <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-[14px] px-3 h-11 flex items-center gap-3 mb-4 text-[13px]">
+            <span className="font-semibold">{selected.length} selected</span>
+            <button onClick={() => setSelected(list.map((a) => a.id))} className="muted hover:text-[var(--text)]">Select all {list.length}</button>
+            <button onClick={() => setSelected([])} className="muted hover:text-[var(--text)]">Clear</button>
+            <div className="flex-1" />
+            <Button size="sm" onClick={() => { selected.forEach((id) => { const a = agents.find((x) => x.id === id); if (a && a.status === 'draft') upsertAgent({ ...a, status: 'live', version: a.version + 1 }, 'Published agent') }); setSelected([]) }}><Eye size={13} /> Publish drafts</Button>
+            <Button size="sm" className="!text-[var(--danger)]" onClick={() => setBulkDelete(true)}><Trash2 size={13} /> Delete</Button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {tab === 'agents' ? (
         agents.length === 0 ? (
           <div className="clay"><Empty title="No agents yet" body="Describe what you need in a sentence and the Co-Create Assistant designs it, or start from a template. Agents get real tools: web search, research, code, documents and approvals." action={editable && <Button variant="primary" onClick={() => setCreating(true)}><Wand2 size={14} /> Create your first agent</Button>} /></div>
@@ -114,6 +106,7 @@ export default function Agents() {
               <Item key={a.id}>
                 <motion.div whileHover={{ y: -3 }} onClick={() => nav(`/agents/${a.id}`)} className="clay p-5 cursor-pointer flex flex-col gap-3 min-h-[190px] relative overflow-hidden group">
                   <div className="absolute -right-10 -top-10 w-32 h-32 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{ background: `radial-gradient(circle, ${a.color ?? colorFor(a.name)}33, transparent 70%)` }} />
+                  <button onClick={(e) => { e.stopPropagation(); setSelected((s) => (s.includes(a.id) ? s.filter((x) => x !== a.id) : [...s, a.id])) }} className={cx('absolute top-3 left-3 z-10 w-6 h-6 rounded-[7px] grid place-items-center transition-opacity', selected.includes(a.id) ? 'opacity-100 accent-ink' : 'opacity-0 group-hover:opacity-100 muted')} title="Select">{selected.includes(a.id) ? <CheckSquare size={16} /> : <Square size={16} />}</button>
                   <div className="flex items-start gap-3">
                     <AgentAvatar name={a.name} icon={a.icon} color={a.color} size={40} />
                     <div className="flex-1 min-w-0 pt-0.5"><div className="font-semibold text-[14px] truncate">{a.name}</div><div className="text-[11.5px] muted flex items-center gap-1.5"><Dot tone={a.status === 'live' ? 'ok' : 'muted'} /><span className="capitalize">{a.status}</span><span>· v{a.version}</span></div></div>
@@ -121,8 +114,9 @@ export default function Agents() {
                   </div>
                   <p className="text-[12.5px] muted leading-relaxed line-clamp-2">{a.description || 'No description yet.'}</p>
                   <div className="mt-auto flex items-center gap-2 text-[11.5px] muted flex-wrap"><Chip>{modelName(a.model)}</Chip><span>{a.tools.length} tool{a.tools.length === 1 ? '' : 's'}</span>{u > 0 && <span>· {u} workflow{u === 1 ? '' : 's'}</span>}<span className="ml-auto">{since(a.updatedAt)}</span></div>
-                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-4 right-4" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-4 right-4" onClick={(e) => e.stopPropagation()}>
                     <Button size="sm" onClick={() => nav(`/chat/${a.id}`)}><MessageSquare size={12} /> {a.status === 'live' ? 'Chat' : 'Preview'}</Button>
+                    {editable && <button onClick={() => setToDelete(a)} className="btn btn-sm btn-icon !text-[var(--danger)]" title="Delete"><Trash2 size={13} /></button>}
                   </div>
                 </motion.div>
               </Item>
@@ -130,10 +124,11 @@ export default function Agents() {
           </Stagger>
         ) : (
           <Stagger className="clay px-3 py-1" delay={0.04}>
-            <div className="row text-[11px] font-semibold uppercase tracking-wider muted !py-2"><span className="w-[40px]" /><span className="flex-1">Agent</span><span className="w-[90px]">Status</span><span className="w-[170px]">Model</span><span className="w-[60px] text-right">Tools</span><span className="w-[90px] text-right">Used in</span><span className="w-[100px] text-right">Updated</span><span className="w-[40px]" /></div>
+            <div className="row text-[11px] font-semibold uppercase tracking-wider muted !py-2"><button onClick={() => setSelected(selected.length === list.length ? [] : list.map((a) => a.id))} className="w-[24px] grid place-items-center muted hover:text-[var(--text)]">{selected.length === list.length && list.length > 0 ? <CheckSquare size={15} /> : <Square size={15} />}</button><span className="w-[40px]" /><span className="flex-1">Agent</span><span className="w-[90px]">Status</span><span className="w-[170px]">Model</span><span className="w-[60px] text-right">Tools</span><span className="w-[90px] text-right">Used in</span><span className="w-[100px] text-right">Updated</span><span className="w-[40px]" /></div>
             {list.map((a) => { const u = usedIn(a); return (
               <Item key={a.id}>
-                <div className="row hover cursor-pointer" onClick={() => nav(`/agents/${a.id}`)}>
+                <div className={cx('row hover cursor-pointer', selected.includes(a.id) && 'bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] rounded-[12px]')} onClick={() => nav(`/agents/${a.id}`)}>
+                  <button onClick={(e) => { e.stopPropagation(); setSelected((s) => (s.includes(a.id) ? s.filter((x) => x !== a.id) : [...s, a.id])) }} className={cx('w-[24px] grid place-items-center', selected.includes(a.id) ? 'accent-ink' : 'muted hover:text-[var(--text)]')}>{selected.includes(a.id) ? <CheckSquare size={15} /> : <Square size={15} />}</button>
                   <AgentAvatar name={a.name} icon={a.icon} color={a.color} size={32} />
                   <div className="flex-1 min-w-0"><div className="text-[13.5px] font-medium truncate">{a.name}</div><div className="text-[12px] muted truncate">{a.description || 'No description yet.'}</div></div>
                   <span className="w-[90px]"><Chip tone={a.status === 'live' ? 'ok' : undefined} className="capitalize">{a.status}</Chip></span>
@@ -169,46 +164,12 @@ export default function Agents() {
         )
       )}
 
-      <Modal open={creating} onClose={() => !designing && setCreating(false)} title="New agent" width={760}>
-        {designing ? (
-          <div className="py-12 text-center">
-            <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 2.5, ease: 'linear' }} className="mx-auto mb-4 w-12 h-12 rounded-[14px] grid place-items-center" style={{ background: 'linear-gradient(145deg,#1a4a73,#10385b)' }}><Sparkles size={22} className="text-white" /></motion.div>
-            <div className="display text-[16px] font-bold">Co-Create Assistant is designing your agent</div>
-            <div className="text-[12.5px] muted mt-1">{designing}</div>
-          </div>
-        ) : (
-          <div className="grid md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-6">
-            <div className="min-w-0">
-              <div className="text-[12px] font-semibold mb-1.5 flex items-center gap-1.5"><Wand2 size={13} className="accent-ink" /> Describe it</div>
-              <Textarea rows={6} autoFocus value={desc} onChange={(e) => setDesc(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) generate() }} placeholder="e.g. An agent that answers employee questions about our HR policies from the handbook, in a friendly tone, and asks for approval before promising any exception" />
-              <div className="flex flex-wrap gap-1.5 mt-2">{['Summarise competitor news every morning', 'Turn meeting notes into action items', 'Answer IT helpdesk questions from our docs'].map((s) => <button key={s} onClick={() => setDesc(s)} className="chip hover:text-[var(--text)]">{s}</button>)}</div>
-              <div className="flex items-center justify-between mt-4 gap-3">
-                <span className="text-[11.5px] muted">{apiKey ? 'The Co-Create Assistant writes the instructions, picks tools and suggests prompts. Everything stays editable.' : 'Models are not available right now; a blank agent with your text is created instead.'}</span>
-                <Button variant="primary" onClick={generate} disabled={!desc.trim()}>Create <ArrowRight size={14} /></Button>
-              </div>
-            </div>
-            <div className="min-w-0">
-              <div className="text-[12px] font-semibold mb-1.5">Or start from a template</div>
-              <div className="flex flex-col gap-1.5">
-                {agentTemplates.map((t) => (
-                  <button key={t.id} onClick={() => createFromTemplate(t)} className="flat p-2.5 text-left hover:bg-[var(--surface)] flex gap-3 items-center">
-                    <AgentAvatar name={t.name} icon={t.icon} color={t.color} size={32} />
-                    <span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold">{t.name}</span><span className="block text-[11.5px] muted truncate">{t.description}</span></span>
-                    <span className="text-[11px] muted shrink-0">{t.tools.length} tools</span>
-                  </button>
-                ))}
-                <div className="flex gap-1.5 mt-1">
-                  <button onClick={() => createFromTemplate()} className="flat p-2.5 text-left hover:bg-[var(--surface)] flex gap-2 items-center flex-1"><Tile color="#64748b" size={28} radius={8}><Plus size={13} /></Tile><span className="text-[12.5px] font-semibold">Blank</span></button>
-                  <label className="flat p-2.5 text-left hover:bg-[var(--surface)] flex gap-2 items-center flex-1 cursor-pointer"><Tile color="#64748b" size={28} radius={8}><Upload size={13} /></Tile><span className="text-[12.5px] font-semibold">Import JSON</span><input type="file" accept="application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) importFile(f); e.target.value = '' }} /></label>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </Modal>
+      <CreateAgentDialog open={creating} onClose={() => setCreating(false)} onCreated={(a) => nav(`/agents/${a.id}`)} />
 
       <Confirm open={!!toDelete} onClose={() => setToDelete(null)} title={`Delete ${toDelete?.name}?`} danger confirmLabel="Delete" onConfirm={() => toDelete && deleteAgent(toDelete.id)}
         body={toDelete && (usedIn(toDelete) > 0 ? `This agent is used by ${usedIn(toDelete)} workflow${usedIn(toDelete) === 1 ? '' : 's'}; those steps will need a new agent. Its chat history and versions are removed. This cannot be undone.` : 'Its chat history and versions are removed. This cannot be undone.')} />
+
+      <Confirm open={bulkDelete} onClose={() => setBulkDelete(false)} title={`Delete ${selected.length} agent${selected.length === 1 ? '' : 's'}?`} danger confirmLabel="Delete" body="Their chat history and versions are removed. Workflow steps that use them will need a new agent. This cannot be undone." onConfirm={() => { selected.forEach((id) => deleteAgent(id)); setSelected([]) }} />
 
       <Modal open={templates} onClose={() => setTemplates(false)} title="New council" width={560}>
         <div className="flex flex-col gap-2">
