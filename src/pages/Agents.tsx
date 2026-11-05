@@ -88,11 +88,11 @@ export default function Agents() {
       )}
 
       <div className="flex items-center gap-3 mb-5 flex-wrap">
-        <Segmented value={tab} onChange={setTab} items={[{ id: 'all', label: <>All <span className="muted">{agents.length}</span></> }, { id: 'live', label: <>Live <span className="muted">{live}</span></> }, { id: 'draft', label: <>Drafts <span className="muted">{agents.length - live}</span></> }, { id: 'councils', label: <>Councils <span className="muted">{councils.length}</span></> }]} />
+        <Segmented value={tab} onChange={setTab} items={[{ id: 'all', label: <>All <span className="muted">{agents.length}</span></> }, { id: 'live', label: <>Live <span className="muted">{live}</span></> }, { id: 'draft', label: <>Drafts <span className="muted">{agents.length - live}</span></> }, { id: 'councils', label: <>Councils <span className="chip !h-[18px] !text-[10px] !px-1.5 ml-0.5">Soon</span></> }]} />
         <SearchBox value={q} onChange={setQ} placeholder="Search" className="w-[220px]" />
         <div className="flex-1" />
         {tab !== 'councils' ? <div className="seg"><button className={cx(view === 'grid' && 'on')} onClick={() => setView('grid')} title="Cards"><LayoutGrid size={14} /></button><button className={cx(view === 'list' && 'on')} onClick={() => setView('list')} title="List"><List size={14} /></button></div>
-          : editable && <Button variant="primary" size="sm" onClick={() => setTemplates(true)} disabled={agents.length === 0} title={agents.length === 0 ? 'Create agents first' : undefined}><Plus size={14} /> New council</Button>}
+          : null}
       </div>
 
       <AnimatePresence>
@@ -135,25 +135,24 @@ export default function Agents() {
           </Stagger>
         )
       ) : (
-        clist.length === 0 ? <div className="clay"><Empty title="No councils yet" body="A council runs several agents on the same case and synthesises a recommendation for a gatekeeper." action={agents.length > 0 ? (editable && <Button variant="primary" onClick={() => setTemplates(true)}><Plus size={14} /> New council</Button>) : <Button onClick={() => setTab('all')}>Create agents first</Button>} /></div> : (
-          <Stagger className="grid sm:grid-cols-2 gap-4" delay={0.06}>
-            {clist.map((c) => (
-              <Item key={c.id}>
-                <motion.div whileHover={{ y: -3 }} onClick={() => setOpen(c)} className="clay p-5 cursor-pointer flex gap-4">
-                  <Tile color={colorFor(c.name)} size={42} radius={13}><Users size={18} /></Tile>
-                  <div className="min-w-0 flex-1">
-                    <div className="display font-bold text-[15px] flex items-center gap-2">{c.name}<Chip tone={c.status === 'live' ? 'ok' : undefined}>{c.status === 'live' ? 'Live' : 'Draft'}</Chip></div>
-                    <p className="text-[12.5px] muted mt-0.5 line-clamp-2">{c.description}</p>
-                    <div className="flex items-center gap-2 mt-3 text-[12px] muted">
-                      <div className="flex -space-x-1.5">{c.members.map((m) => { const a = agents.find((x) => x.id === m); return <span key={m} className="rounded-full border-2 border-[var(--surface)]"><AgentAvatar name={a?.name ?? m} icon={a?.icon} color={a?.color} size={20} radius={10} /></span> })}</div>
-                      <span>{c.members.length} members · {c.mode}</span><span>·</span><span>Gatekeeper {users.find((u) => u.id === c.gatekeeper)?.name.split(' ')[0]}</span>
-                    </div>
-                  </div>
-                </motion.div>
-              </Item>
-            ))}
-          </Stagger>
-        )
+        <div className="clay p-8 md:p-10 flex flex-col md:flex-row items-start gap-8">
+          <div className="flex-1 min-w-0">
+            <span className="chip chip-accent">Coming soon</span>
+            <h2 className="display text-[22px] font-bold mt-3 leading-tight">Councils: several agents, one recommendation</h2>
+            <p className="text-[13.5px] muted mt-2 leading-relaxed max-w-[520px]">A council gives one case to a handful of specialist agents, lets them deliberate by consensus, debate or vote, and hands a single recommendation to a person who decides. We are finishing the deliberation view and the audit trail before switching it on.</p>
+            <div className="flex flex-wrap gap-2 mt-5">
+              {[['Review board', 'Specialists review a proposal from different angles'], ['Red team', 'Agents argue for and against, surfacing risks'], ['Quality gate', 'A majority vote on whether a draft is ready']].map(([n, d]) => <div key={n} className="flat px-3.5 py-2.5 min-w-[180px]"><div className="text-[12.5px] font-semibold">{n}</div><div className="text-[11.5px] muted">{d}</div></div>)}
+            </div>
+            <div className="text-[12.5px] muted mt-6">In the meantime, chain agents and an approval step in a workflow. <button onClick={() => nav('/workflows/new?template=standard')} className="accent-ink font-medium hover:underline">Start one</button></div>
+          </div>
+          <div className="shrink-0 w-[200px] hidden md:flex flex-col items-center gap-3 self-center">
+            <div className="flex -space-x-3">{['search', 'chart', 'shield'].map((ic, i) => <span key={ic} className="rounded-full border-[3px] border-[var(--surface)]"><AgentAvatar name={ic} icon={ic} color={['#0ea5e9', '#10b981', '#6366f1'][i]} size={44} radius={22} /></span>)}</div>
+            <div className="w-px h-6 bg-[var(--line)]" />
+            <Tile color="#10385b" size={44} radius={22}><Users size={18} /></Tile>
+            <div className="w-px h-6 bg-[var(--line)]" />
+            <div className="chip !h-7">Recommendation → a person decides</div>
+          </div>
+        </div>
       )}
 
       <Confirm open={!!toDelete} onClose={() => setToDelete(null)} title={`Delete ${toDelete?.name}?`} danger confirmLabel="Delete" onConfirm={() => toDelete && deleteAgent(toDelete.id)} body={toDelete && (usedIn(toDelete) > 0 ? `This agent is used by ${usedIn(toDelete)} workflow${usedIn(toDelete) === 1 ? '' : 's'}; those steps will need a new agent. Its chat history and versions are removed.` : 'Its chat history and versions are removed. This cannot be undone.')} />

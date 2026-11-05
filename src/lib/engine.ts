@@ -56,7 +56,7 @@ export async function execute(run: Run, wf: Workflow, ctx: EngineCtx): Promise<R
     const node = nodes.get(cursor); if (!node) break
     const d = node.data
     const s0 = Date.now()
-    const step: RunStep = { name: d.label, brick: d.brick, ms: 0, status: 'ok' }
+    const step: RunStep = { name: d.label, nodeId: node.id, brick: d.brick, ms: 0, status: 'ok' }
     let branch: 'yes' | 'no' | undefined
     try {
       if (d.brick === 'trigger') {

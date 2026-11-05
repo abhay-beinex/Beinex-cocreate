@@ -16,10 +16,10 @@ const ctx = (): EngineCtx => {
   }
 }
 
-export async function startRun(wf: Workflow, input: string, trigger = 'Manual'): Promise<Run> {
+export async function startRun(wf: Workflow, input: string, trigger = 'Manual', onStart?: (id: string) => void): Promise<Run> {
   const s = useApp.getState()
   const run = newRun(wf, input, trigger, s.currentUserId ?? 'system')
-  run.id = s.addRun(run)
+  run.id = s.addRun(run); onStart?.(run.id)
   s.markWorkflowRan(wf.id)
   running.add(run.id)
   try { return await execute(run, wf, ctx()) } finally { running.delete(run.id) }

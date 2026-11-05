@@ -57,7 +57,7 @@ export const councilTemplates: Omit<Council, 'id' | 'status' | 'members'>[] = [
   { name: 'Quality Gate', description: 'A majority vote on whether a draft is ready to publish.', mode: 'quorum', gatekeeper: 'demo', model: 'anthropic/claude-opus-5.5' },
 ]
 
-export type RunStep = { name: string; brick?: Brick; model?: string; ms: number; tokens?: number; cost?: number; status: 'ok' | 'waiting' | 'failed' | 'skipped'; output?: string; branch?: string }
+export type RunStep = { name: string; nodeId?: string; brick?: Brick; model?: string; ms: number; tokens?: number; cost?: number; status: 'ok' | 'waiting' | 'failed' | 'skipped'; output?: string; branch?: string }
 export type Run = {
   id: string; workflowId: string; workflow: string; trigger: string; status: 'waiting' | 'approved' | 'rejected' | 'failed' | 'running' | 'completed'
   started: string; finished?: string; duration: string; cost: number; steps: RunStep[]; summary?: string; decidedBy?: string
@@ -77,14 +77,13 @@ export type Workflow = {
 const n = (id: string, brick: Brick, label: string, sub: string, x: number, y: number, extra: Partial<StepData> = {}): WfNode => ({ id, type: 'step', position: { x, y }, data: { brick, label, sub, retries: 1, timeout: 60, costCap: 0.05, model: DEFAULT_MODEL, ...extra } })
 
 export const workflowTemplates: { id: string; name: string; desc: string; triggerType: 'manual' | 'schedule'; schedule?: Schedule; nodes: WfNode[]; edges: WfEdge[] }[] = [
-  { id: 'research-draft', name: 'Research and draft', desc: 'Research a topic, draft a document, a person reviews it, then it is saved to Knowledge', triggerType: 'manual',
+  { id: 'research-draft', name: 'Research and draft', desc: 'Research a topic, draft a brief, a person reviews it, then it is saved to Knowledge', triggerType: 'manual',
     nodes: [n('t', 'trigger', 'Topic submitted', 'Run with a topic', 40, 160), n('a', 'agent', 'Research', 'Search and read sources', 320, 160, { prompt: 'Research the topic thoroughly and list key findings with sources.' }), n('b', 'agent', 'Draft', 'Write the document', 600, 160, { prompt: 'Turn the findings into a clear one-page brief in markdown.' }), n('h', 'human', 'Review', 'A person approves the draft', 880, 160), n('s', 'tool', 'Save to Knowledge', 'save_document', 1160, 160, { tool: 'save_document' })],
     edges: [{ id: 'e1', source: 't', target: 'a' }, { id: 'e2', source: 'a', target: 'b' }, { id: 'e3', source: 'b', target: 'h' }, { id: 'e4', source: 'h', target: 's' }] },
   { id: 'monitor', name: 'Monitor and alert', desc: 'Check a topic on a schedule and notify only when something changed', triggerType: 'schedule', schedule: { every: 'day', at: '08:00', input: 'Check for news about: (your topic)' },
     nodes: [n('t', 'trigger', 'Every day 08:00', 'Schedule', 40, 160), n('a', 'agent', 'Check', 'Search or read sources', 320, 160, { prompt: 'Check the sources and report what is new in the last 24 hours. If nothing is new, say exactly: NOTHING NEW.' }), n('l', 'logic', 'Anything new?', 'The check found at least one new item (it did not say NOTHING NEW)', 600, 160), n('x', 'notify', 'Notify', 'In-app notification', 880, 60)],
     edges: [{ id: 'e1', source: 't', target: 'a' }, { id: 'e2', source: 'a', target: 'l' }, { id: 'e3', source: 'l', target: 'x', label: 'yes' }] },
-  { id: 'standard', name: 'Agent with approval', desc: 'Trigger → Agent → Human approval', triggerType: 'manual', nodes: [n('t', 'trigger', 'Start', 'Run with an input', 40, 160), n('a', 'agent', 'Agent', 'Pick an agent', 320, 160), n('h', 'human', 'Approval', 'Assign an approver', 600, 160)], edges: [{ id: 'e1', source: 't', target: 'a' }, { id: 'e2', source: 'a', target: 'h' }] },
-  { id: 'council', name: 'Council review', desc: 'Trigger → Council → Gatekeeper', triggerType: 'manual', nodes: [n('t', 'trigger', 'Start', 'Run with a case', 40, 160), n('c', 'council', 'Council', 'Pick a council', 320, 160), n('h', 'human', 'Gatekeeper', 'Final decision', 600, 160)], edges: [{ id: 'e1', source: 't', target: 'c' }, { id: 'e2', source: 'c', target: 'h' }] },
+  { id: 'standard', name: 'Agent with approval', desc: 'An agent does the work, then a person signs off', triggerType: 'manual', nodes: [n('t', 'trigger', 'Start', 'Run with an input', 40, 160), n('a', 'agent', 'Agent', 'Pick an agent', 320, 160), n('h', 'human', 'Approval', 'Assign an approver', 600, 160)], edges: [{ id: 'e1', source: 't', target: 'a' }, { id: 'e2', source: 'a', target: 'h' }] },
   { id: 'blank', name: 'Blank', desc: 'Start from an empty canvas', triggerType: 'manual', nodes: [], edges: [] },
 ]
 
