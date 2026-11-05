@@ -25,7 +25,7 @@ Pick an account on the sign-in screen, or use the email with the password `cocre
 
 ## Models
 
-The platform calls OpenRouter directly from the browser. Add a key under Settings → OpenRouter. The key is stored only in the browser's local storage and sent only to OpenRouter.
+The platform calls OpenRouter directly from the browser. Add a key under Settings → OpenRouter, or put it in a `.env` file as `VITE_OPENROUTER_API_KEY=...` (see `.env.example`). The key is stored only in the browser's local storage and sent only to OpenRouter.
 
 Default model: `anthropic/claude-sonnet-5.5`. Profiles: Verify (Sonnet 5.5), Decide (Opus 5.5), Draft (Haiku 5.5). Change them under Models.
 

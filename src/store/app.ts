@@ -152,7 +152,7 @@ export const useApp = create<State>()(
         setSpend: (k, v) => set({ spend: { ...get().spend, [k]: v } }),
       }
     },
-    { name: 'cocreate-v1', version: 1, partialize: (s) => Object.fromEntries(Object.entries(s).filter(([k]) => !['models', 'modelsFetchedAt'].includes(k) && typeof (s as any)[k] !== 'function')) as any },
+    { name: 'cocreate-v1', version: 1, merge: (persisted, current) => { const m = { ...current, ...(persisted as object) } as State; const env = (import.meta as any).env?.VITE_OPENROUTER_API_KEY as string | undefined; if (!m.apiKey && env) m.apiKey = env; return m }, partialize: (s) => Object.fromEntries(Object.entries(s).filter(([k]) => !['models', 'modelsFetchedAt'].includes(k) && typeof (s as any)[k] !== 'function')) as any },
   ),
 )
 
