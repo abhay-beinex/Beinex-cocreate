@@ -16,6 +16,7 @@ import Knowledge from './pages/Knowledge'
 import Runs from './pages/Runs'
 import Models from './pages/Models'
 import Settings from './pages/Settings'
+import RunLink from './pages/RunLink'
 
 const router = createBrowserRouter([
   { path: '/login', element: <Login /> },
@@ -36,6 +37,7 @@ const router = createBrowserRouter([
       { path: 'runs', element: <Runs /> },
       { path: 'models', element: <Models /> },
       { path: 'settings', element: <Settings /> },
+      { path: 'run/:workflowId', element: <RunLink /> },
       { path: 'automations/*', element: <Navigate to="/workflows" replace /> },
       { path: 'admin', element: <Navigate to="/settings" replace /> },
       { path: '*', element: <Navigate to="/" replace /> },

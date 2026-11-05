@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { DEMO_USER, seedLibraries, DEFAULT_MODEL, MODEL_PROFILES, type User, type Agent, type Council, type Run, type Workflow, type Library, type Doc, type AuditEvent, type CustomTool, type Notification, type SpendEntry, type Role } from '@/lib/data'
+import { DEMO_USER, seedLibraries, DEFAULT_MODEL, MODEL_PROFILES, type User, type Agent, type Council, type Run, type Workflow, type Library, type Doc, type AuditEvent, type CustomTool, type Notification, type SpendEntry, type Role, type Thread } from '@/lib/data'
 import type { ORModel } from '@/lib/openrouter'
 
 export type Theme = 'light' | 'dark'
@@ -30,6 +30,7 @@ type State = {
   spend: SpendEntry[]
   audit: AuditEvent[]
   chats: Record<string, ChatMsg[]>
+  threads: Thread[]
   schedulesPaused: boolean
   caps: { user: number; org: number }
 
@@ -54,6 +55,10 @@ type State = {
   upsertWorkflow: (w: Workflow) => void
   deleteWorkflow: (id: string) => void
   markWorkflowRan: (id: string) => void
+  /** Update a workflow without a version bump or audit entry (trigger bookkeeping). */
+  patchWorkflow: (id: string, p: Partial<Workflow>) => void
+  upsertThread: (t: Thread) => void
+  removeThread: (id: string) => void
   addRun: (r: Run) => string
   updateRun: (id: string, p: Partial<Run>) => void
   decideRun: (id: string, decision: 'approved' | 'rejected') => void
@@ -100,6 +105,7 @@ export const useApp = create<State>()(
         spend: [],
         audit: [],
         chats: {},
+        threads: [],
         schedulesPaused: false,
         caps: { user: 5, org: 100 },
 
@@ -144,13 +150,14 @@ export const useApp = create<State>()(
         upsertWorkflow: (w) => { const exists = get().workflows.some((x) => x.id === w.id); set({ workflows: exists ? get().workflows.map((x) => (x.id === w.id ? w : x)) : [w, ...get().workflows] }); log(exists ? 'Saved workflow' : 'Created workflow', `${w.name} v${w.version}`) },
         deleteWorkflow: (id) => { log('Deleted workflow', get().workflows.find((w) => w.id === id)?.name ?? id); set({ workflows: get().workflows.filter((w) => w.id !== id) }) },
         markWorkflowRan: (id) => set({ workflows: get().workflows.map((w) => (w.id === id ? { ...w, lastRunAt: Date.now() } : w)) }),
+        patchWorkflow: (id, p) => set({ workflows: get().workflows.map((w) => (w.id === id ? { ...w, ...p } : w)) }),
+        upsertThread: (t) => set({ threads: [t, ...get().threads.filter((x) => x.id !== t.id)] }),
+        removeThread: (id) => { const c = { ...get().chats }; delete c[`thread:${id}`]; set({ threads: get().threads.filter((t) => t.id !== id), chats: c }) },
         addRun: (r) => { const max = get().runs.reduce((m, x) => Math.max(m, parseInt(x.id.replace(/\D/g, ''), 10) || 0), 1000); const id = `R-${max + 1}`; set({ runs: [{ ...r, id }, ...get().runs].slice(0, 300) }); return id },
         updateRun: (id, p) => set({ runs: get().runs.map((r) => (r.id === id ? { ...r, ...p } : r)) }),
         decideRun: (id, decision) => {
           set({ runs: get().runs.map((r) => (r.id === id ? { ...r, status: decision, decidedBy: actor(), steps: r.steps.map((s) => (s.status === 'waiting' ? { ...s, status: decision === 'approved' ? 'ok' : 'skipped', output: `${decision === 'approved' ? 'Approved' : 'Rejected'} by ${actor()}` } : s)), ...(decision === 'rejected' ? { cursor: null, finished: now() } : {}) } : r)) })
           log(decision === 'approved' ? 'Approved' : 'Rejected', id)
-          const r = get().runs.find((x) => x.id === id)
-          get().notify({ title: `${decision === 'approved' ? 'Approved' : 'Rejected'}: ${r?.workflow ?? id}`, body: r?.summary, link: `/runs?open=${id}`, kind: 'run' })
         },
         addDoc: (libraryId, d) => { set({ libraries: get().libraries.map((l) => (l.id === libraryId ? { ...l, docs: [{ ...d, id: `d${Date.now()}${uid()}`, updatedAt: today(), addedBy: actor() }, ...l.docs] } : l)) }); log('Added document', d.title) },
         removeDoc: (libraryId, docId) => set({ libraries: get().libraries.map((l) => (l.id === libraryId ? { ...l, docs: l.docs.filter((d) => d.id !== docId) } : l)) }),

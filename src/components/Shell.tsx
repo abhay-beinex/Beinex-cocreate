@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Home, MessageSquare, Sparkles, Workflow, Wrench, BookOpen, ListChecks, Cpu, Settings, Sun, Moon, Languages, PanelLeftClose, PanelLeftOpen, LogOut, Bell, ShieldCheck, Clock, Info, CheckCheck, ChevronUp, Check } from 'lucide-react'
 import { useApp, useUser } from '@/store/app'
 import { BRAND, roleLabel } from '@/lib/data'
-import { tickSchedules } from '@/lib/runner'
+import { tickSchedules, watchDocuments } from '@/lib/runner'
 import { BeinexMark } from './Logo'
 import { Avatar, cx } from './ui'
 
@@ -37,7 +37,7 @@ export default function Shell() {
     window.addEventListener('keydown', onKey); window.addEventListener('mousedown', onClick)
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onClick) }
   }, [nav])
-  useEffect(() => { const t = setInterval(() => { tickSchedules() }, 60_000); tickSchedules(); return () => clearInterval(t) }, [])
+  useEffect(() => { const t = setInterval(() => { tickSchedules() }, 60_000); tickSchedules(); const off = watchDocuments(); return () => { clearInterval(t); off() } }, [])
 
   if (!user) return <Navigate to="/login" replace />
   const editor = /^\/(agents|workflows)\/[^/]+/.test(loc.pathname) || loc.pathname.startsWith('/chat')
@@ -82,7 +82,7 @@ export default function Shell() {
               {menu === 'bell' && (
                 <motion.div initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -6 }} className="absolute bottom-0 left-full ml-3 w-[340px] pop rounded-[18px] p-2 z-30 max-h-[460px] scroll">
                   <div className="flex items-center justify-between px-2 py-1.5"><span className="text-[12.5px] font-semibold">Notifications</span>{unread > 0 && <button onClick={() => markRead()} className="text-[11px] muted hover:text-[var(--text)] inline-flex items-center gap-1"><CheckCheck size={12} /> Mark all read</button>}</div>
-                  {notifications.length === 0 && <div className="px-2 py-8 text-center text-[12px] muted">Nothing yet. Approvals, finished runs and schedules show up here.</div>}
+                  {notifications.length === 0 && <div className="px-2 py-8 text-center text-[12px] muted">Nothing needs you. Approvals, failed runs and schedule problems show up here.</div>}
                   {notifications.slice(0, 30).map((n) => { const I = kindIcon[n.kind]; return (
                     <button key={n.id} onClick={() => { markRead(n.id); setMenu(null); if (n.link) nav(n.link) }} className={cx('w-full text-left flex gap-2.5 p-2 rounded-[11px] hover:bg-[var(--clay-dark)]', !n.read && 'bg-[color-mix(in_srgb,var(--accent)_8%,transparent)]')}>
                       <span className="w-7 h-7 rounded-[8px] grid place-items-center shrink-0 bg-[var(--clay-dark)] muted"><I size={13} /></span>

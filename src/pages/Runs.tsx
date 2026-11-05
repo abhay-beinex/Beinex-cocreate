@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Fingerprint, ShieldCheck, RotateCw, Workflow as WorkflowIcon } from 'lucide-react'
+import { Fingerprint, ShieldCheck, RotateCw, Workflow as WorkflowIcon, Braces, Repeat } from 'lucide-react'
 import { useApp, useUser, can } from '@/store/app'
-import { resumeRun, isRunning } from '@/lib/runner'
+import { resumeRun, isRunning, rerunFrom } from '@/lib/runner'
 import type { Run } from '@/lib/data'
 import { Button, Chip, Drawer, Modal, PageHeader, Segmented, SearchBox, cx } from '@/components/ui'
 import { Page, Stagger, Item } from '@/components/motion'
 import { Md } from '@/components/Md'
 
 const tone: Record<Run['status'], 'ok' | 'warn' | 'danger' | 'accent' | undefined> = { waiting: 'warn', approved: 'ok', completed: 'ok', rejected: 'danger', failed: 'danger', running: 'accent' }
+const done = (r: Run) => r.status === 'completed' || r.status === 'failed' || r.status === 'rejected' || (r.status === 'approved' && !r.cursor)
 const seal = (s: string) => Array.from(s).reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 7).toString(16).padStart(8, '0').repeat(8).slice(0, 64)
 
 export default function Runs() {
@@ -84,14 +85,18 @@ export default function Runs() {
               <div className="text-[12px] font-semibold mb-2">Steps</div>
               <ol className="flat divide-y divide-[var(--line)]">
                 {open.steps.map((s, i) => (
-                  <li key={i} className="px-3 py-2.5">
-                    <div className="flex items-center gap-3"><span className={cx('w-2 h-2 rounded-full', s.status === 'ok' ? 'bg-[var(--ok)]' : s.status === 'failed' ? 'bg-[var(--danger)]' : s.status === 'skipped' ? 'bg-[var(--muted)]' : 'bg-[var(--warn)]')} /><span className="flex-1 text-[13px] font-medium">{s.name}{s.branch && <span className="muted font-normal"> → {s.branch}</span>}</span><span className="text-[11.5px] muted">{s.model ? `${s.model} · ` : ''}{s.ms ? `${(s.ms / 1000).toFixed(1)}s` : s.status === 'waiting' ? 'pending' : ''}{s.cost ? ` · $${s.cost.toFixed(4)}` : ''}</span></div>
+                  <li key={i} className={cx('px-3 py-2.5', s.lane && 'pl-7 bg-[color-mix(in_srgb,var(--clay-dark)_50%,transparent)]')}>
+                    <div className="flex items-center gap-3"><span className={cx('w-2 h-2 rounded-full shrink-0', s.status === 'ok' ? 'bg-[var(--ok)]' : s.status === 'failed' ? (s.continued ? 'bg-[var(--warn)]' : 'bg-[var(--danger)]') : s.status === 'skipped' ? 'bg-[var(--muted)]' : 'bg-[var(--warn)]')} /><span className="flex-1 min-w-0 text-[13px] font-medium truncate">{s.name}{s.branch && <span className="muted font-normal"> → {s.branch}</span>}{s.lane && <span className="muted font-normal"> · {s.lane}</span>}{s.attempt && <span className="muted font-normal"> · attempt {s.attempt}</span>}{s.continued && <span className="text-[var(--warn)] font-normal"> · continued</span>}{s.key && s.status === 'ok' && <code className="text-[10.5px] accent-ink ml-1.5">{`{{${s.key}}}`}</code>}</span><span className="text-[11.5px] muted shrink-0">{s.model ? `${s.model} · ` : ''}{s.ms ? `${(s.ms / 1000).toFixed(1)}s` : s.status === 'waiting' ? 'pending' : ''}{s.cost ? ` · $${s.cost.toFixed(4)}` : ''}</span>
+                      {done(open) && s.nodeId && !s.lane && open.kind !== 'chat' && <button onClick={() => rerunFrom(open.id, i, (id) => setOpenId(id))} className="text-[11px] accent-ink font-medium inline-flex items-center gap-1 hover:underline shrink-0" title="Start a new run that keeps the earlier results and runs again from this step"><Repeat size={11} /> Again from here</button>}</div>
                     {s.output && <Md className="prose-chat text-[12px] muted mt-1.5 pl-5">{s.output}</Md>}
                   </li>
                 ))}
                 {open.status === 'running' && <li className="px-3 py-2.5 text-[12.5px] accent-ink flex items-center gap-2"><motion.span className="w-2 h-2 rounded-full bg-[var(--accent)]" animate={{ opacity: [1, 0.3, 1] }} transition={{ repeat: Infinity, duration: 1 }} /> Running next step…</li>}
               </ol>
             </div>
+            {open.vars && Object.keys(open.vars).length > 1 && <details><summary className="text-[12px] font-semibold cursor-pointer flex items-center gap-1.5"><Braces size={13} /> Variables · {Object.keys(open.vars).length}</summary><div className="flat divide-y divide-[var(--line)] mt-2">{Object.entries(open.vars).map(([k, v]) => <details key={k} className="px-3 py-2"><summary className="cursor-pointer list-none flex items-center gap-2 text-[12.5px]"><code className="text-[11.5px] accent-ink">{`{{${k}}}`}</code><span className="muted truncate flex-1">{String(v).slice(0, 100).replace(/\n/g, ' ')}</span></summary><pre className="mt-2 text-[11.5px] whitespace-pre-wrap max-h-[200px] overflow-auto muted">{String(v)}</pre></details>)}</div></details>}
+            {open.rerunOf && <div className="text-[12px] muted">Started again from step {open.rerunOf.step + 1} of <button onClick={() => setOpenId(open.rerunOf!.runId)} className="accent-ink hover:underline">{open.rerunOf.runId}</button>.</div>}
+            {open.parentRunId && <div className="text-[12px] muted">Called by run <button onClick={() => setOpenId(open.parentRunId!)} className="accent-ink hover:underline">{open.parentRunId}</button>.</div>}
             {open.decidedBy && <div className="text-[12.5px]">Decided by <b>{open.decidedBy}</b></div>}
             <div><div className="text-[12px] font-semibold mb-1 flex items-center gap-1.5"><Fingerprint size={13} /> Audit seal</div><code className="text-[11px] break-all muted">{seal(open.id + open.status + (open.decidedBy ?? '') + open.steps.length)}</code></div>
           </div>
