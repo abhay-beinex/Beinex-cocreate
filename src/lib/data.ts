@@ -3,38 +3,34 @@ export const BRAND = { name: 'Co-Create', company: 'Beinex', full: 'Beinex Co-Cr
 
 export const DEFAULT_MODEL = 'anthropic/claude-sonnet-5.5'
 export const MODEL_PROFILES = [
-  { id: 'fast', name: 'Fast', purpose: 'Quick replies, drafting, classification', model: 'anthropic/claude-haiku-5.5' },
-  { id: 'balanced', name: 'Balanced', purpose: 'Everyday agent work with tools', model: 'anthropic/claude-sonnet-5.5' },
-  { id: 'reasoning', name: 'Reasoning', purpose: 'Hard analysis, research synthesis, council decisions', model: 'anthropic/claude-opus-5.5' },
+  { id: 'fast', name: 'Fast', purpose: 'Quick replies, conditions, web search summaries', model: 'anthropic/claude-haiku-5.5' },
+  { id: 'balanced', name: 'Balanced', purpose: 'Default for new agents and the assistant', model: 'anthropic/claude-sonnet-5.5' },
+  { id: 'reasoning', name: 'Reasoning', purpose: 'Deep research, council synthesis, hard analysis', model: 'anthropic/claude-opus-5.5' },
 ] as const
+export type ProfileId = (typeof MODEL_PROFILES)[number]['id']
 
 export type Role = 'builder' | 'approver' | 'security' | 'auditor' | 'admin'
-export type User = { id: string; name: string; email: string; initials: string; role: Role; title: string; department: string; status: 'active' | 'invited' | 'disabled'; lastActive: string }
+export type User = { id: string; name: string; email: string; password: string; initials: string; role: Role; title: string; status: 'active' | 'disabled'; lastActive: string; createdAt: string }
 
 export const roleLabel: Record<Role, string> = { builder: 'Builder', approver: 'Approver', security: 'Security', auditor: 'Auditor', admin: 'Admin' }
 export const roleDesc: Record<Role, string> = {
   builder: 'Creates agents, workflows and knowledge. Cannot approve.',
-  approver: 'Signs off on gated actions.',
-  security: 'Controls watchers, emergency pause and model access.',
+  approver: 'Signs off on gated actions and can also build.',
+  security: 'Pauses schedules, sets spend caps and model access. Can approve.',
   auditor: 'Read-only access to runs and the audit log.',
-  admin: 'Manages users, keys and workspace settings.',
+  admin: 'Everything, including users.',
 }
 
-export const seedUsers: User[] = [
-  { id: 'mariam', name: 'Mariam Khalid', email: 'mariam.khalid@beinex.com', initials: 'MK', role: 'builder', title: 'Operations Lead', department: 'Operations', status: 'active', lastActive: 'Now' },
-  { id: 'fatima', name: 'Fatima Al Mansoori', email: 'fatima.almansoori@beinex.com', initials: 'FA', role: 'approver', title: 'Director', department: 'Operations', status: 'active', lastActive: '2h ago' },
-  { id: 'omar', name: 'Omar Haddad', email: 'omar.haddad@beinex.com', initials: 'OH', role: 'security', title: 'Head of Information Security', department: 'IT Security', status: 'active', lastActive: 'Yesterday' },
-  { id: 'faisal', name: 'Dr. Faisal Al Nuaimi', email: 'faisal.alnuaimi@beinex.com', initials: 'FN', role: 'auditor', title: 'Internal Audit', department: 'Audit', status: 'active', lastActive: '3 days ago' },
-  { id: 'admin', name: 'Pilot Admin', email: 'admin@beinex.com', initials: 'PA', role: 'admin', title: 'Platform Administrator', department: 'IT', status: 'active', lastActive: 'Now' },
-]
+export const DEMO_USER: User = { id: 'demo', name: 'Demo User', email: 'demo@beinex.com', password: 'cocreate', initials: 'DU', role: 'admin', title: 'Pilot administrator', status: 'active', lastActive: 'Never', createdAt: '2026-11-05' }
 
 export type Autonomy = 1 | 2 | 3
+export type AgentSnapshot = { version: number; at: string; by: string; data: Omit<Agent, 'history'> }
 export type Agent = {
   id: string; name: string; description: string; instructions: string; model: string; tools: string[]; knowledge: string[]
-  autonomy: Autonomy; status: 'live' | 'draft'; version: number; samplePrompts: string[]; watchers: string[]; updatedAt: string; createdBy: string
+  autonomy: Autonomy; status: 'live' | 'draft'; version: number; samplePrompts: string[]; updatedAt: string; createdBy: string; history?: AgentSnapshot[]
 }
 
-export const GOVERNED = 'You never take an external action yourself: drafts, emails and approvals go to a human. If you are unsure or information is missing, say so and ask rather than guessing.'
+export const GOVERNED = 'You never take an external action yourself: drafts, emails and approvals go to a person. If you are unsure or information is missing, say so and ask rather than guessing.'
 
 export const agentTemplates: { id: string; name: string; description: string; instructions: string; tools: string[]; samplePrompts: string[]; model?: string }[] = [
   { id: 'research', name: 'Research Assistant', description: 'Searches the web, reads sources and writes sourced briefs.', model: 'anthropic/claude-sonnet-5.5',
@@ -51,43 +47,55 @@ export const agentTemplates: { id: string; name: string; description: string; in
     tools: ['search_knowledge', 'request_approval', 'draft_email'], samplePrompts: ['How do I request access to the VPN?', 'What is the travel reimbursement limit?', 'Who approves overtime?'] },
   { id: 'monitor', name: 'Web Monitor', description: 'Checks pages or topics on a schedule and reports what changed.', model: 'anthropic/claude-haiku-5.5',
     instructions: `You monitor the web for changes on a topic or page. Search or read the given sources, compare with the previous summary if provided, and report only what is new or changed, with links. ${GOVERNED}`,
-    tools: ['web_search', 'read_url', 'current_datetime', 'request_approval'], samplePrompts: ['Any new announcements from OpenRouter this week?', 'Has the pricing page at example.com changed?'] },
+    tools: ['web_search', 'read_url', 'current_datetime', 'request_approval'], samplePrompts: ['Any new announcements from the Dubai Chamber this week?', 'Has the pricing page at example.com changed?'] },
 ]
 
 export type Council = { id: string; name: string; description: string; members: string[]; mode: 'consensus' | 'debate' | 'quorum'; gatekeeper: string; status: 'live' | 'draft'; model: string }
 export const councilTemplates: Omit<Council, 'id' | 'status' | 'members'>[] = [
-  { name: 'Review Board', description: 'Several specialist agents review a proposal from different angles before a person decides.', mode: 'consensus', gatekeeper: 'fatima', model: 'anthropic/claude-opus-5.5' },
-  { name: 'Red Team', description: 'Agents argue for and against a decision and surface the risks.', mode: 'debate', gatekeeper: 'omar', model: 'anthropic/claude-opus-5.5' },
-  { name: 'Quality Gate', description: 'A majority vote on whether a draft is ready to publish.', mode: 'quorum', gatekeeper: 'fatima', model: 'anthropic/claude-opus-5.5' },
+  { name: 'Review Board', description: 'Several specialist agents review a proposal from different angles before a person decides.', mode: 'consensus', gatekeeper: 'demo', model: 'anthropic/claude-opus-5.5' },
+  { name: 'Red Team', description: 'Agents argue for and against a decision and surface the risks.', mode: 'debate', gatekeeper: 'demo', model: 'anthropic/claude-opus-5.5' },
+  { name: 'Quality Gate', description: 'A majority vote on whether a draft is ready to publish.', mode: 'quorum', gatekeeper: 'demo', model: 'anthropic/claude-opus-5.5' },
 ]
 
-export type Suggestion = { id: string; kind: 'risk' | 'approval' | 'saving' | 'info'; title: string; body: string; evidence: string[]; source: string; confidence?: number; savingHours?: number; status: 'open' | 'approval' | 'history'; primary: string; when: string; link?: string }
-export type Watcher = { id: string; name: string; owner: string; status: 'active' | 'paused'; findingsToday: number; cap: number; used: number }
-
-export type RunStep = { name: string; model?: string; ms: number; tokens?: number; status: 'ok' | 'waiting' | 'failed' | 'skipped'; output?: string }
-export type Run = { id: string; workflowId: string; workflow: string; trigger: string; status: 'waiting' | 'approved' | 'rejected' | 'failed' | 'running' | 'completed'; started: string; duration: string; cost: number; steps: RunStep[]; summary?: string; decidedBy?: string }
+export type RunStep = { name: string; brick?: Brick; model?: string; ms: number; tokens?: number; cost?: number; status: 'ok' | 'waiting' | 'failed' | 'skipped'; output?: string; branch?: string }
+export type Run = {
+  id: string; workflowId: string; workflow: string; trigger: string; status: 'waiting' | 'approved' | 'rejected' | 'failed' | 'running' | 'completed'
+  started: string; finished?: string; duration: string; cost: number; steps: RunStep[]; summary?: string; decidedBy?: string
+  input?: string; context?: string; cursor?: string | null; approver?: string; startedBy?: string; kind?: 'workflow' | 'chat'
+}
 
 export type Brick = 'trigger' | 'agent' | 'council' | 'logic' | 'human' | 'tool' | 'notify'
-export type StepData = { brick: Brick; label: string; sub?: string; prompt?: string; model?: string; agentId?: string; councilId?: string; retries?: number; timeout?: number; costCap?: number }
+export type StepData = { brick: Brick; label: string; sub?: string; prompt?: string; model?: string; agentId?: string; councilId?: string; tool?: string; approver?: string; retries?: number; timeout?: number; costCap?: number }
 export type WfNode = { id: string; type: 'step'; position: { x: number; y: number }; data: StepData }
 export type WfEdge = { id: string; source: string; target: string; label?: string }
-export type Workflow = { id: string; name: string; description: string; status: 'live' | 'draft' | 'paused'; version: number; trigger: string; autonomy: Autonomy; nodes: WfNode[]; edges: WfEdge[]; runsWeek: number; straightThrough: number; updatedAt: string; createdBy: string }
+export type Schedule = { every: 'hour' | 'day' | 'week'; at: string; input: string }
+export type Workflow = {
+  id: string; name: string; description: string; status: 'live' | 'draft' | 'paused'; version: number; triggerType: 'manual' | 'schedule'; schedule?: Schedule; lastRunAt?: number
+  autonomy: Autonomy; nodes: WfNode[]; edges: WfEdge[]; updatedAt: string; createdBy: string
+}
 
 const n = (id: string, brick: Brick, label: string, sub: string, x: number, y: number, extra: Partial<StepData> = {}): WfNode => ({ id, type: 'step', position: { x, y }, data: { brick, label, sub, retries: 1, timeout: 60, costCap: 0.05, model: DEFAULT_MODEL, ...extra } })
 
-export const workflowTemplates: { id: string; name: string; desc: string; trigger: string; nodes: WfNode[]; edges: WfEdge[] }[] = [
-  { id: 'research-draft', name: 'Research and draft', desc: 'Research a topic, draft a document, a person reviews it', trigger: 'Manual · topic', nodes: [n('t', 'trigger', 'Topic submitted', 'Manual or form', 40, 160), n('a', 'agent', 'Research', 'Search and read sources', 320, 160, { prompt: 'Research the topic thoroughly and list key findings with sources.' }), n('b', 'agent', 'Draft', 'Write the document', 600, 160, { prompt: 'Turn the findings into a clear one-page brief.' }), n('h', 'human', 'Review', 'A person approves the draft', 880, 160)], edges: [{ id: 'e1', source: 't', target: 'a' }, { id: 'e2', source: 'a', target: 'b' }, { id: 'e3', source: 'b', target: 'h' }] },
-  { id: 'monitor', name: 'Monitor and alert', desc: 'Check something on a schedule and notify when a condition is met', trigger: 'Schedule · daily 08:00', nodes: [n('t', 'trigger', 'Daily 08:00', 'Schedule', 40, 160), n('a', 'agent', 'Check', 'Search or read sources', 320, 160, { prompt: 'Check the sources and report what changed since yesterday.' }), n('l', 'logic', 'Anything new?', 'changes found', 600, 160), n('x', 'notify', 'Notify', 'Teams · email', 880, 160)], edges: [{ id: 'e1', source: 't', target: 'a' }, { id: 'e2', source: 'a', target: 'l' }, { id: 'e3', source: 'l', target: 'x', label: 'yes' }] },
-  { id: 'standard', name: 'Agent with approval', desc: 'Trigger → Agent → Human approval', trigger: 'Manual', nodes: [n('t', 'trigger', 'Trigger', 'Choose a source', 40, 160), n('a', 'agent', 'Agent', 'Pick an agent', 320, 160), n('h', 'human', 'Approval', 'Assign an approver', 600, 160)], edges: [{ id: 'e1', source: 't', target: 'a' }, { id: 'e2', source: 'a', target: 'h' }] },
-  { id: 'council', name: 'Council review', desc: 'Trigger → Council → Gatekeeper', trigger: 'Manual', nodes: [n('t', 'trigger', 'Trigger', 'Choose a source', 40, 160), n('c', 'council', 'Council', 'Pick a council', 320, 160), n('h', 'human', 'Gatekeeper', 'Final decision', 600, 160)], edges: [{ id: 'e1', source: 't', target: 'c' }, { id: 'e2', source: 'c', target: 'h' }] },
-  { id: 'blank', name: 'Blank', desc: 'Start from an empty canvas', trigger: 'Manual', nodes: [], edges: [] },
+export const workflowTemplates: { id: string; name: string; desc: string; triggerType: 'manual' | 'schedule'; schedule?: Schedule; nodes: WfNode[]; edges: WfEdge[] }[] = [
+  { id: 'research-draft', name: 'Research and draft', desc: 'Research a topic, draft a document, a person reviews it, then it is saved to Knowledge', triggerType: 'manual',
+    nodes: [n('t', 'trigger', 'Topic submitted', 'Run with a topic', 40, 160), n('a', 'agent', 'Research', 'Search and read sources', 320, 160, { prompt: 'Research the topic thoroughly and list key findings with sources.' }), n('b', 'agent', 'Draft', 'Write the document', 600, 160, { prompt: 'Turn the findings into a clear one-page brief in markdown.' }), n('h', 'human', 'Review', 'A person approves the draft', 880, 160), n('s', 'tool', 'Save to Knowledge', 'save_document', 1160, 160, { tool: 'save_document' })],
+    edges: [{ id: 'e1', source: 't', target: 'a' }, { id: 'e2', source: 'a', target: 'b' }, { id: 'e3', source: 'b', target: 'h' }, { id: 'e4', source: 'h', target: 's' }] },
+  { id: 'monitor', name: 'Monitor and alert', desc: 'Check a topic on a schedule and notify only when something changed', triggerType: 'schedule', schedule: { every: 'day', at: '08:00', input: 'Check for news about: (your topic)' },
+    nodes: [n('t', 'trigger', 'Every day 08:00', 'Schedule', 40, 160), n('a', 'agent', 'Check', 'Search or read sources', 320, 160, { prompt: 'Check the sources and report what is new in the last 24 hours. If nothing is new, say exactly: NOTHING NEW.' }), n('l', 'logic', 'Anything new?', 'The check found at least one new item (it did not say NOTHING NEW)', 600, 160), n('x', 'notify', 'Notify', 'In-app notification', 880, 60)],
+    edges: [{ id: 'e1', source: 't', target: 'a' }, { id: 'e2', source: 'a', target: 'l' }, { id: 'e3', source: 'l', target: 'x', label: 'yes' }] },
+  { id: 'standard', name: 'Agent with approval', desc: 'Trigger → Agent → Human approval', triggerType: 'manual', nodes: [n('t', 'trigger', 'Start', 'Run with an input', 40, 160), n('a', 'agent', 'Agent', 'Pick an agent', 320, 160), n('h', 'human', 'Approval', 'Assign an approver', 600, 160)], edges: [{ id: 'e1', source: 't', target: 'a' }, { id: 'e2', source: 'a', target: 'h' }] },
+  { id: 'council', name: 'Council review', desc: 'Trigger → Council → Gatekeeper', triggerType: 'manual', nodes: [n('t', 'trigger', 'Start', 'Run with a case', 40, 160), n('c', 'council', 'Council', 'Pick a council', 320, 160), n('h', 'human', 'Gatekeeper', 'Final decision', 600, 160)], edges: [{ id: 'e1', source: 't', target: 'c' }, { id: 'e2', source: 'c', target: 'h' }] },
+  { id: 'blank', name: 'Blank', desc: 'Start from an empty canvas', triggerType: 'manual', nodes: [], edges: [] },
 ]
 
-export type Doc = { id: string; title: string; content: string; updatedAt: string; addedBy: string }
+export type Doc = { id: string; title: string; content: string; updatedAt: string; addedBy: string; source?: string }
 export type Library = { id: string; name: string; desc: string; docs: Doc[] }
 export const seedLibraries: Library[] = [
   { id: 'company', name: 'Company knowledge', desc: 'Policies, guides and reference material agents can cite', docs: [] },
-  { id: 'outputs', name: 'Agent outputs', desc: 'Documents agents save with the save_document tool', docs: [] },
+  { id: 'outputs', name: 'Agent outputs', desc: 'Documents agents and workflows save', docs: [] },
 ]
 
+export type CustomTool = { id: string; name: string; label: string; description: string; method: 'GET' | 'POST'; url: string; headers: string; body: string; params: { name: string; description: string }[]; createdBy: string }
+export type Notification = { id: string; at: string; title: string; body?: string; link?: string; read: boolean; kind: 'approval' | 'run' | 'schedule' | 'info' }
+export type SpendEntry = { userId: string; day: string; cost: number }
 export type AuditEvent = { id: string; at: string; actor: string; action: string; target: string; detail?: string }

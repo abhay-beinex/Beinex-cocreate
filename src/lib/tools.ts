@@ -1,9 +1,9 @@
-// Built-in tools. Read tools run directly in the browser; write tools are gated and only queue work for a person.
+// Built-in and custom tools. Read tools run in the browser; write tools are gated and only queue work for a person.
 import { OR_BASE } from './openrouter'
 import type { ToolDef } from './openrouter'
-import type { Library } from './data'
+import type { Library, CustomTool } from './data'
 
-export type ToolMeta = { name: string; label: string; desc: string; write: boolean; category: 'Web' | 'Reasoning' | 'Knowledge' | 'Actions' }
+export type ToolMeta = { name: string; label: string; desc: string; write: boolean; category: 'Web' | 'Reasoning' | 'Knowledge' | 'Actions' | 'Custom' }
 
 export const TOOLS: ToolMeta[] = [
   { name: 'web_search', label: 'Web search', desc: 'Search the live web and get results with sources', write: false, category: 'Web' },
@@ -17,6 +17,7 @@ export const TOOLS: ToolMeta[] = [
   { name: 'draft_email', label: 'Draft email', desc: 'Create an email draft for a person to send', write: true, category: 'Actions' },
   { name: 'request_approval', label: 'Request approval', desc: 'Ask a person to approve an action before it happens', write: true, category: 'Actions' },
 ]
+export const isWriteTool = (name: string) => TOOLS.find((t) => t.name === name)?.write ?? false
 
 const DEFS: Record<string, ToolDef> = {
   web_search: { type: 'function', function: { name: 'web_search', description: 'Search the live web. Returns a summary of findings with source URLs. Use specific queries.', parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } } },
@@ -30,12 +31,15 @@ const DEFS: Record<string, ToolDef> = {
   draft_email: { type: 'function', function: { name: 'draft_email', description: 'Create an email draft for a person to review and send. Never sends.', parameters: { type: 'object', properties: { to: { type: 'string' }, subject: { type: 'string' }, body: { type: 'string' } }, required: ['to', 'subject', 'body'] } } },
   request_approval: { type: 'function', function: { name: 'request_approval', description: 'Ask a person to approve an action before it is taken. Describe the action and why.', parameters: { type: 'object', properties: { action: { type: 'string' }, reason: { type: 'string' } }, required: ['action'] } } },
 }
-export const toolDefs = (names: string[]): ToolDef[] => names.map((n) => DEFS[n]).filter(Boolean)
+
+export const customToolDef = (t: CustomTool): ToolDef => ({ type: 'function', function: { name: t.name, description: t.description, parameters: { type: 'object', properties: Object.fromEntries(t.params.map((p) => [p.name, { type: 'string', description: p.description }])), required: t.params.map((p) => p.name) } } })
+export const toolDefs = (names: string[], custom: CustomTool[] = []): ToolDef[] => names.map((n) => DEFS[n] ?? (custom.find((c) => c.name === n) ? customToolDef(custom.find((c) => c.name === n)!) : undefined)).filter(Boolean) as ToolDef[]
 
 export type ToolContext = {
   key: string
-  model: string
+  models: { fast: string; reasoning: string }
   libraries: Library[]
+  custom?: CustomTool[]
   onGatedAction?: (a: { tool: string; args: Record<string, unknown> }) => void
   onSaveDocument?: (d: { title: string; content: string }) => void
 }
@@ -60,23 +64,34 @@ const sandbox = (code: string) => new Promise<string>((resolve) => {
   w.postMessage(code)
 })
 
+const fill = (tpl: string, args: Record<string, unknown>) => tpl.replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(String(args[k] ?? '')))
+
 export async function runTool(name: string, rawArgs: string, ctx: ToolContext): Promise<string> {
   let args: any = {}
   try { args = JSON.parse(rawArgs || '{}') } catch { /* ignore */ }
   try {
+    const custom = ctx.custom?.find((c) => c.name === name)
+    if (custom) {
+      const url = fill(custom.url, args)
+      let hdrs: Record<string, string> = {}
+      try { hdrs = custom.headers ? JSON.parse(custom.headers) : {} } catch { return 'Tool misconfigured: headers must be JSON.' }
+      const res = await fetch(url, { method: custom.method, headers: hdrs, body: custom.method === 'POST' ? custom.body.replace(/\{(\w+)\}/g, (_, k) => String(args[k] ?? '')) : undefined })
+      const text = await res.text()
+      return `HTTP ${res.status}\n${text.length > 12000 ? text.slice(0, 12000) + '\n…[truncated]' : text}`
+    }
     switch (name) {
       case 'web_search':
-        if (!ctx.key) return 'Web search needs an OpenRouter key.'
-        return await webAnswer(ctx, `Search the web for: ${args.query}\nReturn the most relevant findings as concise bullets with the source URL after each bullet. Include dates where relevant.`, 'anthropic/claude-haiku-5.5', 5, 900)
+        if (!ctx.key) return 'Web search is not available: model access is not configured.'
+        return await webAnswer(ctx, `Search the web for: ${args.query}\nReturn the most relevant findings as concise bullets with the source URL after each bullet. Include dates where relevant.`, ctx.models.fast, 5, 900)
       case 'deep_research':
-        if (!ctx.key) return 'Deep research needs an OpenRouter key.'
-        return await webAnswer(ctx, `Do thorough research on: ${args.topic}${args.focus ? `\nFocus: ${args.focus}` : ''}\nCover background, current state, key players, numbers, risks and open questions. Use several searches with different angles. Return a structured report with headings, concise bullets, and a source URL after each factual claim. Finish with a short list of the best sources.`, ctx.model, 10, 2500)
+        if (!ctx.key) return 'Deep research is not available: model access is not configured.'
+        return await webAnswer(ctx, `Do thorough research on: ${args.topic}${args.focus ? `\nFocus: ${args.focus}` : ''}\nCover background, current state, key players, numbers, risks and open questions. Use several searches with different angles. Return a structured report with headings, concise bullets, and a source URL after each factual claim. Finish with a short list of the best sources.`, ctx.models.reasoning, 10, 2500)
       case 'read_url': {
         const url = String(args.url ?? '').trim(); if (!/^https?:\/\//i.test(url)) return 'Provide a full http(s) URL.'
         const res = await fetch(`https://r.jina.ai/${url}`, { headers: { Accept: 'text/plain' } })
         if (!res.ok) return `Could not read the page (${res.status}).`
         const text = await res.text()
-        return text.length > 9000 ? text.slice(0, 9000) + '\n…[truncated]' : text
+        return text.length > 14000 ? text.slice(0, 14000) + '\n…[truncated]' : text
       }
       case 'calculate': {
         const expr = String(args.expression ?? '')

@@ -11,35 +11,25 @@ npm run dev
 
 Open http://localhost:5173.
 
-## Pilot accounts
+## Sign in
 
-Pick an account on the sign-in screen, or use the email with the password `cocreate`.
-
-| Account | Role | What they can do |
-| --- | --- | --- |
-| Mariam Khalid | Builder | Create agents, councils, workflows and knowledge |
-| Fatima Al Mansoori | Approver | Sign off on gated runs |
-| Omar Haddad | Security | Emergency pause, watchers, model access |
-| Dr. Faisal Al Nuaimi | Auditor | Read-only runs and audit log |
-| Pilot Admin | Admin | Users, keys and workspace settings |
+One demo account exists: `demo@beinex.com` / `cocreate` (admin). Add more users under Settings › Users; each gets an email, password and role (Builder, Approver, Security, Auditor, Admin).
 
 ## Models
 
-The platform calls OpenRouter directly from the browser. Add a key under Settings → OpenRouter, or put it in a `.env` file as `VITE_OPENROUTER_API_KEY=...` (see `.env.example`). The key is stored only in the browser's local storage and sent only to OpenRouter.
-
-Default model: `anthropic/claude-sonnet-5.5`. Profiles: Fast (Haiku 5.5), Balanced (Sonnet 5.5), Reasoning (Opus 5.5). Change them under Models.
+Models are served through OpenRouter behind the scenes; the UI never mentions it. Put the key in `.env` as `VITE_OPENROUTER_API_KEY=...` (see `.env.example`), or an admin pastes it under Settings › Model access. Users pick models per agent and under Models (Fast / Balanced / Reasoning profiles).
 
 ## What is in the pilot
 
-- Home: onboarding checklist, assistant prompt, items waiting for approval
-- Chat: the assistant and your agents, with live tool calls shown inline
-- Agents: create from a one-line description or a template; editor with instructions, AI refine, tools, knowledge, autonomy, watchers, MCP manifest and a live preview
-- Councils: members, deliberation mode, gatekeeper, simulated deliberation with synthesis
-- Workflows: canvas with seven bricks, copilot, step inspector, test runs that create Runs entries
-- Tools: web search, deep research, read web page, calculator, run JavaScript, date/time, knowledge search, save document, draft email (gated), request approval (gated)
-- Knowledge: libraries agents cite; agents can save documents back
-- Runs: runs, approvals with sign-off, immutable audit log
-- Models: Fast / Balanced / Reasoning profiles and the live OpenRouter catalog
-- Settings: OpenRouter, users and roles, governance, notifications, workspace
+- Chat: the assistant and your agents with live tool calls shown inline; gated actions go to Approvals
+- Agents: create from a one-line description or a template; editor with instructions, AI refine, tools (built-in and custom), knowledge, autonomy (enforced at runtime), version history with rollback, export/import, duplicate, live preview
+- Councils: members, deliberation mode, gatekeeper, simulated deliberation with synthesis; usable as a workflow step
+- Workflows: real engine. Trigger (manual with input, or schedule while the app is open), agent, council, condition (model-evaluated, yes/no branches), approval (pauses the run, resumes on approval), action (calls a tool), notify. Validation before publish; per-workflow run history
+- Tools: web search, deep research, read web page, calculator, JavaScript sandbox, date/time, knowledge search, save document, draft email (gated), request approval (gated), plus custom HTTP tools with a test console
+- Knowledge: libraries; add by pasting, uploading text files, or importing a URL
+- Runs: runs with step outputs and cost, approvals that resume workflows, audit log
+- Notifications: in-app bell for approvals, finished runs and schedules
+- Governance: pause all schedules; daily spend caps per user and workspace enforced from real usage
+- Settings: model access (admin), users with passwords and roles, workspace export/import/reset
 
-The workspace starts empty. All data lives in the browser (local storage). Settings → Workspace → Reset clears it.
+The workspace starts empty. All data lives in the browser (local storage).

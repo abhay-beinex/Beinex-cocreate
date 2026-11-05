@@ -11,7 +11,7 @@ const ASSISTANT: AgentLike = {
   id: 'assistant', name: `${BRAND.name} Assistant`, description: 'General assistant with web search, research, code and your knowledge',
   instructions: `You are the ${BRAND.full} assistant. Use the tools to answer with real information: search the web for anything current, read pages when a URL is given, calculate exactly, and run JavaScript for data work. Cite sources as links. Be concise and use markdown sparingly. ${GOVERNED}`,
   model: '', tools: ['web_search', 'deep_research', 'read_url', 'calculate', 'run_javascript', 'current_datetime', 'search_knowledge', 'save_document', 'draft_email', 'request_approval'], knowledge: ['company'],
-  samplePrompts: ['What happened in AI this week?', 'Read https://openrouter.ai/docs/quickstart and summarise it', 'Compound 1.2M at 18% for 4 years'],
+  samplePrompts: ['What happened in AI this week?', 'Read https://en.wikipedia.org/wiki/Dubai and summarise it in 3 bullets', 'Compound 1.2M at 18% for 4 years'],
 }
 
 export default function Chat() {

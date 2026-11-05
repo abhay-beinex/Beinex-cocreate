@@ -25,7 +25,7 @@ export default function Models() {
 
   return (
     <Page className="max-w-[1080px] mx-auto pt-8 pb-16 px-4">
-      <PageHeader title="Models" subtitle="Model profiles for your workspace, backed by the live OpenRouter catalog." actions={<Button onClick={refresh} disabled={loading}><RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh</Button>} />
+      <PageHeader title="Models" subtitle="Choose which models the workspace uses. Profiles are used by tools, conditions and councils." actions={<Button onClick={refresh} disabled={loading}><RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh</Button>} />
       <Stagger className="grid md:grid-cols-3 gap-4 mb-8" delay={0.08}>
         {MODEL_PROFILES.map((p) => {
           const cur = profiles.find((x) => x.id === p.id)?.model ?? p.model
@@ -46,7 +46,7 @@ export default function Models() {
         <Segmented value={cap} onChange={setCap} items={[{ id: 'all', label: 'All' }, { id: 'tools', label: 'Tool calling' }, { id: 'vision', label: 'Vision' }]} />
         <span className="text-[12.5px] muted ml-auto">{models.length ? `${models.length} models · default is used by new agents and the assistant` : ''}</span>
       </div>
-      {err && <div className="text-[13px] text-[var(--danger)] mb-4">{err}. <button className="underline" onClick={() => nav('/settings?tab=openrouter')}>Check your key</button></div>}
+      {err && <div className="text-[13px] text-[var(--danger)] mb-4">{err}. <button className="underline" onClick={() => nav('/settings?tab=models')}>Check model access</button></div>}
       <div className="clay px-3 py-1">
         <div className="row text-[11px] font-semibold uppercase tracking-wider muted !py-2"><span className="flex-1">Model</span><span className="w-[180px]">Capabilities</span><span className="w-[80px] text-right">Context</span><span className="w-[90px] text-right">Prompt</span><span className="w-[90px] text-right">Output</span><span className="w-[110px]" /></div>
         {!models.length && <div className="py-10 text-center muted text-[13px]">{loading ? 'Loading…' : 'No models loaded.'}</div>}

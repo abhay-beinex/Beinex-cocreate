@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Plus, Sparkles, Users, Play, Trash2, Workflow as WorkflowIcon, Check, Wand2 } from 'lucide-react'
-import { useApp, useUser } from '@/store/app'
+import { useApp, useUser, profileModels } from '@/store/app'
 import { agentTemplates, councilTemplates, roleLabel, GOVERNED, type Agent, type Council } from '@/lib/data'
 import { runAgentTurn } from '@/lib/agentRun'
 import { streamChat } from '@/lib/openrouter'
@@ -15,7 +15,8 @@ export default function Agents() {
   const nav = useNavigate()
   const [params, setParams] = useSearchParams()
   const user = useUser()!
-  const { agents, councils, users, upsertAgent, upsertCouncil, deleteCouncil, defaultModel, profiles, apiKey } = useApp()
+  const store = useApp()
+  const { agents, councils, users, upsertAgent, upsertCouncil, deleteCouncil, defaultModel, profiles, apiKey, customTools } = store
   const [tab, setTab] = useState<'agents' | 'councils'>((params.get('tab') as 'councils') === 'councils' ? 'councils' : 'agents')
   const [q, setQ] = useState('')
   const [status, setStatus] = useState<'all' | 'live' | 'draft'>('all')
@@ -33,25 +34,25 @@ export default function Agents() {
 
   const newId = () => `agent-${Date.now().toString(36)}`
   const createFromTemplate = (t?: typeof agentTemplates[number]) => {
-    const a: Agent = { id: newId(), name: t?.name ?? 'New agent', description: t?.description ?? '', instructions: t?.instructions ?? `You are a helpful assistant. ${GOVERNED}`, model: t?.model ?? defaultModel, tools: t?.tools ?? [], knowledge: t?.tools.includes('search_knowledge') ? ['company'] : [], autonomy: 1, status: 'draft', version: 1, samplePrompts: t?.samplePrompts ?? [], watchers: [], updatedAt: new Date().toISOString().slice(0, 10), createdBy: user.id }
+    const a: Agent = { id: newId(), name: t?.name ?? 'New agent', description: t?.description ?? '', instructions: t?.instructions ?? `You are a helpful assistant. ${GOVERNED}`, model: t?.model ?? defaultModel, tools: t?.tools ?? [], knowledge: t?.tools.includes('search_knowledge') ? ['company'] : [], autonomy: 2, status: 'draft', version: 1, samplePrompts: t?.samplePrompts ?? [], updatedAt: new Date().toISOString().slice(0, 10), createdBy: user.id }
     upsertAgent(a); setCreating(false); nav(`/agents/${a.id}`)
   }
   const generate = async () => {
     const text = desc.trim(); if (!text) return
     if (!apiKey) { createFromTemplate(); return }
     setGenerating(true)
-    const sys = `You design AI agents for a governed enterprise platform. Available tools: ${TOOLS.map((t) => `${t.name} (${t.desc})`).join('; ')}. Given a description, reply ONLY with JSON: {"name": "...", "description": "one line", "instructions": "a complete system prompt in second person, 80-200 words, ending with: ${GOVERNED}", "tools": ["tool_name", ...], "samplePrompts": ["...", "...", "..."]}. Choose only tools that are needed.`
+    const sys = `You design AI agents for a governed enterprise platform. Available tools: ${[...TOOLS.map((t) => `${t.name} (${t.desc})`), ...customTools.map((t) => `${t.name} (${t.description})`)].join('; ')}. Given a description, reply ONLY with JSON: {"name": "...", "description": "one line", "instructions": "a complete system prompt in second person, 80-200 words, ending with: ${GOVERNED}", "tools": ["tool_name", ...], "samplePrompts": ["...", "...", "..."]}. Choose only tools that are needed.`
     let acc = ''
     for await (const ev of streamChat({ key: apiKey, model: defaultModel, messages: [{ role: 'system', content: sys }, { role: 'user', content: text }], temperature: 0.3 })) if (ev.type === 'delta') acc += ev.text
     try {
       const j = JSON.parse(acc.replace(/^```json?|```$/g, '').trim())
-      const tools = (j.tools ?? []).filter((t: string) => TOOLS.some((x) => x.name === t))
+      const tools = (j.tools ?? []).filter((t: string) => TOOLS.some((x) => x.name === t) || customTools.some((x) => x.name === t))
       createFromTemplate({ id: 'gen', name: j.name ?? 'New agent', description: j.description ?? '', instructions: j.instructions ?? '', tools, samplePrompts: j.samplePrompts ?? [], model: defaultModel })
     } catch { createFromTemplate({ id: 'gen', name: 'New agent', description: text.slice(0, 80), instructions: `${text}\n\n${GOVERNED}`, tools: ['web_search', 'search_knowledge'], samplePrompts: [], model: defaultModel }) }
     setGenerating(false)
   }
   const createCouncil = (t?: typeof councilTemplates[number]) => {
-    const c: Council = { id: `council-${Date.now().toString(36)}`, status: 'draft', name: t?.name ?? 'New council', description: t?.description ?? '', members: agents.slice(0, 3).map((a) => a.id), mode: t?.mode ?? 'consensus', gatekeeper: t?.gatekeeper ?? 'fatima', model: t?.model ?? profiles.find((p) => p.id === 'reasoning')?.model ?? defaultModel }
+    const c: Council = { id: `council-${Date.now().toString(36)}`, status: 'draft', name: t?.name ?? 'New council', description: t?.description ?? '', members: agents.slice(0, 3).map((a) => a.id), mode: t?.mode ?? 'consensus', gatekeeper: users.find((u) => u.role === 'approver' || u.role === 'admin')?.id ?? user.id, model: t?.model ?? profiles.find((p) => p.id === 'reasoning')?.model ?? defaultModel }
     upsertCouncil(c); setTemplates(false); setOpen(c)
   }
 
@@ -113,7 +114,7 @@ export default function Agents() {
             <div className="text-[12px] font-semibold mb-1.5 flex items-center gap-1.5"><Wand2 size={13} className="accent-ink" /> Describe what it should do</div>
             <Textarea rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="e.g. An agent that monitors our competitors' pricing pages weekly and drafts a short update for the sales team" />
             <div className="flex items-center justify-between mt-2">
-              <span className="text-[11.5px] muted">{apiKey ? 'The model writes the instructions and picks the tools. You can edit everything after.' : 'Connect an OpenRouter key to generate from a description.'}</span>
+              <span className="text-[11.5px] muted">{apiKey ? 'The model writes the instructions and picks the tools. You can edit everything after.' : 'Model access is not configured; a blank agent is created instead.'}</span>
               <Button variant="primary" size="sm" onClick={generate} disabled={!desc.trim() || generating}>{generating ? 'Designing…' : 'Create'}</Button>
             </div>
           </div>
@@ -144,7 +145,8 @@ export default function Agents() {
 
 function CouncilDrawer({ council, onClose, onDelete }: { council: Council | null; onClose: () => void; onDelete: (id: string) => void }) {
   const nav = useNavigate()
-  const { agents, users, upsertCouncil, apiKey, libraries, models } = useApp()
+  const store = useApp()
+  const { agents, users, upsertCouncil, apiKey, libraries, models, customTools } = store
   const [draft, setDraft] = useState<Council | null>(council)
   const [tab, setTab] = useState<'setup' | 'simulate'>('setup')
   const [caseText, setCaseText] = useState('Proposal: move our customer support knowledge base to a new vendor next quarter. Budget 40,000, migration in 6 weeks, two engineers.')
@@ -157,13 +159,13 @@ function CouncilDrawer({ council, onClose, onDelete }: { council: Council | null
   const dirty = JSON.stringify(draft) !== JSON.stringify(council)
 
   const simulate = async () => {
-    if (!apiKey) { setSynthesis('Connect an OpenRouter key in Settings to simulate.'); return }
+    if (!apiKey) { setSynthesis('Model access is not configured.'); return }
     setBusy(true); setFindings([]); setSynthesis('')
     const out: { agent: string; text: string }[] = []
     for (const id of draft.members) {
       const a = agents.find((x) => x.id === id); if (!a) continue
       let text = ''
-      for await (const ev of runAgentTurn({ key: apiKey, model: a.model, instructions: a.instructions + '\n\nYou are a member of a council. Give your findings on the case in under 120 words, with a clear position (Approve / Reject / Need more info). Use tools if they help.', tools: a.tools, libraries: libraries.filter((l) => a.knowledge.includes(l.id)), history: [{ role: 'user', content: caseText }], maxRounds: 4 })) {
+      for await (const ev of runAgentTurn({ key: apiKey, model: a.model, models: profileModels(store), custom: customTools, autonomy: 1, instructions: a.instructions + '\n\nYou are a member of a council. Give your findings on the case in under 120 words, with a clear position (Approve / Reject / Need more info). Use tools if they help.', tools: a.tools, libraries: libraries.filter((l) => a.knowledge.includes(l.id)), history: [{ role: 'user', content: caseText }], maxRounds: 4 })) {
         if (ev.type === 'text') { text += ev.text; setFindings([...out, { agent: a.name, text }]) }
       }
       out.push({ agent: a.name, text }); setFindings([...out])
@@ -172,6 +174,7 @@ function CouncilDrawer({ council, onClose, onDelete }: { council: Council | null
     let syn = ''
     for await (const ev of streamChat({ key: apiKey, model: draft.model, messages: [{ role: 'system', content: `You synthesise a council's findings into one recommendation for the human gatekeeper. ${modeHint} Output: Recommendation (one line), Confidence (0-100%), Key reasons (3 bullets), Dissent (if any). Under 150 words.` }, { role: 'user', content: `Case: ${caseText}\n\n${out.map((f) => `${f.agent}:\n${f.text}`).join('\n\n')}` }] })) {
       if (ev.type === 'delta') { syn += ev.text; setSynthesis(syn) }
+      if (ev.type === 'usage') store.recordSpend(ev.usage.cost ?? 0)
       if (ev.type === 'error') setSynthesis(`Error: ${ev.message}`)
     }
     setBusy(false)

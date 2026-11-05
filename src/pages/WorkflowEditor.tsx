@@ -3,21 +3,21 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ReactFlow, Background, Controls, addEdge, useNodesState, useEdgesState, Handle, Position, type Node, type Edge, type Connection, type NodeProps, BackgroundVariant } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { Md } from '@/components/Md'
-import { ArrowLeft, Zap, Sparkles, Users, GitFork, UserCheck, Wrench, Bell, ArrowUp, Play, Trash2, X, Check, Pause } from 'lucide-react'
+import { ArrowLeft, Zap, Sparkles, Users, GitFork, UserCheck, Wrench, Bell, ArrowUp, Play, Trash2, X, Check, Pause, Clock, ListChecks, AlertTriangle } from 'lucide-react'
 import { useApp, useUser, can } from '@/store/app'
-import { workflowTemplates, type Brick, type StepData, type Workflow, type Run, type RunStep } from '@/lib/data'
+import { workflowTemplates, roleLabel, type Brick, type StepData, type Workflow, type Schedule } from '@/lib/data'
 import { streamChat } from '@/lib/openrouter'
-import { runAgentTurn } from '@/lib/agentRun'
+import { TOOLS } from '@/lib/tools'
+import { startRun } from '@/lib/runner'
 import { Button, Chip, Field, Input, Select, Segmented, Textarea, Tile, cx } from '@/components/ui'
 import { Page } from '@/components/motion'
+import { Md } from '@/components/Md'
 
 const bricks: { id: Brick; label: string; icon: typeof Zap; color: string }[] = [
   { id: 'trigger', label: 'Trigger', icon: Zap, color: '#64748b' }, { id: 'agent', label: 'Agent', icon: Sparkles, color: '#0ea5e9' }, { id: 'council', label: 'Council', icon: Users, color: '#6366f1' },
   { id: 'logic', label: 'Condition', icon: GitFork, color: '#8b5cf6' }, { id: 'human', label: 'Approval', icon: UserCheck, color: '#f59e0b' }, { id: 'tool', label: 'Action', icon: Wrench, color: '#10b981' }, { id: 'notify', label: 'Notify', icon: Bell, color: '#ec4899' },
 ]
 const brickOf = (b: Brick) => bricks.find((x) => x.id === b)!
-const DEFAULT_STEP_TOOLS = ['web_search', 'read_url', 'calculate', 'run_javascript', 'current_datetime', 'search_knowledge', 'save_document']
 type StepNode = Node<StepData, 'step'>
 
 function StepNodeView({ data, selected }: NodeProps<StepNode>) {
@@ -39,135 +39,99 @@ export default function WorkflowEditor() {
   const [params] = useSearchParams()
   const nav = useNavigate()
   const user = useUser()!
-  const { workflows, agents, councils, upsertWorkflow, deleteWorkflow, addRun, apiKey, defaultModel, models, libraries, users } = useApp()
+  const { workflows, agents, councils, upsertWorkflow, deleteWorkflow, runs, apiKey, defaultModel, models, users, customTools } = useApp()
   const isNew = workflowId === 'new'
   const stored = workflows.find((w) => w.id === workflowId)
   const template = workflowTemplates.find((t) => t.id === (params.get('template') ?? 'standard')) ?? workflowTemplates[0]
-  const base = useMemo<Workflow>(() => stored ?? { id: `wf-${Date.now().toString(36)}`, name: 'New workflow', description: '', status: 'draft', version: 1, trigger: template.trigger, autonomy: 2, nodes: template.nodes.map((n) => ({ ...n, data: { ...n.data, ...(n.data.brick === 'council' && params.get('council') ? { councilId: params.get('council')!, label: councils.find((c) => c.id === params.get('council'))?.name ?? n.data.label } : {}) } })), edges: template.edges, runsWeek: 0, straightThrough: 0, updatedAt: '', createdBy: user.id }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const base = useMemo<Workflow>(() => stored ?? { id: `wf-${Date.now().toString(36)}`, name: template.id === 'blank' ? 'New workflow' : template.name, description: template.desc, status: 'draft', version: 1, triggerType: template.triggerType, schedule: template.schedule, autonomy: 2, nodes: template.nodes.map((n) => ({ ...n, data: { ...n.data, ...(n.data.brick === 'council' && params.get('council') ? { councilId: params.get('council')!, label: councils.find((c) => c.id === params.get('council'))?.name ?? n.data.label } : {}), ...(n.data.brick === 'human' ? { approver: users.find((u) => can(u, 'approve'))?.id } : {}) } })), edges: template.edges, updatedAt: '', createdBy: user.id }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const [nodes, setNodes, onNodesChange] = useNodesState<StepNode>(base.nodes as StepNode[])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(base.edges)
-  const [meta, setMeta] = useState({ name: base.name, description: base.description, trigger: base.trigger, autonomy: base.autonomy, status: base.status, version: base.version })
+  const [meta, setMeta] = useState({ name: base.name, description: base.description, triggerType: base.triggerType, schedule: base.schedule ?? { every: 'day', at: '08:00', input: '' } as Schedule, autonomy: base.autonomy, status: base.status, version: base.version })
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [tab, setTab] = useState<'configure' | 'advanced'>('configure')
-  const [copilot, setCopilot] = useState<{ open: boolean; input: string; note: string }>({ open: false, input: '', note: '' })
-  const [test, setTest] = useState<{ open: boolean; input: string; running: boolean; active: number; log: RunStep[] }>({ open: false, input: 'Research the current state of enterprise AI agent platforms and summarise the top three trends.', running: false, active: -1, log: [] })
+  const [panel, setPanel] = useState<'none' | 'run' | 'trigger' | 'runs'>('none')
+  const [copilot, setCopilot] = useState({ open: false, input: '', note: '' })
+  const [runInput, setRunInput] = useState(base.schedule?.input || '')
+  const [running, setRunning] = useState<string | null>(null)
   const editable = can(user, 'build')
+  const approvers = users.filter((u) => can(u, 'approve'))
 
   const selected = useMemo(() => nodes.find((n) => n.id === selectedId), [nodes, selectedId])
   const onConnect = useCallback((c: Connection) => setEdges((e) => addEdge({ ...c, id: `e${Date.now()}` }, e)), [setEdges])
   useEffect(() => { const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setSelectedId(null); setCopilot((c) => ({ ...c, open: false })) } }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey) }, [])
 
-  const order = useMemo(() => {
-    const out: StepNode[] = []; const seen = new Set<string>()
-    const start = nodes.find((n) => !edges.some((e) => e.target === n.id)) ?? nodes[0]
-    const walk = (n?: StepNode) => { if (!n || seen.has(n.id)) return; seen.add(n.id); out.push(n); edges.filter((e) => e.source === n.id).forEach((e) => walk(nodes.find((x) => x.id === e.target))) }
-    walk(start); nodes.forEach((n) => walk(n)); return out
+  const current = (): Workflow => ({ ...base, ...meta, schedule: meta.triggerType === 'schedule' ? meta.schedule : undefined, nodes: nodes.map((n) => ({ id: n.id, type: 'step', position: n.position, data: n.data })), edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target, label: typeof e.label === 'string' ? e.label : undefined })), updatedAt: new Date().toISOString().slice(0, 10) })
+  const dirty = JSON.stringify({ ...current(), updatedAt: '', version: 0, lastRunAt: 0 }) !== JSON.stringify({ ...(stored ?? base), updatedAt: '', version: 0, lastRunAt: 0 })
+  const problems = useMemo(() => {
+    const out: string[] = []
+    if (nodes.length === 0) out.push('Add at least one step.')
+    if (!nodes.some((n) => n.data.brick === 'trigger')) out.push('Add a Trigger step so the workflow has a start.')
+    nodes.forEach((n) => { if (n.data.brick === 'agent' && !n.data.agentId && !n.data.prompt) out.push(`"${n.data.label}": pick an agent or write step instructions.`); if (n.data.brick === 'council' && !n.data.councilId) out.push(`"${n.data.label}": pick a council.`); if (n.data.brick === 'human' && !n.data.approver) out.push(`"${n.data.label}": choose an approver.`); if (n.data.brick === 'logic' && !edges.some((e) => e.source === n.id && String(e.label ?? '').toLowerCase().startsWith('yes'))) out.push(`"${n.data.label}": connect a "yes" branch (label an edge yes/no by clicking it).`) })
+    const orphan = nodes.filter((n) => n.data.brick !== 'trigger' && !edges.some((e) => e.target === n.id)); if (orphan.length) out.push(`Not connected: ${orphan.map((n) => n.data.label).join(', ')}.`)
+    return out
   }, [nodes, edges])
 
-  const addBrick = (b: Brick, label?: string, sub?: string) => {
-    const last = order[order.length - 1]
-    const n: StepNode = { id: uid(), type: 'step', position: { x: last ? last.position.x + 280 : 40, y: last ? last.position.y : 160 }, data: { brick: b, label: label ?? brickOf(b).label, sub: sub ?? '', retries: 1, timeout: 60, costCap: 0.05, model: defaultModel } }
-    setNodes((ns) => [...ns, n]); if (last) setEdges((es) => [...es, { id: `e${Date.now()}`, source: last.id, target: n.id }]); setSelectedId(n.id)
+  const addBrick = (b: Brick, label?: string, sub?: string, extra: Partial<StepData> = {}) => {
+    const last = nodes[nodes.length - 1]
+    const n: StepNode = { id: uid(), type: 'step', position: { x: last ? last.position.x + 280 : 40, y: last ? last.position.y : 160 }, data: { brick: b, label: label ?? brickOf(b).label, sub: sub ?? '', retries: 1, timeout: 60, costCap: 0.05, model: defaultModel, ...(b === 'human' ? { approver: approvers[0]?.id } : {}), ...(b === 'tool' ? { tool: 'save_document' } : {}), ...extra } }
+    setNodes((ns) => [...ns, n]); if (last) setEdges((es) => [...es, { id: `e${Date.now()}`, source: last.id, target: n.id }]); setSelectedId(n.id); setPanel('none')
   }
   const patch = (p: Partial<StepData>) => selected && setNodes((ns) => ns.map((n) => (n.id === selected.id ? { ...n, data: { ...n.data, ...p } } : n)))
   const removeSelected = () => { if (!selected) return; setNodes((ns) => ns.filter((n) => n.id !== selected.id)); setEdges((es) => es.filter((e) => e.source !== selected.id && e.target !== selected.id)); setSelectedId(null) }
-
   const persist = (status?: Workflow['status']) => {
-    const w: Workflow = { ...base, ...meta, status: status ?? meta.status, version: stored ? meta.version + 1 : 1, nodes: nodes.map((n) => ({ id: n.id, type: 'step', position: n.position, data: n.data })), edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target, label: typeof e.label === 'string' ? e.label : undefined })), updatedAt: new Date().toISOString().slice(0, 10) }
+    const w: Workflow = { ...current(), status: status ?? meta.status, version: stored ? meta.version + 1 : 1 }
     upsertWorkflow(w); setMeta((m) => ({ ...m, status: w.status, version: w.version })); if (isNew) nav(`/workflows/${w.id}`, { replace: true })
+    return w
   }
-
-  const runTest = async () => {
-    setTest((t) => ({ ...t, running: true, log: [], active: 0 }))
-    const log: RunStep[] = []
-    let context = test.input
-    const t0 = Date.now()
-    for (let i = 0; i < order.length; i++) {
-      const n = order[i]; setTest((t) => ({ ...t, active: i }))
-      const s0 = Date.now()
-      let step: RunStep = { name: n.data.label, ms: 0, status: 'ok' }
-      if ((n.data.brick === 'agent' || n.data.brick === 'council') && apiKey) {
-        const a = agents.find((x) => x.id === n.data.agentId)
-        const instr = a?.instructions ?? n.data.prompt ?? 'Process the input and summarise the result in under 80 words.'
-        let out = ''
-        try {
-          for await (const ev of runAgentTurn({ key: apiKey, model: a?.model ?? n.data.model ?? defaultModel, instructions: instr + (n.data.prompt ? `\n\nStep instructions: ${n.data.prompt}` : '') + '\n\nBe brief (under 100 words).', tools: a?.tools ?? DEFAULT_STEP_TOOLS, libraries: libraries.filter((l) => (a ? a.knowledge.includes(l.id) : l.id === 'company')), history: [{ role: 'user', content: context }], maxRounds: 4 })) {
-            if (ev.type === 'text') { out += ev.text; setTest((t) => ({ ...t, log: [...log, { ...step, output: out }] })) }
-            if (ev.type === 'error') { out += `Error: ${ev.message}`; step.status = 'failed' }
-          }
-        } catch (e: any) { out += `Error: ${e.message}`; step.status = 'failed' }
-        context = `${context}\n\nResult of "${n.data.label}": ${out}`
-        step = { ...step, model: (a?.model ?? n.data.model ?? '').split('/')[1], output: out, tokens: Math.round(out.length / 3.5) + 400 }
-      } else if (n.data.brick === 'agent' || n.data.brick === 'council') {
-        await new Promise((r) => setTimeout(r, 400)); step = { ...step, status: 'skipped', output: 'Skipped: connect an OpenRouter key in Settings to run agent steps.' }
-      } else if (n.data.brick === 'human') {
-        step = { ...step, status: 'waiting', output: 'Waiting for a human approver. The test run stops here; the run is queued under Runs › Approvals.' }
-        step.ms = Date.now() - s0; log.push(step); setTest((t) => ({ ...t, log: [...log] })); break
-      } else if (n.data.brick === 'logic') {
-        await new Promise((r) => setTimeout(r, 400)); step.output = `Condition "${n.data.sub || n.data.label}" evaluated on the current context.`
-      } else if (n.data.brick === 'tool') {
-        await new Promise((r) => setTimeout(r, 500)); step.output = 'External action simulated. In a live run this executes only after approval.'
-      } else { await new Promise((r) => setTimeout(r, 350)); step.output = n.data.brick === 'trigger' ? `Triggered with: ${test.input.slice(0, 120)}` : 'Notification sent to Teams and the audit log sealed.' }
-      step.ms = Date.now() - s0; log.push(step); setTest((t) => ({ ...t, log: [...log] }))
-    }
-    const waiting = log.some((s) => s.status === 'waiting'); const failed = log.some((s) => s.status === 'failed')
-    const run: Run = { id: `R-${1300 + Math.floor(Math.random() * 600)}`, workflowId: base.id, workflow: meta.name, trigger: 'Test run · manual', status: waiting ? 'waiting' : failed ? 'failed' : 'completed', started: new Date().toISOString().slice(0, 16).replace('T', ' '), duration: `${Math.round((Date.now() - t0) / 1000)}s`, cost: Math.round(log.reduce((a, s) => a + (s.tokens ?? 0), 0) * 0.000004 * 1000) / 1000, steps: log, summary: test.input.slice(0, 90) }
-    addRun(run); setTest((t) => ({ ...t, running: false, active: -1 }))
+  const run = async () => {
+    if (!runInput.trim()) return
+    const w = dirty || isNew ? persist() : (stored ?? current())
+    setRunning('starting'); setPanel('runs')
+    const r = await startRun(w, runInput.trim(), 'Manual · editor')
+    setRunning(null); setSelectedId(null); nav(`/runs?open=${r.id}`)
   }
-
   const runCopilot = async () => {
-    const text = copilot.input.trim(); if (!text) return
-    if (!apiKey) { setCopilot((c) => ({ ...c, note: 'Connect an OpenRouter key in Settings to use the copilot.' })); return }
+    const text = copilot.input.trim(); if (!text || !apiKey) return
     setCopilot((c) => ({ ...c, input: '', note: 'Thinking…' }))
     let acc = ''
-    for await (const ev of streamChat({ key: apiKey, model: defaultModel, messages: [{ role: 'system', content: `You help build a governed workflow. Current steps in order: ${order.map((n) => `${n.data.brick}:${n.data.label}`).join(' -> ') || 'none'}. Bricks: trigger, agent, council, logic, human, tool, notify. Available agents: ${agents.map((a) => `${a.id} (${a.name})`).join(', ')}. Reply ONLY with JSON: {"add":[{"brick":"...","label":"...","sub":"...","agentId":"optional"}],"note":"one sentence"}.` }, { role: 'user', content: text }], temperature: 0.2 })) if (ev.type === 'delta') acc += ev.text
-    try {
-      const j = JSON.parse(acc.replace(/^```json?|```$/g, '').trim())
-      for (const a of j.add ?? []) if (bricks.some((b) => b.id === a.brick)) { addBrick(a.brick, a.label, a.sub); await new Promise((r) => setTimeout(r, 20)); if (a.agentId) setNodes((ns) => ns.map((n, i) => (i === ns.length - 1 ? { ...n, data: { ...n.data, agentId: a.agentId } } : n))) }
-      setCopilot((c) => ({ ...c, note: j.note ?? 'Done.' }))
-    } catch { setCopilot((c) => ({ ...c, note: 'Could not parse the reply. Try rephrasing.' })) }
+    for await (const ev of streamChat({ key: apiKey, model: defaultModel, messages: [{ role: 'system', content: `You help build a workflow. Current steps in order: ${nodes.map((n) => `${n.data.brick}:${n.data.label}`).join(' -> ') || 'none'}. Bricks: trigger, agent, council, logic (condition, label edges yes/no), human (approval), tool (action: one of ${TOOLS.map((t) => t.name).join(', ')}), notify. Available agents: ${agents.map((a) => `${a.id} (${a.name})`).join(', ') || 'none'}. Reply ONLY with JSON: {"add":[{"brick":"...","label":"...","sub":"...","prompt":"optional step instructions","agentId":"optional","tool":"optional"}],"note":"one sentence"}.` }, { role: 'user', content: text }], temperature: 0.2 })) if (ev.type === 'delta') acc += ev.text
+    try { const j = JSON.parse(acc.replace(/^```json?|```$/g, '').trim()); for (const a of j.add ?? []) if (bricks.some((b) => b.id === a.brick)) { addBrick(a.brick, a.label, a.sub, { prompt: a.prompt, agentId: a.agentId, tool: a.tool }); await new Promise((r) => setTimeout(r, 20)) } setCopilot((c) => ({ ...c, note: j.note ?? 'Done.' })) }
+    catch { setCopilot((c) => ({ ...c, note: 'Could not parse the reply. Try rephrasing.' })) }
   }
-
-  const activeId = test.active >= 0 ? order[test.active]?.id : null
+  const wfRuns = runs.filter((r) => r.workflowId === base.id)
 
   return (
     <Page className="h-full flex flex-col gap-3">
       <header className="clay h-14 px-3 flex items-center gap-2 shrink-0">
         <button onClick={() => nav('/workflows')} className="btn btn-ghost btn-icon"><ArrowLeft size={16} /></button>
-        <input value={meta.name} onChange={(e) => setMeta({ ...meta, name: e.target.value })} disabled={!editable} className="font-semibold text-[14px] bg-transparent outline-0 w-[260px]" />
+        <input value={meta.name} onChange={(e) => setMeta({ ...meta, name: e.target.value })} disabled={!editable} className="font-semibold text-[14px] bg-transparent outline-0 w-[240px]" />
         <Chip tone={meta.status === 'live' ? 'ok' : meta.status === 'paused' ? 'warn' : undefined}>{meta.status === 'live' ? 'Live' : meta.status === 'paused' ? 'Paused' : 'Draft'} · v{meta.version}</Chip>
+        {dirty && <span className="text-[12px] muted">Unsaved</span>}
         <div className="flex-1" />
-        <Segmented value={String(meta.autonomy) as '1' | '2' | '3'} onChange={(v) => setMeta({ ...meta, autonomy: Number(v) as 1 | 2 | 3 })} items={[{ id: '1', label: 'Suggest' }, { id: '2', label: 'Approve then act' }, { id: '3', label: 'Act within limits' }]} />
-        <Button onClick={() => setTest((t) => ({ ...t, open: !t.open }))}><Play size={13} /> Test</Button>
+        <button onClick={() => { setPanel(panel === 'trigger' ? 'none' : 'trigger'); setSelectedId(null) }} className={cx('chip !h-8 hover:text-[var(--text)]', panel === 'trigger' && 'chip-accent')}>{meta.triggerType === 'schedule' ? <Clock size={12} /> : <Zap size={12} />} {meta.triggerType === 'schedule' ? `Every ${meta.schedule.every} at ${meta.schedule.at}` : 'Manual trigger'}</button>
+        <button onClick={() => { setPanel(panel === 'runs' ? 'none' : 'runs'); setSelectedId(null) }} className={cx('chip !h-8 hover:text-[var(--text)]', panel === 'runs' && 'chip-accent')}><ListChecks size={12} /> {wfRuns.length} runs</button>
         {stored && editable && <button title="Delete workflow" onClick={() => { if (confirm('Delete this workflow?')) { deleteWorkflow(stored.id); nav('/workflows') } }} className="btn btn-ghost btn-icon"><Trash2 size={15} /></button>}
-        {editable && <Button onClick={() => persist()}><Check size={13} /> Save</Button>}
-        {editable && (meta.status === 'live' ? <Button onClick={() => persist('paused')}><Pause size={13} /> Pause</Button> : <Button variant="primary" onClick={() => persist('live')}>Publish</Button>)}
+        {editable && <Button onClick={() => persist()} disabled={!dirty && !isNew}><Check size={13} /> Save</Button>}
+        <Button variant="primary" onClick={() => { setPanel(panel === 'run' ? 'none' : 'run'); setSelectedId(null) }} disabled={problems.length > 0} title={problems[0]}><Play size={13} /> Run</Button>
+        {editable && (meta.status === 'live' ? <Button onClick={() => persist('paused')}><Pause size={13} /> Pause</Button> : <Button onClick={() => persist('live')} disabled={problems.length > 0} title={problems[0]}>Publish</Button>)}
       </header>
 
       <div className="flex-1 min-h-0 clay relative overflow-hidden">
-        <ReactFlow nodes={nodes.map((n) => ({ ...n, selected: n.id === selectedId, className: n.id === activeId ? 'animate-pulse' : '' }))}
-          edges={edges.map((e) => ({ ...e, animated: test.running, labelStyle: { fill: 'var(--muted)', fontSize: 10, fontWeight: 600 }, labelBgStyle: { fill: 'var(--surface)' } }))}
-          onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, n) => setSelectedId(n.id)} onPaneClick={() => setSelectedId(null)}
-          nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.3, maxZoom: 1 }} proOptions={{ hideAttribution: true }} nodesDraggable={editable} nodesConnectable={editable}>
+        <ReactFlow nodes={nodes.map((n) => ({ ...n, selected: n.id === selectedId }))} edges={edges.map((e) => ({ ...e, animated: !!running, labelStyle: { fill: 'var(--muted)', fontSize: 10, fontWeight: 600 }, labelBgStyle: { fill: 'var(--surface)' } }))}
+          onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, n) => { setSelectedId(n.id); setPanel('none') }} onPaneClick={() => setSelectedId(null)}
+          onEdgeClick={(_, e) => { if (!editable) return; const l = prompt('Edge label (yes / no, or blank):', typeof e.label === 'string' ? e.label : ''); if (l !== null) setEdges((es) => es.map((x) => (x.id === e.id ? { ...x, label: l.trim() || undefined } : x))) }}
+          nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.3, maxZoom: 1 }} proOptions={{ hideAttribution: true }} nodesDraggable={editable} nodesConnectable={editable} deleteKeyCode={editable ? ['Backspace', 'Delete'] : null}>
           <Background variant={BackgroundVariant.Dots} gap={20} size={1.2} color="var(--muted)" style={{ opacity: 0.3 }} />
           <Controls showInteractive={false} position="bottom-right" />
         </ReactFlow>
         {nodes.length === 0 && <div className="absolute inset-0 grid place-items-center pointer-events-none muted text-[13px]">Add a step below, or ask the copilot.</div>}
-
-        <div className="absolute top-3 left-3 glass rounded-[14px] px-3 h-9 flex items-center gap-2 text-[12px]"><Zap size={12} className="muted" /><input value={meta.trigger} onChange={(e) => setMeta({ ...meta, trigger: e.target.value })} className="bg-transparent outline-0 w-[200px]" placeholder="Trigger (e.g. Email · ap-inbox)" /></div>
+        {problems.length > 0 && nodes.length > 0 && <div className="absolute top-3 left-3 glass rounded-[12px] px-3 py-2 text-[12px] flex items-start gap-2 max-w-[420px]"><AlertTriangle size={13} className="text-[var(--warn)] mt-0.5 shrink-0" /><div>{problems.slice(0, 2).map((p) => <div key={p}>{p}</div>)}{problems.length > 2 && <div className="muted">+{problems.length - 2} more</div>}</div></div>}
 
         {editable && (
           <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.2 }} className="absolute bottom-4 left-1/2 -translate-x-1/2 glass rounded-[16px] p-1.5 flex items-center gap-0.5">
-            {bricks.map((b) => (
-              <motion.button whileHover={{ y: -2 }} whileTap={{ scale: 0.95 }} key={b.id} onClick={() => addBrick(b.id)} title={`Add ${b.label}`} className="flex flex-col items-center gap-1 w-[60px] py-1.5 rounded-[11px] hover:bg-[var(--clay-dark)]">
-                <Tile color={b.color} size={28} radius={9}><b.icon size={13} /></Tile><span className="text-[10.5px] font-medium muted">{b.label}</span>
-              </motion.button>
-            ))}
+            {bricks.map((b) => <motion.button whileHover={{ y: -2 }} whileTap={{ scale: 0.95 }} key={b.id} onClick={() => addBrick(b.id)} title={`Add ${b.label}`} className="flex flex-col items-center gap-1 w-[60px] py-1.5 rounded-[11px] hover:bg-[var(--clay-dark)]"><Tile color={b.color} size={28} radius={9}><b.icon size={13} /></Tile><span className="text-[10.5px] font-medium muted">{b.label}</span></motion.button>)}
             <span className="w-px h-8 bg-[var(--line)] mx-1" />
-            <motion.button whileHover={{ y: -2 }} onClick={() => setCopilot((c) => ({ ...c, open: !c.open }))} className={cx('flex flex-col items-center gap-1 w-[60px] py-1.5 rounded-[11px] hover:bg-[var(--clay-dark)]', copilot.open && 'bg-[var(--clay-dark)]')}>
-              <Tile color="#10385b" size={28} radius={9}><Sparkles size={13} /></Tile><span className="text-[10.5px] font-medium muted">Copilot</span>
-            </motion.button>
+            <motion.button whileHover={{ y: -2 }} onClick={() => setCopilot((c) => ({ ...c, open: !c.open }))} className={cx('flex flex-col items-center gap-1 w-[60px] py-1.5 rounded-[11px] hover:bg-[var(--clay-dark)]', copilot.open && 'bg-[var(--clay-dark)]')} disabled={!apiKey} title={apiKey ? undefined : 'Model access is not configured'}><Tile color="#10385b" size={28} radius={9}><Sparkles size={13} /></Tile><span className="text-[10.5px] font-medium muted">Copilot</span></motion.button>
           </motion.div>
         )}
 
@@ -175,62 +139,81 @@ export default function WorkflowEditor() {
           {copilot.open && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="absolute bottom-24 left-1/2 -translate-x-1/2 w-[460px] glass rounded-[16px] p-2">
               {copilot.note && <div className="text-[12px] muted px-2 pb-2">{copilot.note}</div>}
-              <div className="flex items-center gap-2 pl-2">
-                <input autoFocus value={copilot.input} onChange={(e) => setCopilot((c) => ({ ...c, input: e.target.value }))} onKeyDown={(e) => e.key === 'Enter' && runCopilot()} placeholder="Add a council review after the agent…" className="flex-1 bg-transparent outline-0 text-[13px]" />
-                <button onClick={runCopilot} className="btn btn-primary btn-sm btn-icon !rounded-full"><ArrowUp size={14} /></button>
-              </div>
+              <div className="flex items-center gap-2 pl-2"><input autoFocus value={copilot.input} onChange={(e) => setCopilot((c) => ({ ...c, input: e.target.value }))} onKeyDown={(e) => e.key === 'Enter' && runCopilot()} placeholder="Add a condition that checks for risks, then an approval…" className="flex-1 bg-transparent outline-0 text-[13px]" /><button onClick={runCopilot} className="btn btn-primary btn-sm btn-icon !rounded-full"><ArrowUp size={14} /></button></div>
             </motion.div>
           )}
         </AnimatePresence>
 
         <AnimatePresence>
-          {selected && !test.open && (
-            <motion.aside key={selected.id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} transition={{ duration: 0.25 }} className="absolute top-3 right-3 bottom-3 w-[320px] glass rounded-[18px] flex flex-col">
+          {selected && panel === 'none' && (
+            <motion.aside key={selected.id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} transition={{ duration: 0.25 }} className="absolute top-3 right-3 bottom-3 w-[330px] glass rounded-[18px] flex flex-col">
               <div className="px-4 h-12 flex items-center gap-2 border-b hairline">
                 <Tile color={brickOf(selected.data.brick).color} size={26} radius={8}>{(() => { const I = brickOf(selected.data.brick).icon; return <I size={13} /> })()}</Tile>
                 <span className="text-[13px] font-semibold flex-1 truncate">{brickOf(selected.data.brick).label}</span>
                 {editable && <button className="btn btn-ghost btn-sm btn-icon" onClick={removeSelected} title="Delete step"><Trash2 size={14} /></button>}
                 <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setSelectedId(null)}><X size={14} /></button>
               </div>
-              <div className="px-4 pt-3"><Segmented value={tab} onChange={setTab} items={[{ id: 'configure', label: 'Configure' }, { id: 'advanced', label: 'Advanced' }]} /></div>
-              <div className="p-4 flex flex-col gap-4 scroll">
-                {tab === 'configure' ? <>
-                  <Field label="Name"><Input value={selected.data.label} onChange={(e) => patch({ label: e.target.value })} /></Field>
-                  <Field label="Summary"><Input value={selected.data.sub ?? ''} onChange={(e) => patch({ sub: e.target.value })} /></Field>
-                  {selected.data.brick === 'agent' && <Field label="Agent"><Select value={selected.data.agentId ?? ''} onChange={(e) => { const a = agents.find((x) => x.id === e.target.value); patch({ agentId: e.target.value || undefined, label: a?.name ?? selected.data.label, model: a?.model ?? selected.data.model }) }}><option value="">Custom prompt</option>{agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>}
-                  {selected.data.brick === 'council' && <Field label="Council"><Select value={selected.data.councilId ?? ''} onChange={(e) => { const c = councils.find((x) => x.id === e.target.value); patch({ councilId: e.target.value || undefined, label: c?.name ?? selected.data.label, sub: c ? `${c.members.length} members · ${c.mode}` : selected.data.sub }) }}><option value="">Choose a council</option>{councils.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select></Field>}
-                  {(selected.data.brick === 'agent' || selected.data.brick === 'council') && <>
-                    {!selected.data.agentId && <Field label="Model">{models.length ? <Select value={selected.data.model} onChange={(e) => patch({ model: e.target.value })}>{models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</Select> : <Input value={selected.data.model ?? ''} onChange={(e) => patch({ model: e.target.value })} />}</Field>}
-                    <Field label="Step instructions"><Textarea rows={4} value={selected.data.prompt ?? ''} onChange={(e) => patch({ prompt: e.target.value })} placeholder="What should this step do with the input?" /></Field>
-                  </>}
-                  {selected.data.brick === 'human' && <Field label="Approver"><Select value={selected.data.sub ?? ''} onChange={(e) => patch({ sub: e.target.value })}>{users.filter((u) => u.role === 'approver' || u.role === 'security').map((u) => <option key={u.id} value={`${u.name.split(' ')[0]} decides`}>{u.name}</option>)}</Select><div className="text-[11.5px] muted mt-1.5">A person decides here before anything downstream runs, at any autonomy level.</div></Field>}
-                  {selected.data.brick === 'logic' && <Field label="Condition"><Input value={selected.data.sub ?? ''} onChange={(e) => patch({ sub: e.target.value })} placeholder="amount > 50000" /></Field>}
-                </> : <>
-                  <Field label="Retries"><Input type="number" value={selected.data.retries} onChange={(e) => patch({ retries: +e.target.value })} /></Field>
-                  <Field label="Timeout (seconds)"><Input type="number" value={selected.data.timeout} onChange={(e) => patch({ timeout: +e.target.value })} /></Field>
-                  <Field label="Cost cap per run ($)"><Input type="number" step="0.01" value={selected.data.costCap} onChange={(e) => patch({ costCap: +e.target.value })} /></Field>
-                  {(selected.data.retries ?? 1) > 1 && <div className="text-[12px] muted">Lowering retries to 1 cuts the estimated cost of this step by about 28%. <button className="accent-ink font-medium" onClick={() => patch({ retries: 1 })}>Apply</button></div>}
+              <fieldset disabled={!editable} className="p-4 flex flex-col gap-4 scroll">
+                <Field label="Name"><Input value={selected.data.label} onChange={(e) => patch({ label: e.target.value })} /></Field>
+                {selected.data.brick === 'trigger' && <div className="text-[12px] muted">The trigger is set at the top: manual with an input, or a schedule. The input becomes the first message in the run context.</div>}
+                {selected.data.brick === 'agent' && <>
+                  <Field label="Agent" hint={selected.data.agentId ? 'Uses the agent’s instructions, tools, knowledge and model.' : 'No agent: the step runs with your instructions and the default read-only tools.'}><Select value={selected.data.agentId ?? ''} onChange={(e) => { const a = agents.find((x) => x.id === e.target.value); patch({ agentId: e.target.value || undefined, label: a?.name ?? selected.data.label, sub: a ? a.description.slice(0, 40) : selected.data.sub, model: a?.model ?? selected.data.model }) }}><option value="">Custom (no saved agent)</option>{agents.map((a) => <option key={a.id} value={a.id}>{a.name}{a.status === 'draft' ? ' (draft)' : ''}</option>)}</Select></Field>
+                  {!selected.data.agentId && <Field label="Model">{models.length ? <Select value={selected.data.model} onChange={(e) => patch({ model: e.target.value })}>{models.filter((m) => m.supported_parameters?.includes('tools')).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</Select> : <Input value={selected.data.model ?? ''} onChange={(e) => patch({ model: e.target.value })} />}</Field>}
+                  <Field label="Step instructions" hint="What this step should produce from the context so far."><Textarea rows={5} value={selected.data.prompt ?? ''} onChange={(e) => patch({ prompt: e.target.value })} placeholder="e.g. Summarise the findings into a one-page brief" /></Field>
                 </>}
+                {selected.data.brick === 'council' && <Field label="Council"><Select value={selected.data.councilId ?? ''} onChange={(e) => { const c = councils.find((x) => x.id === e.target.value); patch({ councilId: e.target.value || undefined, label: c?.name ?? selected.data.label, sub: c ? `${c.members.length} members · ${c.mode}` : selected.data.sub }) }}><option value="">Choose a council</option>{councils.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>{councils.length === 0 && <div className="text-[11.5px] muted mt-1.5">No councils yet. Create one under Agents › Councils.</div>}</Field>}
+                {selected.data.brick === 'logic' && <Field label="Condition" hint="Plain language. The Balanced model judges it against the latest step output and follows the edge labelled yes or no (click an edge to label it)."><Textarea rows={3} value={selected.data.sub ?? ''} onChange={(e) => patch({ sub: e.target.value })} placeholder="e.g. The report mentions a price change" /></Field>}
+                {selected.data.brick === 'human' && <Field label="Approver" hint="The run pauses here. The approver gets a notification and decides under Runs › Approvals; the run resumes on approval."><Select value={selected.data.approver ?? ''} onChange={(e) => { const u = users.find((x) => x.id === e.target.value); patch({ approver: e.target.value || undefined, sub: u ? `${u.name} decides` : '' }) }}><option value="">Choose an approver</option>{approvers.map((u) => <option key={u.id} value={u.id}>{u.name} · {roleLabel[u.role]}</option>)}</Select></Field>}
+                {selected.data.brick === 'tool' && <><Field label="Tool" hint="The Fast model derives the arguments from the run context and calls the tool once."><Select value={selected.data.tool ?? 'save_document'} onChange={(e) => patch({ tool: e.target.value, sub: e.target.value })}>{TOOLS.filter((t) => t.category !== 'Reasoning').map((t) => <option key={t.name} value={t.name}>{t.label}{t.write ? ' (queues approval)' : ''}</option>)}{customTools.map((t) => <option key={t.name} value={t.name}>{t.label} (custom)</option>)}</Select></Field><Field label="Guidance"><Textarea rows={3} value={selected.data.prompt ?? ''} onChange={(e) => patch({ prompt: e.target.value })} placeholder="e.g. Title the document with today’s date" /></Field></>}
+                {selected.data.brick === 'notify' && <div className="text-[12px] muted">Sends an in-app notification with the latest step output. Everyone sees it in the bell menu.</div>}
+                {selected.data.brick !== 'trigger' && selected.data.brick !== 'logic' && <Field label="Summary"><Input value={selected.data.sub ?? ''} onChange={(e) => patch({ sub: e.target.value })} placeholder="Shown on the step" /></Field>}
+              </fieldset>
+            </motion.aside>
+          )}
+
+          {panel === 'trigger' && (
+            <motion.aside key="trigger" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="absolute top-3 right-3 w-[330px] glass rounded-[18px] flex flex-col">
+              <div className="px-4 h-12 flex items-center gap-2 border-b hairline"><Zap size={14} className="muted" /><span className="text-[13px] font-semibold flex-1">Trigger</span><button className="btn btn-ghost btn-sm btn-icon" onClick={() => setPanel('none')}><X size={14} /></button></div>
+              <fieldset disabled={!editable} className="p-4 flex flex-col gap-4">
+                <Segmented value={meta.triggerType} onChange={(v) => setMeta({ ...meta, triggerType: v })} items={[{ id: 'manual', label: 'Manual' }, { id: 'schedule', label: 'Schedule' }]} />
+                {meta.triggerType === 'manual' ? <div className="text-[12px] muted">Run it from the Run button or the Workflows list, with an input each time.</div> : <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Every"><Select value={meta.schedule.every} onChange={(e) => setMeta({ ...meta, schedule: { ...meta.schedule, every: e.target.value as Schedule['every'] } })}><option value="hour">Hour</option><option value="day">Day</option><option value="week">Week (Mondays)</option></Select></Field>
+                    <Field label="At"><Input type="time" value={meta.schedule.at} onChange={(e) => setMeta({ ...meta, schedule: { ...meta.schedule, at: e.target.value } })} /></Field>
+                  </div>
+                  <Field label="Input for each run"><Textarea rows={3} value={meta.schedule.input} onChange={(e) => setMeta({ ...meta, schedule: { ...meta.schedule, input: e.target.value } })} placeholder="e.g. Check for news about our top 3 competitors" /></Field>
+                  <div className="text-[12px] muted">Schedules fire while {`${'Co-Create'}`} is open in a browser and the workflow is published. Last run: {stored?.lastRunAt ? new Date(stored.lastRunAt).toLocaleString() : 'never'}.</div>
+                </>}
+              </fieldset>
+            </motion.aside>
+          )}
+
+          {panel === 'run' && (
+            <motion.aside key="run" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="absolute top-3 right-3 w-[360px] glass rounded-[18px] flex flex-col">
+              <div className="px-4 h-12 flex items-center gap-2 border-b hairline"><Play size={14} className="muted" /><span className="text-[13px] font-semibold flex-1">Run workflow</span><button className="btn btn-ghost btn-sm btn-icon" onClick={() => setPanel('none')}><X size={14} /></button></div>
+              <div className="p-4 flex flex-col gap-3">
+                <Field label="Input" hint="Becomes the first message of the run."><Textarea rows={4} value={runInput} onChange={(e) => setRunInput(e.target.value)} placeholder="e.g. Research the latest changes to UAE corporate tax" autoFocus /></Field>
+                {!apiKey && <div className="text-[12px] text-[var(--warn)]">Model access is not configured. Agent, council, condition and action steps will fail.</div>}
+                {(dirty || isNew) && <div className="text-[12px] muted">The workflow is saved first.</div>}
+                <Button variant="primary" onClick={run} disabled={!runInput.trim() || !!running}><Play size={13} /> {running ? 'Starting…' : 'Run now'}</Button>
+                <div className="text-[11.5px] muted">Progress is shown under Runs. Steps that need a person pause the run until they decide.</div>
               </div>
             </motion.aside>
           )}
-          {test.open && (
-            <motion.aside key="test" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} transition={{ duration: 0.25 }} className="absolute top-3 right-3 bottom-3 w-[360px] glass rounded-[18px] flex flex-col">
-              <div className="px-4 h-12 flex items-center gap-2 border-b hairline"><Play size={14} className="muted" /><span className="text-[13px] font-semibold flex-1">Test run</span><button className="btn btn-ghost btn-sm btn-icon" onClick={() => setTest((t) => ({ ...t, open: false }))}><X size={14} /></button></div>
-              <div className="p-4 flex flex-col gap-3 scroll">
-                <Field label="Input"><Textarea rows={3} value={test.input} onChange={(e) => setTest((t) => ({ ...t, input: e.target.value }))} /></Field>
-                <Button variant="primary" onClick={runTest} disabled={test.running || order.length === 0}><Play size={13} /> {test.running ? 'Running…' : 'Run'}</Button>
-                {!apiKey && <div className="text-[11.5px] muted">Without an OpenRouter key, agent steps are skipped and the rest is simulated.</div>}
-                <ol className="flex flex-col gap-2">
-                  {test.log.map((s, i) => (
-                    <motion.li key={i} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} className="flat p-3">
-                      <div className="flex items-center gap-2 text-[12.5px] font-semibold"><span className={cx('w-2 h-2 rounded-full', s.status === 'ok' ? 'bg-[var(--ok)]' : s.status === 'failed' ? 'bg-[var(--danger)]' : 'bg-[var(--warn)]')} />{s.name}<span className="muted font-normal ml-auto">{s.model ? `${s.model} · ` : ''}{(s.ms / 1000).toFixed(1)}s</span></div>
-                      {s.output && <Md className="prose-chat text-[12px] muted mt-1.5">{s.output}</Md>}
-                    </motion.li>
-                  ))}
-                  {test.running && test.active >= test.log.length && <li className="text-[12px] muted px-1">Running {order[test.active]?.data.label}…</li>}
-                </ol>
-                {!test.running && test.log.length > 0 && <div className="text-[11.5px] muted">Saved under Runs.</div>}
+
+          {panel === 'runs' && (
+            <motion.aside key="runs" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="absolute top-3 right-3 bottom-3 w-[360px] glass rounded-[18px] flex flex-col">
+              <div className="px-4 h-12 flex items-center gap-2 border-b hairline"><ListChecks size={14} className="muted" /><span className="text-[13px] font-semibold flex-1">Runs of this workflow</span><button className="btn btn-ghost btn-sm btn-icon" onClick={() => setPanel('none')}><X size={14} /></button></div>
+              <div className="p-3 flex flex-col gap-2 scroll">
+                {wfRuns.length === 0 && <div className="text-[12.5px] muted p-3 text-center">No runs yet.</div>}
+                {wfRuns.slice(0, 30).map((r) => (
+                  <button key={r.id} onClick={() => nav(`/runs?open=${r.id}`)} className="flat p-3 text-left hover:bg-[var(--surface)]">
+                    <div className="flex items-center gap-2 text-[12.5px]"><span className="font-semibold">{r.id}</span><Chip tone={r.status === 'waiting' ? 'warn' : r.status === 'failed' || r.status === 'rejected' ? 'danger' : r.status === 'running' ? 'accent' : 'ok'} className="capitalize">{r.status}</Chip><span className="muted ml-auto">{r.started}</span></div>
+                    <div className="text-[12px] muted truncate mt-1">{r.summary}</div>
+                    {r.status === 'running' && r.steps.length > 0 && <div className="text-[11.5px] accent-ink mt-1">Step {r.steps.length}: {r.steps[r.steps.length - 1].name}…</div>}
+                    {r.steps.length > 0 && r.status !== 'running' && <Md className="prose-chat text-[11.5px] muted mt-1 line-clamp-3">{[...r.steps].reverse().find((s) => s.output)?.output?.slice(0, 200) ?? ''}</Md>}
+                  </button>
+                ))}
               </div>
             </motion.aside>
           )}

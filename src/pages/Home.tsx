@@ -15,12 +15,14 @@ export default function Home() {
   const { agents, workflows, runs, libraries, apiKey } = useApp()
   const [q, setQ] = useState('')
   const [focus, setFocus] = useState(false)
+  const admin = can(user, 'admin')
+  const approver = can(user, 'approve')
 
-  const waiting = runs.filter((r) => r.status === 'waiting')
+  const waiting = runs.filter((r) => r.status === 'waiting' && (!r.approver || r.approver === user.id || admin))
   const recent = runs.slice(0, 4)
   const hasDocs = libraries.some((l) => l.docs.length > 0)
   const steps = [
-    { done: !!apiKey, label: 'Connect OpenRouter', desc: 'Pick any model from the catalog', icon: KeyRound, to: '/settings?tab=openrouter', color: '#64748b' },
+    ...(admin ? [{ done: !!apiKey, label: 'Set up model access', desc: 'One key for every model', icon: KeyRound, to: '/settings?tab=models', color: '#64748b' }] : []),
     { done: agents.length > 0, label: 'Create an agent', desc: 'Describe it or start from a template', icon: Sparkles, to: '/agents?new=1', color: '#0ea5e9' },
     { done: hasDocs, label: 'Add knowledge', desc: 'Documents agents can cite', icon: BookOpen, to: '/knowledge', color: '#8b5cf6' },
     { done: workflows.length > 0, label: 'Build a workflow', desc: 'Chain agents with a human gate', icon: Workflow, to: '/workflows', color: '#10b981' },
@@ -29,22 +31,20 @@ export default function Home() {
   const ask = () => { if (q.trim()) nav(`/chat?q=${encodeURIComponent(q.trim())}`) }
   const hour = new Date().getHours()
   const sky = hour < 11 ? ['#ffd59e', '#04bbf2'] : hour < 17 ? ['#04bbf2', '#0074d9'] : ['#6d5cff', '#0074d9']
-  const prompts = ['Research the latest on EU AI regulation', 'Summarise this page: https://openrouter.ai/docs', 'What is 18% of 42,500?']
+  const prompts = ['Research the latest on EU AI regulation', 'Summarise https://en.wikipedia.org/wiki/Abu_Dhabi', 'What is 18% of 42,500?']
 
   return (
     <Page className="max-w-[760px] mx-auto pt-14 pb-16 px-4 relative">
       <motion.div aria-hidden className="absolute -top-10 right-0 w-[260px] h-[260px] rounded-full pointer-events-none" style={{ background: `radial-gradient(circle at 40% 40%, ${sky[0]}66, ${sky[1]}22 55%, transparent 72%)`, filter: 'blur(14px)' }} animate={{ scale: [1, 1.08, 1], x: [0, -10, 0] }} transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut' }} />
-
       <Rise>
         <div className="text-[11.5px] font-semibold muted mb-2">{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })} · {roleLabel[user.role]}</div>
         <h1 className="display text-[32px] font-bold leading-tight">{greeting()}, {user.name.split(' ')[0]}</h1>
-        <p className="muted mt-1.5 text-[14px]">{waiting.length > 0 && can(user, 'approve') ? `${waiting.length} item${waiting.length === 1 ? '' : 's'} waiting for your sign-off.` : 'Ask anything, or build something.'}</p>
+        <p className="muted mt-1.5 text-[14px]">{waiting.length > 0 && approver ? `${waiting.length} item${waiting.length === 1 ? '' : 's'} waiting for your sign-off.` : 'Ask anything, or build something.'}</p>
       </Rise>
 
       <Rise delay={0.08}>
         <motion.div animate={{ boxShadow: focus ? '0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent), inset 5px 5px 12px var(--clay-light), inset -5px -7px 14px var(--clay-dark), 0 18px 34px -20px var(--clay-drop)' : undefined }} className="clay p-2 mt-7">
-          <textarea value={q} onChange={(e) => setQ(e.target.value)} rows={2} onFocus={() => setFocus(true)} onBlur={() => setFocus(false)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask() } }}
-            placeholder="Ask the assistant. It can search the web, read pages, calculate and run code…" className="w-full bg-transparent outline-0 resize-none text-[14.5px] px-3 pt-3 placeholder:text-[var(--muted)]" />
+          <textarea value={q} onChange={(e) => setQ(e.target.value)} rows={2} onFocus={() => setFocus(true)} onBlur={() => setFocus(false)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask() } }} placeholder="Ask the assistant. It can search the web, read pages, calculate and run code…" className="w-full bg-transparent outline-0 resize-none text-[14.5px] px-3 pt-3 placeholder:text-[var(--muted)]" />
           <div className="flex items-center gap-1.5 px-1.5 pb-1 flex-wrap">
             {prompts.map((s) => <button key={s} onClick={() => nav(`/chat?q=${encodeURIComponent(s)}`)} className="chip hover:text-[var(--text)]">{s}</button>)}
             <div className="flex-1" />
@@ -77,9 +77,9 @@ export default function Home() {
             <AnimatePresence initial={false}>
               {(waiting.length > 0 ? waiting : recent).slice(0, 5).map((r, i) => (
                 <motion.div key={r.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0, transition: { delay: 0.15 + i * 0.05, duration: 0.4, ease } }} exit={{ opacity: 0, x: 40 }} className="row">
-                  <Tile color={r.status === 'waiting' ? '#f59e0b' : r.status === 'failed' || r.status === 'rejected' ? '#ef6c5a' : '#10b981'} size={34}>{r.status === 'waiting' ? <ShieldCheck size={16} /> : <ListChecks size={16} />}</Tile>
+                  <Tile color={r.status === 'waiting' ? '#f59e0b' : r.status === 'failed' || r.status === 'rejected' ? '#ef6c5a' : r.status === 'running' ? '#0ea5e9' : '#10b981'} size={34}>{r.status === 'waiting' ? <ShieldCheck size={16} /> : <ListChecks size={16} />}</Tile>
                   <div className="flex-1 min-w-0"><div className="text-[13.5px] font-medium truncate">{r.summary ?? r.workflow}</div><div className="text-[12px] muted truncate">{r.workflow} · {r.started} · <span className="capitalize">{r.status}</span></div></div>
-                  <Button size="sm" onClick={() => nav(`/runs?open=${r.id}`)}>{r.status === 'waiting' ? (can(user, 'approve') ? 'Review' : 'Open') : 'Open'}</Button>
+                  <Button size="sm" onClick={() => nav(`/runs?open=${r.id}`)}>{r.status === 'waiting' && approver ? 'Review' : 'Open'}</Button>
                 </motion.div>
               ))}
             </AnimatePresence>
@@ -99,18 +99,15 @@ export default function Home() {
           <Header title="Workflows" onAll={() => nav('/workflows')} />
           <div className="clay px-3 py-1">
             {workflows.length === 0 && <EmptyRow text="No workflows yet." action="Build one" onClick={() => nav('/workflows')} />}
-            {workflows.slice(0, 3).map((w) => <RowLink key={w.id} name={w.name} meta={`${w.status} · v${w.version}`} icon={<Workflow size={14} />} color={colorFor(w.name)} onClick={() => nav(`/workflows/${w.id}`)} />)}
+            {workflows.slice(0, 3).map((w) => <RowLink key={w.id} name={w.name} meta={`${w.status} · ${w.triggerType === 'schedule' ? `every ${w.schedule?.every}` : 'manual'}`} icon={<Workflow size={14} />} color={colorFor(w.name)} onClick={() => nav(`/workflows/${w.id}`)} />)}
           </div>
         </Item>
       </Stagger>
-
-      <Rise delay={0.3}><div className="mt-10 text-[12px] muted px-1 flex items-center gap-1.5"><Globe size={12} /> Built-in tools: web search, deep research, read web pages, calculator, JavaScript sandbox, knowledge search, documents, email drafts and approvals.</div></Rise>
+      <Rise delay={0.3}><div className="mt-10 text-[12px] muted px-1 flex items-center gap-1.5"><Globe size={12} /> Built-in tools: web search, deep research, read web pages, calculator, JavaScript sandbox, knowledge search, documents, email drafts and approvals. Add your own under Tools.</div></Rise>
     </Page>
   )
 }
 
 const Header = ({ title, onAll }: { title: string; onAll?: () => void }) => (<div className="flex items-center justify-between mb-2 px-1"><h2 className="text-[13px] font-semibold">{title}</h2>{onAll && <button onClick={onAll} className="text-[12px] font-medium muted hover:text-[var(--text)]">View all</button>}</div>)
 const EmptyRow = ({ text, action, onClick }: { text: string; action: string; onClick: () => void }) => (<div className="row"><span className="flex-1 text-[13px] muted">{text}</span><Button size="sm" onClick={onClick}>{action}</Button></div>)
-const RowLink = ({ name, meta, icon, color, onClick }: { name: string; meta: string; icon: React.ReactNode; color: string; onClick: () => void }) => (
-  <button onClick={onClick} className="row hover w-full text-left"><Tile color={color} size={30} radius={9}>{icon}</Tile><div className="flex-1 min-w-0"><div className="text-[13px] font-medium truncate">{name}</div><div className="text-[11.5px] muted truncate capitalize">{meta}</div></div><ChevronRight size={15} className="muted" /></button>
-)
+const RowLink = ({ name, meta, icon, color, onClick }: { name: string; meta: string; icon: React.ReactNode; color: string; onClick: () => void }) => (<button onClick={onClick} className="row hover w-full text-left"><Tile color={color} size={30} radius={9}>{icon}</Tile><div className="flex-1 min-w-0"><div className="text-[13px] font-medium truncate">{name}</div><div className="text-[11.5px] muted truncate capitalize">{meta}</div></div><ChevronRight size={15} className="muted" /></button>)
