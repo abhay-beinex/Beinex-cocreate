@@ -799,7 +799,7 @@ function StepInspector({ node, editable, onClose, onRemove, patch, meta, setMeta
           <>
             <div className="grid grid-cols-[100px_1fr] gap-3">
               <Field label="Method"><Select value={d.method ?? 'GET'} onChange={(e) => patch({ method: e.target.value as StepData['method'] })}>{['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((m) => <option key={m}>{m}</option>)}</Select></Field>
-              <TemplateField label="Address" value={d.url ?? ''} onChange={(v) => patch({ url: v })} vars={vars} rows={1} placeholder="https://api.frankfurter.app/latest?from=USD&to={{input}}" mono />
+              <TemplateField label="Address" value={d.url ?? ''} onChange={(v) => patch({ url: v })} vars={vars} rows={1} placeholder="https://api.frankfurter.dev/v1/latest?base=USD&symbols={{input}}" mono />
             </div>
             <TemplateField label="Headers (JSON, optional)" value={d.headers ?? ''} onChange={(v) => patch({ headers: v })} vars={vars} rows={2} placeholder='{"Authorization": "Bearer …"}' mono />
             {d.method !== 'GET' && <TemplateField label="Body" value={d.body ?? ''} onChange={(v) => patch({ body: v })} vars={vars} rows={3} placeholder='{"text": "{{draft}}"}' mono />}

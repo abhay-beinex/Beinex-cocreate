@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Zap, Clock, Play, ArrowUp, MoreHorizontal, Pencil, Copy, Trash2, Sparkles, ChevronRight } from 'lucide-react'
+import { Plus, Zap, Clock, Play, ArrowUp, MoreHorizontal, Pencil, Copy, Trash2, Sparkles, ChevronRight, Link2, Eye, FileInput } from 'lucide-react'
 import { useApp, useUser, can } from '@/store/app'
 import { workflowTemplates, type Workflow } from '@/lib/data'
 import { startRun } from '@/lib/runner'
@@ -60,7 +60,7 @@ export default function Workflows() {
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2.5 mt-5">
               {workflowTemplates.map((t) => (
                 <button key={t.id} onClick={() => nav(`/workflows/new?template=${t.id}`)} className="flat p-3.5 text-left hover:border-[color-mix(in_srgb,var(--accent)_45%,var(--line))] hover:-translate-y-px transition-all flex flex-col gap-2.5">
-                  <div className="flex items-center justify-between gap-2"><span className="text-[13px] font-semibold">{t.name}</span>{t.triggerType === 'schedule' && <Clock size={13} className="muted" />}</div>
+                  <div className="flex items-center justify-between gap-2"><span className="text-[13px] font-semibold">{t.name}</span>{t.triggerType === 'schedule' && <Clock size={13} className="muted" />}{t.nodes.some((n) => n.data.brick === 'parallel' || n.data.brick === 'loop') && <span className="chip !h-[18px] !text-[10px] !px-1.5">New</span>}</div>
                   {t.nodes.length ? <StepChain w={t} size={20} /> : <span className="text-[11.5px] muted">Empty canvas</span>}
                   <span className="text-[11.5px] muted leading-snug">{t.desc}</span>
                 </button>
@@ -90,7 +90,7 @@ export default function Workflows() {
                       <div className="text-[12.5px] muted truncate mt-0.5">{w.description || `${w.nodes.length} steps`}</div>
                       <div className="flex items-center gap-3 mt-2.5 text-[11.5px] muted">
                         <StepChain w={w} />
-                        <span className="inline-flex items-center gap-1">{w.triggerType === 'schedule' ? <><Clock size={11} /> Every {w.schedule?.every} at {w.schedule?.at}</> : <><Zap size={11} /> By hand</>}</span>
+                        <span className="inline-flex items-center gap-1">{w.triggerType === 'schedule' ? <><Clock size={11} /> Every {w.schedule?.every} at {w.schedule?.at}</> : w.triggerType === 'link' ? <><Link2 size={11} /> By link</> : w.triggerType === 'watch' ? <><Eye size={11} /> When a page changes</> : w.triggerType === 'event' ? <><FileInput size={11} /> When a document is added</> : <><Zap size={11} /> By hand</>}</span>
                         <span>·</span><span>{wr.length} run{wr.length === 1 ? '' : 's'}</span>
                         {last && <><span>·</span><span>Last {last.started.slice(5)}</span></>}
                       </div>

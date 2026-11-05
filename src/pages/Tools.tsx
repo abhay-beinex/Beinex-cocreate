@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Lock, Globe, Brain, BookOpen, Send, Plus, Trash2, Pencil, Play, Code2 } from 'lucide-react'
+import { Lock, Globe, Brain, BookOpen, Send, Plus, Trash2, Pencil, Play, Code2, Plug, Check, Loader2 } from 'lucide-react'
 import { useApp, useUser, can } from '@/store/app'
 import { TOOLS, runTool } from '@/lib/tools'
 import type { CustomTool } from '@/lib/data'
+import { CONNECTORS, connectorTool } from '@/lib/connectors'
 import { Button, Chip, Field, Input, Modal, PageHeader, Select, Textarea, Tile } from '@/components/ui'
 import { Page, Stagger, Item } from '@/components/motion'
 
@@ -21,6 +22,9 @@ export default function Tools() {
   const [edit, setEdit] = useState<CustomTool | null>(null)
   const [testArgs, setTestArgs] = useState('')
   const [testOut, setTestOut] = useState('')
+  const [tryOut, setTryOut] = useState<Record<string, string>>({})
+  const [trying, setTrying] = useState<string | null>(null)
+  const tryConnector = async (c: (typeof CONNECTORS)[number]) => { setTrying(c.id); const t = customTools.find((x) => x.name === c.name) ?? connectorTool(c, user.id); const out = await runTool(t.name, JSON.stringify(c.sample), { key: apiKey, models: { fast: profiles.find((p) => p.id === 'fast')?.model ?? defaultModel, reasoning: defaultModel }, libraries: [], custom: [t] }); setTryOut((o) => ({ ...o, [c.id]: out })); setTrying(null) }
   const editable = can(user, 'build')
 
   const valid = edit && /^[a-z][a-z0-9_]{2,40}$/.test(edit.name) && edit.label.trim() && edit.description.trim() && /^https?:\/\//.test(edit.url) && !TOOLS.some((t) => t.name === edit.name) && !customTools.some((t) => t.name === edit.name && t.id !== edit.id)
@@ -51,12 +55,26 @@ export default function Tools() {
           </Item>
         ))}
         <Item>
+          <div className="flex items-center gap-2 mb-2 px-1"><Plug size={14} className="muted" /><span className="text-[12px] font-semibold">Connectors</span><span className="text-[12px] muted">· Ready-made public APIs. Add one and any agent or workflow step can call it.</span></div>
+          <div className="clay px-3 py-1">
+            {CONNECTORS.map((c) => { const added = customTools.find((t) => t.name === c.name); const out = tryOut[c.id]; return (
+              <div key={c.id} className="row flex-wrap">
+                <Tile color="#2563eb" size={34}><Globe size={15} /></Tile>
+                <div className="flex-1 min-w-0"><div className="text-[13.5px] font-medium">{c.label} <span className="text-[11px] muted font-normal ml-1">{c.category}</span></div><div className="text-[12px] muted truncate">{c.description}</div></div>
+                <Button size="sm" variant="ghost" onClick={() => tryConnector(c)} disabled={trying === c.id} title={`Try with ${Object.entries(c.sample).map(([k, v]) => `${k}=${v}`).join(', ')}`}>{trying === c.id ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />} Try</Button>
+                {added ? <span className="chip chip-ok !h-7"><Check size={12} /> Added</span> : editable ? <Button size="sm" onClick={() => upsertCustomTool(connectorTool(c, user.id))}><Plus size={12} /> Add</Button> : null}
+                {out && <pre className="basis-full text-[11px] muted whitespace-pre-wrap max-h-32 overflow-auto flat p-2 mt-1">{out.slice(0, 1500)}</pre>}
+              </div>
+            ) })}
+          </div>
+        </Item>
+        <Item>
           <div className="flex items-center gap-2 mb-2 px-1"><Code2 size={14} className="muted" /><span className="text-[12px] font-semibold">Your API</span><span className="text-[12px] muted">· HTTP endpoints you define. The agent fills the parameters; the response comes back to it.</span></div>
           <div className="clay px-3 py-1">
             {customTools.length === 0 && <div className="py-8 text-center text-[12.5px] muted">Nothing added yet. Connect any HTTP API that allows browser requests, such as a public data API or your own service.</div>}
             {customTools.map((t) => { const used = agents.filter((a) => a.tools.includes(t.name)).length; return (
               <div key={t.id} className="row">
-                <Tile color="#64748b" size={34}><Code2 size={15} /></Tile>
+                <Tile color={t.connector ? '#2563eb' : '#64748b'} size={34}>{t.connector ? <Globe size={15} /> : <Code2 size={15} />}</Tile>
                 <div className="flex-1 min-w-0"><div className="text-[13.5px] font-medium">{t.label} <code className="text-[11px] muted font-normal ml-1">{t.name}</code></div><div className="text-[12px] muted truncate">{t.method} {t.url}</div></div>
                 <span className="text-[12.5px] muted w-[90px] text-right">{used} agent{used === 1 ? '' : 's'}</span>
                 {editable && <button className="btn btn-ghost btn-sm btn-icon" onClick={() => { setEdit(t); setTestOut(''); setTestArgs(t.params.map((p) => `${p.name}=`).join('\n')) }}><Pencil size={13} /></button>}

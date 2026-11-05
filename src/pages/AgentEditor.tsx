@@ -1,10 +1,11 @@
 // Agent page: Abilities / Behaviour / Knowledge / Instructions / Versions, readiness ring, Test drive.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams, useBlocker } from 'react-router-dom'
+import { useNavigate, useParams, useBlocker, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Sparkles, ArrowUp, Trash2, Lock, RotateCcw, Download, Upload, History, Copy, MessageSquare, Check, X, Workflow as WorkflowIcon, MoreHorizontal, Blocks, SlidersHorizontal, BookOpen, FileText, ChevronDown, ChevronRight } from 'lucide-react'
-import { useApp, useUser, can } from '@/store/app'
-import { BRAND, type Agent, type Autonomy } from '@/lib/data'
+import { ArrowLeft, Sparkles, ArrowUp, Trash2, Lock, RotateCcw, Download, Upload, History, Copy, MessageSquare, Check, X, Workflow as WorkflowIcon, MoreHorizontal, Blocks, SlidersHorizontal, BookOpen, FileText, ChevronDown, ChevronRight, FlaskConical, Play, Loader2, Plus, Sparkles as SparklesIcon } from 'lucide-react'
+import { useApp, useUser, can, profileModels } from '@/store/app'
+import { BRAND, type Agent, type Autonomy, type AgentTest } from '@/lib/data'
+import { runTest, draftTests } from '@/lib/evals'
 import { streamChat, listModels } from '@/lib/openrouter'
 import { TOOLS } from '@/lib/tools'
 import { abilities, THINKING, INDEPENDENCE, TONES, toneLine, readiness, thinkingOf } from '@/lib/agentVocab'
@@ -16,8 +17,8 @@ import { ReadinessRing, thinkingLabel } from '@/components/AgentBits'
 
 const download = (name: string, data: string) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' })); a.download = name; a.click() }
 const ASSISTANT_NAME = `${BRAND.name} Assistant`
-type Tab = 'abilities' | 'behaviour' | 'knowledge' | 'instructions' | 'versions'
-const TABS: { id: Tab; label: string; icon: typeof Blocks }[] = [{ id: 'abilities', label: 'Abilities', icon: Blocks }, { id: 'behaviour', label: 'Behaviour', icon: SlidersHorizontal }, { id: 'knowledge', label: 'Knowledge', icon: BookOpen }, { id: 'instructions', label: 'Instructions', icon: FileText }, { id: 'versions', label: 'Versions', icon: History }]
+type Tab = 'abilities' | 'behaviour' | 'knowledge' | 'instructions' | 'tests' | 'versions'
+const TABS: { id: Tab; label: string; icon: typeof Blocks }[] = [{ id: 'abilities', label: 'Abilities', icon: Blocks }, { id: 'behaviour', label: 'Behaviour', icon: SlidersHorizontal }, { id: 'knowledge', label: 'Knowledge', icon: BookOpen }, { id: 'instructions', label: 'Instructions', icon: FileText }, { id: 'tests', label: 'Tests', icon: FlaskConical }, { id: 'versions', label: 'Versions', icon: History }]
 
 export default function AgentEditor() {
   const { agentId } = useParams()
@@ -27,7 +28,10 @@ export default function AgentEditor() {
   const { agents, workflows, upsertAgent, rollbackAgent, deleteAgent, touchAgentTested, apiKey, defaultModel, models, setModels, libraries, customTools, profiles } = store
   const stored = agents.find((a) => a.id === agentId)
   const [draft, setDraft] = useState<Agent | undefined>(stored)
-  const [tab, setTab] = useState<Tab>('abilities')
+  const [params, setParams] = useSearchParams()
+  const [tab, setTab] = useState<Tab>((['abilities', 'behaviour', 'knowledge', 'instructions', 'tests', 'versions'] as Tab[]).includes(params.get('tab') as Tab) ? (params.get('tab') as Tab) : 'abilities')
+  const [testing, setTesting] = useState<Set<string>>(new Set())
+  const [writingTests, setWritingTests] = useState(false)
   const [avatarOpen, setAvatarOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const [exact, setExact] = useState(false)
@@ -41,6 +45,9 @@ export default function AgentEditor() {
   useEffect(() => { if (stored && (!draft || stored.version > (draft?.version ?? 0))) setDraft(stored) }, [stored]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!models.length && apiKey) listModels(apiKey).then(setModels).catch(() => {}) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(''), 2600); return () => clearTimeout(t) }, [toast])
+  const autoRan = useRef(false)
+  useEffect(() => { if (params.get('run') === '1' && stored && apiKey && !autoRan.current) { autoRan.current = true; setParams({ tab: 'tests' }, { replace: true }); setTimeout(() => { (stored.tests ?? []).filter((x) => x.prompt.trim() && x.expect.trim()).reduce((p, t) => p.then(() => runOneRef.current(t)), Promise.resolve()) }, 50) } }, [params, stored, apiKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  const runOneRef = useRef<(t: AgentTest) => Promise<void>>(async () => {})
   const chat = useAgentChat(draft ?? { id: '', name: '', description: '', instructions: '', model: '', tools: [], knowledge: [], samplePrompts: [] })
   useEffect(() => { if (draft && chat.msgs.length > 0 && !draft.testedAt) { touchAgentTested(draft.id); setDraft({ ...draft, testedAt: new Date().toISOString() }) } }, [chat.msgs.length]) // eslint-disable-line react-hooks/exhaustive-deps
   const hasGated = !!draft && draft.tools.some((t) => TOOLS.find((x) => x.name === t)?.write)
@@ -63,6 +70,23 @@ export default function AgentEditor() {
     const n = { ...draft, status: status ?? draft.status, version: dirty || status ? draft.version + 1 : draft.version, updatedAt: new Date().toISOString().slice(0, 10) }
     upsertAgent(n, status === 'live' ? 'Published agent' : status === 'draft' ? 'Unpublished agent' : undefined); setDraft(n)
     setToast(status === 'live' ? 'Published. Available in Chat and workflows.' : status === 'draft' ? 'Unpublished. Saved as a draft.' : `Saved as v${n.version}.`)
+  }
+  const tests: AgentTest[] = draft.tests ?? []
+  const saveTests = (next: AgentTest[]) => { set({ tests: next }); store.setAgentTests(draft.id, next) }
+  const evalCtx = () => ({ key: apiKey, models: profileModels(store), custom: customTools, libraries, onSpend: (c: number) => store.recordSpend(c) })
+  const runOne = async (t: AgentTest) => {
+    if (!apiKey || testing.has(t.id)) return
+    setTesting((x) => new Set([...x, t.id]))
+    try { const last = await runTest(draft, t, evalCtx()); const cur = useApp.getState().agents.find((a) => a.id === draft.id)?.tests ?? draft.tests ?? []; const next = (cur.some((x) => x.id === t.id) ? cur : [...cur, t]).map((x) => (x.id === t.id ? { ...x, last } : x)); store.setAgentTests(draft.id, next); setDraft((d) => (d ? { ...d, tests: (d.tests ?? []).map((x) => (x.id === t.id ? { ...x, last } : x)) } : d)) }
+    finally { setTesting((x) => { const n = new Set(x); n.delete(t.id); return n }) }
+  }
+  runOneRef.current = runOne
+  const runAll = async () => { for (const t of tests.filter((x) => x.prompt.trim() && x.expect.trim())) await runOne(t) }
+  const writeTests = async () => {
+    if (!apiKey) return
+    setWritingTests(true)
+    try { const drafted = await draftTests(draft, evalCtx()); saveTests([...tests, ...drafted.map((t, i) => ({ id: `t${Date.now().toString(36)}${i}`, ...t }))]) } catch { setToast('Could not write tests. Try again.') }
+    finally { setWritingTests(false) }
   }
   const runAssist = async (text: string) => {
     const q = text.trim(); if (!q || assist.busy || !apiKey) return
@@ -194,6 +218,29 @@ export default function AgentEditor() {
               <div><div className="text-[12px] font-semibold mb-1.5">Sample prompts <span className="muted font-normal">· one per line, shown in Chat</span></div><Textarea rows={3} value={draft.samplePrompts.join('\n')} onChange={(e) => set({ samplePrompts: e.target.value.split('\n').filter(Boolean) })} placeholder={'What is our parental leave policy?\nSummarise the latest expense rules'} /></div>
             </>}
 
+            {tab === 'tests' && <>
+              <div className="flex items-start justify-between gap-3"><div><h2 className="display text-[18px] font-bold">Tests</h2><div className="text-[12.5px] muted">Each test is a prompt and what a good answer must do. The agent answers for real, then a model judges it.</div></div>
+                <div className="flex gap-2 shrink-0">{apiKey && <Button size="sm" onClick={writeTests} disabled={writingTests}>{writingTests ? <Loader2 size={13} className="animate-spin" /> : <SparklesIcon size={13} />} Write tests for me</Button>}<Button size="sm" variant="primary" onClick={runAll} disabled={!apiKey || testing.size > 0 || !tests.some((t) => t.prompt.trim() && t.expect.trim())}>{testing.size > 0 ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />} Run all</Button></div></div>
+              {tests.length > 0 && (() => { const ran = tests.filter((t) => t.last); const passed = ran.filter((t) => t.last!.pass).length; return <div className="flat p-3 flex items-center gap-3 text-[12.5px]"><span className={cx('w-2.5 h-2.5 rounded-full', ran.length === 0 ? 'bg-[var(--muted)]' : passed === ran.length ? 'bg-[var(--ok)]' : 'bg-[var(--danger)]')} /><span className="font-semibold">{ran.length === 0 ? 'Not run yet' : `${passed} of ${ran.length} passed`}</span><span className="muted">{ran.length ? `· last run ${ran[ran.length - 1].last!.at} · $${ran.reduce((a, t) => a + (t.last?.cost ?? 0), 0).toFixed(3)}` : `· ${tests.length} test${tests.length === 1 ? '' : 's'}`}</span></div> })()}
+              <div className="flex flex-col gap-2">
+                {tests.map((t) => { const busy = testing.has(t.id); const r = t.last; return (
+                  <div key={t.id} className={cx('flat p-3 flex flex-col gap-2', r && !busy && (r.pass ? 'border-[color-mix(in_srgb,var(--ok)_40%,var(--line))]' : 'border-[color-mix(in_srgb,var(--danger)_40%,var(--line))]'))}>
+                    <div className="grid sm:grid-cols-2 gap-2">
+                      <div><div className="text-[11px] font-semibold muted mb-1">Prompt</div><Textarea rows={2} value={t.prompt} onChange={(e) => set({ tests: tests.map((x) => (x.id === t.id ? { ...x, prompt: e.target.value } : x)) })} placeholder="What a user would ask" /></div>
+                      <div><div className="text-[11px] font-semibold muted mb-1">A good answer must…</div><Textarea rows={2} value={t.expect} onChange={(e) => set({ tests: tests.map((x) => (x.id === t.id ? { ...x, expect: e.target.value } : x)) })} placeholder="e.g. cite the handbook and offer to escalate" /></div>
+                    </div>
+                    <div className="flex items-center gap-2 text-[12px]">
+                      {busy ? <span className="inline-flex items-center gap-1.5 muted"><Loader2 size={12} className="animate-spin" /> Running…</span> : r ? <span className={cx('inline-flex items-center gap-1.5 font-semibold', r.pass ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>{r.pass ? <Check size={13} /> : <X size={13} />} {r.pass ? 'Pass' : 'Fail'}<span className="muted font-normal">· {r.reason}</span></span> : <span className="muted">Not run yet</span>}
+                      <div className="flex-1" />
+                      {r && !busy && <details className="text-[11.5px]"><summary className="cursor-pointer muted hover:text-[var(--text)]">Answer · {(r.ms / 1000).toFixed(1)}s · ${r.cost.toFixed(4)}</summary><div className="flat p-2 mt-1 max-h-[200px] overflow-auto whitespace-pre-wrap muted">{r.output}</div></details>}
+                      <Button type="button" size="sm" onClick={() => runOne(t)} disabled={!apiKey || busy || !t.prompt.trim() || !t.expect.trim()}><Play size={12} /> Run</Button>
+                      <button type="button" onClick={() => saveTests(tests.filter((x) => x.id !== t.id))} className="btn btn-ghost btn-sm btn-icon" title="Remove test" aria-label="Remove test"><Trash2 size={13} /></button>
+                    </div>
+                  </div>
+                ) })}
+                <button type="button" onClick={() => saveTests([...tests, { id: `t${Date.now().toString(36)}`, prompt: '', expect: '' }])} className="flat p-3 text-[12.5px] font-medium muted hover:text-[var(--text)] inline-flex items-center gap-1.5 justify-center border-dashed"><Plus size={13} /> Add a test</button>
+              </div>
+            </>}
             {tab === 'versions' && <>
               <div><h2 className="display text-[18px] font-bold">Versions</h2><div className="text-[12.5px] muted">Every save is a version. Restore any time; the earlier version becomes a new one.</div></div>
               <div className="flat divide-y divide-[var(--line)]">

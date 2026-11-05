@@ -82,7 +82,7 @@ export default function Agents() {
             <motion.button whileTap={{ scale: 0.9 }} onClick={goAsk} className="btn btn-primary btn-icon !rounded-full !w-9 !h-9" title="Start"><ArrowUp size={16} /></motion.button>
           </div>
           <div className={cx('flex flex-wrap gap-1.5', agents.length === 0 ? 'mt-4' : 'mt-2')}>
-            {starts.map((s) => <button key={s.label} onClick={() => nav(s.tpl ? `/agents/new?template=${s.tpl}` : '/agents/new')} className="chip !h-8 !pl-1.5 hover:text-[var(--text)]"><span className="w-5 h-5 rounded-[6px] grid place-items-center text-white" style={{ background: s.color }}><s.icon size={11} /></span>{s.label}</button>)}
+            {starts.map((s) => <button key={s.label} onClick={() => nav(s.tpl ? `/agents/new?template=${s.tpl}` : '/agents/new?mode=manual')} className="chip !h-8 !pl-1.5 hover:text-[var(--text)]"><span className="w-5 h-5 rounded-[6px] grid place-items-center text-white" style={{ background: s.color }}><s.icon size={11} /></span>{s.label}</button>)}
           </div>
         </div>
       )}

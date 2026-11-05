@@ -66,6 +66,7 @@ export const readiness = (a: Agent, opts: { tested?: boolean } = {}): Readiness 
     { id: 'knowledge', label: 'Attach knowledge if it searches your knowledge', ok: !a.tools.includes('search_knowledge') || a.knowledge.length > 0, fixable: false },
     { id: 'prompts', label: 'Add two or three sample prompts', ok: a.samplePrompts.length >= 2, fixable: true },
     { id: 'tested', label: 'Try it once in Test drive', ok: !!opts.tested, fixable: false },
+    { id: 'tests', label: 'Add tests and pass them', ok: (a.tests?.length ?? 0) > 0 && a.tests!.every((t) => t.last?.pass), fixable: false },
   ]
   if (gated && a.autonomy === 1) items.push({ id: 'gated', label: 'Independence is Inform, so gated abilities are off', ok: false, fixable: false })
   return { score: items.filter((i) => i.ok).length, total: items.length, items }

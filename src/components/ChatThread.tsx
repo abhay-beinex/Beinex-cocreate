@@ -1,15 +1,17 @@
-// Shared chat thread + composer used by Chat and the agent preview. Runs agents with tools.
-import { useEffect, useRef, useState } from 'react'
+// Shared chat thread + composer used by Chat and the agent preview. Runs agents with tools; answers carry actions and sources.
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowUp, Square, Sparkles, Wrench, Check, ShieldCheck, KeyRound } from 'lucide-react'
+import { ArrowUp, Square, Sparkles, Wrench, Check, ShieldCheck, KeyRound, Copy, FilePlus, Workflow as WorkflowIcon, Paperclip, X, Link2 } from 'lucide-react'
 import { useApp, useUser, profileModels, type ChatMsg } from '@/store/app'
 import { runAgentTurn } from '@/lib/agentRun'
 import { TOOLS } from '@/lib/tools'
 import type { Autonomy } from '@/lib/data'
 import { Avatar, Tile, cx } from './ui'
+import { AgentAvatar } from './AgentAvatar'
 import { Md } from './Md'
 
-export type AgentLike = { id: string; name: string; description: string; instructions: string; model: string; tools: string[]; knowledge: string[]; samplePrompts: string[]; autonomy?: Autonomy }
+export type AgentLike = { id: string; name: string; description: string; instructions: string; model: string; tools: string[]; knowledge: string[]; samplePrompts: string[]; autonomy?: Autonomy; icon?: string; color?: string }
+export type Attachment = { name: string; text: string }
 
 export function useAgentChat(agent: AgentLike, storeKey?: string) {
   const s = useApp()
@@ -19,9 +21,10 @@ export function useAgentChat(agent: AgentLike, storeKey?: string) {
   const [busy, setBusy] = useState(false)
   const abort = useRef<AbortController | null>(null)
 
-  const send = async (text: string, model?: string) => {
-    const content = text.trim(); if (!content || busy) return
-    const user: ChatMsg = { id: crypto.randomUUID(), role: 'user', content, at: Date.now() }
+  const send = async (text: string, model?: string, files: Attachment[] = []) => {
+    const shown = text.trim(); if ((!shown && !files.length) || busy) return
+    const content = shown + files.map((f) => `\n\nAttached file "${f.name}":\n\`\`\`\n${f.text.slice(0, 60_000)}\n\`\`\``).join('')
+    const user: ChatMsg = { id: crypto.randomUUID(), role: 'user', content, display: files.length ? shown || `Attached ${files.map((f) => f.name).join(', ')}` : undefined, files: files.map((f) => f.name), at: Date.now() }
     const asst: ChatMsg = { id: crypto.randomUUID(), role: 'assistant', content: '', tools: [], at: Date.now() }
     const history = [...msgs, user]
     save([...history, asst])
@@ -54,38 +57,60 @@ export function useAgentChat(agent: AgentLike, storeKey?: string) {
   return { msgs, send, busy, stop: () => abort.current?.abort(), clear: () => save([]) }
 }
 
-export function Thread({ msgs, agent, compact, onPrompt }: { msgs: ChatMsg[]; agent: AgentLike; compact?: boolean; onPrompt?: (p: string) => void }) {
+const urlsIn = (s: string) => Array.from(new Set((s.match(/https?:\/\/[^\s)\]>"']+/g) ?? []).map((u) => u.replace(/[.,;:]+$/, ''))))
+
+export function Thread({ msgs, agent, compact, onPrompt, onAction, emptyExtra }: { msgs: ChatMsg[]; agent: AgentLike; compact?: boolean; onPrompt?: (p: string) => void; onAction?: (a: 'save' | 'workflow', m: ChatMsg, question?: string) => void; emptyExtra?: React.ReactNode }) {
   const bottom = useRef<HTMLDivElement>(null)
   const apiKey = useApp((s) => s.apiKey)
   const user = useUser()
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs.length, msgs[msgs.length - 1]?.content.length, msgs[msgs.length - 1]?.tools?.length])
 
   return (
-    <div className={cx('flex flex-col gap-5', compact ? 'px-4 py-4' : 'max-w-[720px] mx-auto px-5 py-6')}>
+    <div className={cx('flex flex-col gap-5', compact ? 'px-4 py-4' : 'max-w-[760px] mx-auto px-5 py-6')}>
       {msgs.length === 0 && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={cx('text-center', compact ? 'pt-10' : 'pt-16')}>
-          <motion.div animate={{ y: [0, -4, 0] }} transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}><Tile color="#10385b" size={44} radius={14} className="mx-auto mb-4"><Sparkles size={20} /></Tile></motion.div>
-          <h2 className="display text-[18px] font-bold">{compact ? 'Try it' : 'How can I help?'}</h2>
-          {!compact && <p className="muted text-[12.5px] mt-1">{agent.description}</p>}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={cx('text-center', compact ? 'pt-10' : 'pt-14')}>
+          <motion.div animate={{ y: [0, -4, 0] }} transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}>{agent.id === 'assistant' ? <Tile color="#10385b" size={48} radius={15} className="mx-auto mb-4"><Sparkles size={22} /></Tile> : <AgentAvatar name={agent.name} icon={agent.icon} color={agent.color} size={48} className="mx-auto mb-4" />}</motion.div>
+          <h2 className="display text-[20px] font-bold">{compact ? 'Try it' : agent.id === 'assistant' ? 'How can I help?' : agent.name}</h2>
+          {!compact && <p className="muted text-[13px] mt-1 max-w-[460px] mx-auto">{agent.description}</p>}
           {!apiKey && <div className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] font-medium text-[var(--warn)]"><KeyRound size={13} /> Models are not available right now. Contact your administrator.</div>}
-          {onPrompt && <div className="flex flex-wrap justify-center gap-2 mt-5">{agent.samplePrompts.map((p) => <button key={p} onClick={() => onPrompt(p)} className="btn btn-sm !font-medium">{p}</button>)}</div>}
+          {onPrompt && agent.samplePrompts.length > 0 && <div className="flex flex-wrap justify-center gap-2 mt-6">{agent.samplePrompts.slice(0, 4).map((p) => <button key={p} onClick={() => onPrompt(p)} className="btn btn-sm !font-medium !h-9 max-w-[320px] truncate">{p}</button>)}</div>}
+          {emptyExtra}
         </motion.div>
       )}
       <AnimatePresence initial={false}>
-        {msgs.map((m) => (
-          <motion.div key={m.id} initial={{ opacity: 0, y: 10, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.3 }} className={cx('flex gap-3', m.role === 'user' && 'justify-end')}>
-            {m.role === 'assistant' && <Tile color="#10385b" size={28} radius={9} className="mt-0.5"><Sparkles size={13} /></Tile>}
-            <div className={cx('min-w-0 text-[13.5px] leading-relaxed', m.role === 'user' ? 'max-w-[75%] px-4 py-2.5 rounded-[18px] rounded-br-[6px] bg-[var(--surface-2)] border hairline whitespace-pre-wrap' : 'flex-1 pt-1', m.error && 'text-[var(--danger)]')}>
-              {m.role === 'assistant' && (m.tools?.length ?? 0) > 0 && <div className="flex flex-col gap-1.5 mb-2">{m.tools!.map((t, i) => <ToolCard key={i} name={t.name} args={t.args} result={t.result} compact={compact} />)}</div>}
-              {m.role === 'assistant' ? (m.content ? <Md>{m.content}</Md> : !m.tools?.length || m.tools.every((t) => t.result) ? <Typing /> : null) : m.content}
-            </div>
-            {m.role === 'user' && <Avatar initials={user?.initials ?? 'You'} size={28} className="mt-0.5" />}
-          </motion.div>
-        ))}
+        {msgs.map((m, i) => {
+          const question = m.role === 'assistant' ? [...msgs.slice(0, i)].reverse().find((x) => x.role === 'user') : undefined
+          const sources = m.role === 'assistant' && m.content && !compact ? urlsIn(m.content).slice(0, 6) : []
+          const done = m.role === 'assistant' && !!m.content && (!m.tools?.length || m.tools.every((t) => t.result))
+          return (
+            <motion.div key={m.id} initial={{ opacity: 0, y: 10, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.3 }} className={cx('flex gap-3 group', m.role === 'user' && 'justify-end')}>
+              {m.role === 'assistant' && (agent.id === 'assistant' || compact ? <Tile color="#10385b" size={28} radius={9} className="mt-0.5"><Sparkles size={13} /></Tile> : <AgentAvatar name={agent.name} icon={agent.icon} color={agent.color} size={28} radius={9} className="mt-0.5" />)}
+              <div className={cx('min-w-0 text-[13.5px] leading-relaxed', m.role === 'user' ? 'max-w-[75%] px-4 py-2.5 rounded-[18px] rounded-br-[6px] bg-[var(--surface-2)] border hairline whitespace-pre-wrap' : 'flex-1 pt-1', m.error && 'text-[var(--danger)]')}>
+                {m.role === 'assistant' && (m.tools?.length ?? 0) > 0 && <div className="flex flex-col gap-1.5 mb-2">{m.tools!.map((t, j) => <ToolCard key={j} name={t.name} args={t.args} result={t.result} compact={compact} />)}</div>}
+                {m.role === 'assistant' ? (m.content ? <Md>{m.content}</Md> : !m.tools?.length || m.tools.every((t) => t.result) ? <Typing /> : null) : (m.display ?? m.content)}
+                {m.role === 'user' && m.files && m.files.length > 0 && <div className="flex flex-wrap gap-1.5 mt-2">{m.files.map((f) => <span key={f} className="chip !h-6 !text-[11px]"><Paperclip size={10} /> {f}</span>)}</div>}
+                {sources.length > 0 && <div className="flex flex-wrap gap-1.5 mt-3">{sources.map((u) => { let host = u; try { host = new URL(u).hostname.replace(/^www\./, '') } catch { /* keep */ } return <a key={u} href={u} target="_blank" rel="noreferrer" className="chip !h-6 !text-[11px] hover:text-[var(--text)] max-w-[220px]"><Link2 size={10} /><span className="truncate">{host}</span></a> })}</div>}
+                {done && !compact && !m.error && (
+                  <div className="flex items-center gap-1 mt-2 -ml-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                    <Action icon={Copy} label="Copy" onClick={() => navigator.clipboard?.writeText(m.content)} />
+                    {onAction && <Action icon={FilePlus} label="Save as document" onClick={() => onAction('save', m, question?.display ?? question?.content)} />}
+                    {onAction && <Action icon={WorkflowIcon} label="Turn into a workflow" onClick={() => onAction('workflow', m, question?.display ?? question?.content)} />}
+                  </div>
+                )}
+              </div>
+              {m.role === 'user' && <Avatar initials={user?.initials ?? 'You'} size={28} className="mt-0.5" />}
+            </motion.div>
+          )
+        })}
       </AnimatePresence>
       <div ref={bottom} />
     </div>
   )
+}
+
+function Action({ icon: I, label, onClick }: { icon: typeof Copy; label: string; onClick: () => void }) {
+  const [did, setDid] = useState(false)
+  return <button onClick={() => { onClick(); setDid(true); setTimeout(() => setDid(false), 1500) }} className="h-7 px-2 rounded-[8px] text-[11.5px] font-medium muted hover:text-[var(--text)] hover:bg-[var(--clay-dark)] inline-flex items-center gap-1.5" title={label}>{did ? <Check size={12} className="text-[var(--ok)]" /> : <I size={12} />} {did && label === 'Copy' ? 'Copied' : label}</button>
 }
 
 function summarise(name: string, args: string, result?: string) {
@@ -103,9 +128,10 @@ function ToolCard({ name, args, result, compact }: { name: string; args: string;
   const custom = useApp((s) => s.customTools.find((t) => t.name === name))
   const meta = TOOLS.find((t) => t.name === name)
   const gated = meta?.write
+  const label = custom ? `${custom.label} · ${(() => { try { return Object.values(JSON.parse(args)).join(', ').slice(0, 80) } catch { return '' } })()}` : summarise(name, args, result)
   if (compact) return (
     <button onClick={() => setOpen((o) => !o)} className="text-left">
-      <span className={cx('inline-flex items-center gap-2 text-[12px] px-2.5 h-7 rounded-[9px] pressed', gated ? 'text-[var(--warn)]' : 'muted')}>{gated ? <ShieldCheck size={12} /> : <Wrench size={12} />}<span className="truncate max-w-[320px]">{summarise(name, args, result)}</span>{!result && <motion.span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)]" animate={{ opacity: [1, 0.3, 1] }} transition={{ repeat: Infinity, duration: 1 }} />}</span>
+      <span className={cx('inline-flex items-center gap-2 text-[12px] px-2.5 h-7 rounded-[9px] pressed', gated ? 'text-[var(--warn)]' : 'muted')}>{gated ? <ShieldCheck size={12} /> : <Wrench size={12} />}<span className="truncate max-w-[320px]">{label}</span>{!result && <motion.span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)]" animate={{ opacity: [1, 0.3, 1] }} transition={{ repeat: Infinity, duration: 1 }} />}</span>
       {open && result && <pre className="mt-1.5 text-[11px] muted whitespace-pre-wrap max-h-40 overflow-auto flat p-2">{result.slice(0, 2000)}</pre>}
     </button>
   )
@@ -113,7 +139,7 @@ function ToolCard({ name, args, result, compact }: { name: string; args: string;
     <motion.div layout initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} className="flat overflow-hidden">
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-3 h-9 text-[12px] text-left">
         <span className={cx('w-5 h-5 rounded-[6px] grid place-items-center', gated ? 'bg-[color-mix(in_srgb,var(--warn)_18%,transparent)] text-[var(--warn)]' : 'bg-[color-mix(in_srgb,var(--accent)_16%,transparent)] accent-ink')}>{gated ? <ShieldCheck size={12} /> : <Wrench size={12} />}</span>
-        <span className="font-medium truncate flex-1">{custom ? `${custom.label} · ${(() => { try { return Object.values(JSON.parse(args)).join(', ').slice(0, 80) } catch { return '' } })()}` : summarise(name, args, result)}</span>
+        <span className="font-medium truncate flex-1">{label}</span>
         {result ? <Check size={13} className="text-[var(--ok)]" /> : <motion.span className="w-2 h-2 rounded-full bg-[var(--accent)]" animate={{ opacity: [1, 0.3, 1] }} transition={{ repeat: Infinity, duration: 1 }} />}
       </button>
       {open && (name === 'draft_email' ? <div className="px-3 pb-3 text-[12px] whitespace-pre-wrap max-h-60 overflow-auto">{(() => { try { const a = JSON.parse(args); return `To: ${a.to}\nSubject: ${a.subject}\n\n${a.body}` } catch { return args } })()}</div> : <pre className="px-3 pb-3 text-[11px] muted whitespace-pre-wrap max-h-48 overflow-auto">{result ?? 'Running…'}</pre>)}
@@ -126,15 +152,25 @@ export const Typing = () => (
   <span className="inline-flex gap-1 items-center h-5">{[0, 0.15, 0.3].map((d) => <motion.i key={d} className="w-1.5 h-1.5 rounded-full bg-[var(--muted)] block" animate={{ y: [0, -4, 0] }} transition={{ repeat: Infinity, duration: 0.8, delay: d }} />)}</span>
 )
 
-export function Composer({ onSend, busy, onStop, placeholder, right }: { onSend: (t: string) => void; busy: boolean; onStop: () => void; placeholder: string; right?: React.ReactNode }) {
+export function Composer({ onSend, busy, onStop, placeholder, left, right, attach }: { onSend: (t: string, files: Attachment[]) => void; busy: boolean; onStop: () => void; placeholder: string; left?: React.ReactNode; right?: React.ReactNode; attach?: boolean }) {
   const [v, setV] = useState('')
-  const submit = () => { if (v.trim()) { onSend(v); setV('') } }
+  const [files, setFiles] = useState<Attachment[]>([])
+  const fileRef = useRef<HTMLInputElement>(null)
+  const ta = useRef<HTMLTextAreaElement>(null)
+  const submit = () => { if (v.trim() || files.length) { onSend(v, files); setV(''); setFiles([]); if (ta.current) ta.current.style.height = 'auto' } }
+  const pick = async (list: FileList | null) => { if (!list) return; const out: Attachment[] = []; for (const f of Array.from(list)) { if (f.size > 1_500_000) { alert(`${f.name} is over 1.5 MB. Paste the relevant part instead.`); continue } out.push({ name: f.name, text: await f.text() }) } setFiles((x) => [...x, ...out]) }
+  const total = useMemo(() => files.reduce((a, f) => a + f.text.length, 0), [files])
   return (
-    <div className="flat p-1.5 pl-4 flex items-end gap-2">
-      <textarea value={v} onChange={(e) => setV(e.target.value)} rows={1} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }} placeholder={placeholder} className="flex-1 bg-transparent outline-0 resize-none text-[13.5px] py-2.5 max-h-40 scroll" />
-      {right}
-      {busy ? <button onClick={onStop} className="btn btn-icon !rounded-full !w-9 !h-9"><Square size={14} /></button>
-        : <motion.button whileTap={{ scale: 0.9 }} onClick={submit} disabled={!v.trim()} className="btn btn-primary btn-icon !rounded-full !w-9 !h-9"><ArrowUp size={16} /></motion.button>}
+    <div className="flat p-1.5 pl-2 flex flex-col gap-1 focus-within:border-[var(--accent)] transition-colors">
+      {files.length > 0 && <div className="flex flex-wrap gap-1.5 px-1 pt-1">{files.map((f) => <span key={f.name} className="chip !h-6 !text-[11px]"><Paperclip size={10} /> {f.name} <span className="muted">· {Math.round(f.text.length / 1000)}k</span><button onClick={() => setFiles((x) => x.filter((y) => y !== f))} className="ml-0.5 hover:text-[var(--danger)]" aria-label={`Remove ${f.name}`}><X size={10} /></button></span>)}{total > 60_000 && <span className="text-[11px] text-[var(--warn)]">Only the first 60k characters of each file are sent.</span>}</div>}
+      <div className="flex items-end gap-1.5">
+        {left}
+        <textarea ref={ta} value={v} onChange={(e) => { setV(e.target.value); e.target.style.height = 'auto'; e.target.style.height = `${Math.min(e.target.scrollHeight, 180)}px` }} rows={1} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }} placeholder={placeholder} aria-label="Message" className="flex-1 bg-transparent outline-0 resize-none text-[13.5px] py-2.5 px-1.5 max-h-[180px] scroll" />
+        {attach && <><button onClick={() => fileRef.current?.click()} className="btn btn-ghost btn-sm btn-icon !h-9 !w-9" title="Attach a text file (.txt, .md, .csv, .json)" aria-label="Attach a file"><Paperclip size={15} /></button><input ref={fileRef} type="file" multiple accept=".txt,.md,.csv,.json,.html,.htm,text/*" className="hidden" onChange={(e) => { pick(e.target.files); e.target.value = '' }} /></>}
+        {right}
+        {busy ? <button onClick={onStop} className="btn btn-icon !rounded-full !w-9 !h-9" title="Stop" aria-label="Stop"><Square size={14} /></button>
+          : <motion.button whileTap={{ scale: 0.9 }} onClick={submit} disabled={!v.trim() && !files.length} className="btn btn-primary btn-icon !rounded-full !w-9 !h-9" title="Send" aria-label="Send"><ArrowUp size={16} /></motion.button>}
+      </div>
     </div>
   )
 }
