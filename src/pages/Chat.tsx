@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Sparkles, Plus, ChevronDown, Users } from 'lucide-react'
 import { useApp } from '@/store/app'
 import { Tile, colorFor, cx, SearchBox } from '@/components/ui'
+import { AgentAvatar } from '@/components/AgentAvatar'
 import { Page } from '@/components/motion'
 import { Thread, Composer, useAgentChat, type AgentLike } from '@/components/ChatThread'
 import { BRAND, GOVERNED } from '@/lib/data'
@@ -31,7 +32,7 @@ export default function Chat() {
   const sentQ = useRef<string | null>(null)
   useEffect(() => { const q = params.get('q'); if (q && sentQ.current !== q) { sentQ.current = q; setParams({}, { replace: true }); chat.send(q, activeModel) } }, [params]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const list = [{ id: 'assistant', name: ASSISTANT.name }, ...agents.map((a) => ({ id: a.id, name: a.name }))].filter((a) => a.name.toLowerCase().includes(filter.toLowerCase()))
+  const list = [{ id: 'assistant', name: ASSISTANT.name, icon: undefined as string | undefined, color: undefined as string | undefined, status: 'live' }, ...agents.filter((a) => a.status === 'live' || a.id === agentId).map((a) => ({ id: a.id, name: a.name, icon: a.icon, color: a.color, status: a.status }))].filter((a) => a.name.toLowerCase().includes(filter.toLowerCase()))
 
   return (
     <Page className="h-full grid grid-cols-[240px_1fr] gap-3">
@@ -40,11 +41,11 @@ export default function Chat() {
         <div className="flex flex-col gap-0.5 scroll min-h-0">
           {list.map((a) => (
             <button key={a.id} onClick={() => nav(a.id === 'assistant' ? '/chat' : `/chat/${a.id}`)} className={cx('flex items-center gap-2.5 px-2 h-10 rounded-[10px] text-left hover:bg-[var(--clay-dark)]', key === a.id && 'bg-[var(--surface-2)] shadow-[0_1px_2px_rgba(16,24,40,.06)]')}>
-              <Tile color={a.id === 'assistant' ? '#10385b' : colorFor(a.name)} size={26} radius={8}>{a.id === 'assistant' ? <Sparkles size={13} /> : <span className="text-[11px] font-bold">{a.name[0]}</span>}</Tile>
-              <span className="text-[13px] font-medium truncate">{a.name}</span>
+              {a.id === 'assistant' ? <Tile color="#10385b" size={26} radius={8}><Sparkles size={13} /></Tile> : <AgentAvatar name={a.name} icon={a.icon} color={a.color} size={26} radius={8} />}
+              <span className="text-[13px] font-medium truncate flex-1">{a.name}</span>{a.status === 'draft' && <span className="text-[10.5px] muted">draft</span>}
             </button>
           ))}
-          {agents.length === 0 && <div className="text-[12px] muted px-2 py-3">Your agents appear here.</div>}
+          {agents.filter((a) => a.status === 'live').length === 0 && <div className="text-[12px] muted px-2 py-3">Published agents appear here.</div>}
           {councils.length > 0 && <div className="text-[10.5px] font-semibold uppercase tracking-wider muted px-2 mt-3 mb-1">Councils</div>}
           {councils.map((c) => <button key={c.id} onClick={() => nav(`/agents?tab=councils&open=${c.id}`)} className="flex items-center gap-2.5 px-2 h-10 rounded-[10px] text-left hover:bg-[var(--clay-dark)] muted"><Tile color={colorFor(c.name)} size={26} radius={8}><Users size={13} /></Tile><span className="text-[13px] font-medium truncate">{c.name}</span></button>)}
         </div>

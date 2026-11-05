@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useBlocker } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Sparkles, ArrowUp, Trash2, Lock, ChevronDown, ChevronRight, RotateCcw, Download, Upload, History, Copy, MessageSquare, Zap, Scale, Brain, Check, X, Globe, BookOpen, Send, Code2 } from 'lucide-react'
-import { useApp, useUser, can, profileModels } from '@/store/app'
+import { ArrowLeft, Sparkles, ArrowUp, Trash2, Lock, ChevronDown, ChevronRight, RotateCcw, Download, Upload, History, Copy, MessageSquare, Zap, Scale, Brain, Check, X, Globe, BookOpen, Send, Code2, Workflow as WorkflowIcon } from 'lucide-react'
+import { useApp, useUser, can } from '@/store/app'
 import { BRAND, MODEL_PROFILES, type Agent, type Autonomy } from '@/lib/data'
 import { streamChat, listModels } from '@/lib/openrouter'
 import { TOOLS } from '@/lib/tools'
-import { Button, Chip, Field, Input, Textarea, Select, Segmented, Toggle, Tile, colorFor, cx } from '@/components/ui'
+import { Button, Chip, Confirm, Field, Input, Textarea, Select, Segmented, Toggle, cx } from '@/components/ui'
 import { Page } from '@/components/motion'
 import { Thread, Composer, useAgentChat } from '@/components/ChatThread'
+import { AgentAvatar, AvatarPicker } from '@/components/AgentAvatar'
 
 const download = (name: string, data: string) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' })); a.download = name; a.click() }
 const ASSISTANT_NAME = `${BRAND.name} Assistant`
@@ -31,24 +32,34 @@ export default function AgentEditor() {
   const nav = useNavigate()
   const user = useUser()!
   const store = useApp()
-  const { agents, upsertAgent, rollbackAgent, deleteAgent, apiKey, defaultModel, models, setModels, libraries, customTools, profiles } = store
+  const { agents, workflows, upsertAgent, rollbackAgent, deleteAgent, apiKey, defaultModel, models, setModels, libraries, customTools, profiles } = store
   const stored = agents.find((a) => a.id === agentId)
   const [draft, setDraft] = useState<Agent | undefined>(stored)
   const [advanced, setAdvanced] = useState(false)
+  const [avatarOpen, setAvatarOpen] = useState(false)
   const [assist, setAssist] = useState<{ open: boolean; input: string; busy: boolean; log: { role: 'user' | 'assistant'; text: string }[] }>({ open: false, input: '', busy: false, log: [] })
+  const [confirm, setConfirm] = useState<null | { kind: 'delete' } | { kind: 'rollback'; version: number } | { kind: 'publish' } | { kind: 'unpublish' }>(null)
+  const [toast, setToast] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
   const editable = can(user, 'build')
 
   useEffect(() => { if (stored && (!draft || (stored.version > (draft?.version ?? 0)))) setDraft(stored) }, [stored]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!models.length && apiKey) listModels(apiKey).then(setModels).catch(() => {}) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(''), 2400); return () => clearTimeout(t) }, [toast])
   const chat = useAgentChat(draft ?? { id: '', name: '', description: '', instructions: '', model: '', tools: [], knowledge: [], samplePrompts: [] })
   useEffect(() => { if (draft && draft.autonomy === 3 && draft.tools.some((t) => TOOLS.find((x) => x.name === t)?.write)) setDraft({ ...draft, autonomy: 2 }) }, [draft])
+
+  const dirty = !!draft && !!stored && JSON.stringify({ ...draft, history: undefined }) !== JSON.stringify({ ...stored, history: undefined })
+  const blocker = useBlocker(dirty)
+  useEffect(() => { const h = (e: BeforeUnloadEvent) => { if (dirty) { e.preventDefault(); e.returnValue = '' } }; window.addEventListener('beforeunload', h); return () => window.removeEventListener('beforeunload', h) }, [dirty])
+  useEffect(() => { const h = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') { e.preventDefault(); if (dirty && editable) save() } }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h) })
 
   const issues = useMemo(() => {
     if (!draft) return []
     const out: string[] = []
+    if (!draft.name.trim() || draft.name === 'New agent') out.push('Give the agent a real name.')
     if (!draft.description) out.push('Add a one-line description so people know when to use this agent.')
-    if (draft.instructions.trim().length < 80) out.push('Instructions are short. Say what the agent is for, how it should answer, and what it must not do.')
+    if (draft.instructions.trim().length < 80) out.push('Instructions are short. Say what the agent is for, how it answers, and what it must not do.')
     if (!/unsure|ask|missing|uncertain|escalat/i.test(draft.instructions)) out.push('Say what the agent should do when it is unsure or information is missing.')
     if (draft.tools.includes('search_knowledge') && draft.knowledge.length === 0) out.push('Knowledge search is on but no library is attached.')
     if (draft.tools.length === 0) out.push('No tools: the agent can only answer from its instructions and knowledge.')
@@ -60,8 +71,13 @@ export default function AgentEditor() {
   if (!draft) return <div className="muted p-8">Agent not found.</div>
   const set = (p: Partial<Agent>) => setDraft((d) => (d ? { ...d, ...p } : d))
   const hasWrite = draft.tools.some((t) => TOOLS.find((x) => x.name === t)?.write)
-  const dirty = JSON.stringify({ ...draft, history: undefined }) !== JSON.stringify({ ...stored, history: undefined })
-  const save = (status?: Agent['status']) => { const n = { ...draft, status: status ?? draft.status, version: dirty || status ? draft.version + 1 : draft.version, updatedAt: new Date().toISOString().slice(0, 10) }; upsertAgent(n, status === 'live' ? 'Published agent' : status === 'draft' ? 'Unpublished agent' : undefined); setDraft(n) }
+  const usedBy = workflows.filter((w) => w.nodes.some((n) => n.data.agentId === draft.id))
+  function save(status?: Agent['status']) {
+    if (!draft) return
+    const n = { ...draft, status: status ?? draft.status, version: dirty || status ? draft.version + 1 : draft.version, updatedAt: new Date().toISOString().slice(0, 10) }
+    upsertAgent(n, status === 'live' ? 'Published agent' : status === 'draft' ? 'Unpublished agent' : undefined); setDraft(n)
+    setToast(status === 'live' ? 'Published. The agent is available in Chat and workflows.' : status === 'draft' ? 'Unpublished. Saved as a draft.' : `Saved as v${n.version}.`)
+  }
   const modelName = (id: string) => models.find((m) => m.id === id)?.name ?? id
   const toolModels = models.filter((m) => m.supported_parameters?.includes('tools'))
 
@@ -85,7 +101,7 @@ export default function AgentEditor() {
       setAssist((a) => ({ ...a, busy: false, log: [...a.log, { role: 'assistant', text: (j.note ?? 'Updated.') + (Object.keys(patch).length ? ` (changed: ${Object.keys(patch).join(', ')})` : '') }] }))
     } catch { setAssist((a) => ({ ...a, busy: false, log: [...a.log, { role: 'assistant', text: acc.slice(0, 300) || 'I could not apply that. Try rephrasing.' }] })) }
   }
-  const importJson = (f: File) => { const r = new FileReader(); r.onload = () => { try { const j = JSON.parse(String(r.result)); set({ name: j.name ?? draft.name, description: j.description ?? draft.description, instructions: j.instructions ?? draft.instructions, model: j.model ?? draft.model, tools: Array.isArray(j.tools) ? j.tools : draft.tools, knowledge: Array.isArray(j.knowledge) ? j.knowledge : draft.knowledge, autonomy: j.autonomy ?? draft.autonomy, samplePrompts: Array.isArray(j.samplePrompts) ? j.samplePrompts : draft.samplePrompts }) } catch { alert('That file is not a valid agent export.') } }; r.readAsText(f) }
+  const importJson = (f: File) => { const r = new FileReader(); r.onload = () => { try { const j = JSON.parse(String(r.result)); set({ name: j.name ?? draft.name, description: j.description ?? draft.description, instructions: j.instructions ?? draft.instructions, model: j.model ?? draft.model, tools: Array.isArray(j.tools) ? j.tools : draft.tools, knowledge: Array.isArray(j.knowledge) ? j.knowledge : draft.knowledge, autonomy: j.autonomy ?? draft.autonomy, samplePrompts: Array.isArray(j.samplePrompts) ? j.samplePrompts : draft.samplePrompts, icon: j.icon ?? draft.icon, color: j.color ?? draft.color }); setToast('Imported. Review and save.') } catch { setToast('That file is not a valid agent export.') } }; r.readAsText(f) }
   const duplicate = () => { const id = `agent-${Date.now().toString(36)}`; upsertAgent({ ...draft, id, name: `${draft.name} (copy)`, status: 'draft', version: 1, history: undefined, createdBy: user.id, updatedAt: new Date().toISOString().slice(0, 10) }); nav(`/agents/${id}`) }
 
   const cats = ['Web', 'Reasoning', 'Knowledge', 'Actions'] as const
@@ -94,26 +110,29 @@ export default function AgentEditor() {
 
   return (
     <Page className="h-full flex flex-col gap-3">
-      <header className="clay h-14 px-3 flex items-center gap-2 shrink-0">
-        <button onClick={() => nav('/agents')} className="btn btn-ghost btn-icon"><ArrowLeft size={16} /></button>
-        <Tile color={colorFor(draft.name)} size={32} radius={10}><Sparkles size={15} /></Tile>
-        <div className="flex flex-col leading-tight">
-          <input value={draft.name} onChange={(e) => set({ name: e.target.value })} disabled={!editable} placeholder="Agent name" className="font-semibold text-[14px] bg-transparent outline-0 w-[280px]" />
-          <span className="text-[11px] muted">{draft.status === 'live' ? 'Live' : 'Draft'} · v{draft.version}{draft.updatedAt ? ` · updated ${draft.updatedAt}` : ''}{dirty ? ' · unsaved changes' : ''}</span>
+      <header className="clay h-14 px-3 flex items-center gap-2 shrink-0 relative">
+        <button onClick={() => nav('/agents')} className="btn btn-ghost btn-icon" title="Back to agents"><ArrowLeft size={16} /></button>
+        <div className="relative">
+          <button onClick={() => editable && setAvatarOpen((o) => !o)} title="Change icon and colour" className="rounded-[10px] hover:ring-2 ring-[var(--accent)] transition-all"><AgentAvatar name={draft.name} icon={draft.icon} color={draft.color} size={34} radius={10} /></button>
+          <AnimatePresence>{avatarOpen && <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="absolute top-full mt-2 left-0 glass rounded-[16px] p-4 z-30 w-[320px]"><AvatarPicker icon={draft.icon} color={draft.color} onChange={(p) => set(p)} /><div className="flex justify-end mt-3"><Button size="sm" onClick={() => setAvatarOpen(false)}>Done</Button></div></motion.div>}</AnimatePresence>
+        </div>
+        <div className="flex flex-col leading-tight min-w-0">
+          <input value={draft.name} onChange={(e) => set({ name: e.target.value })} disabled={!editable} placeholder="Agent name" className="font-semibold text-[14px] bg-transparent outline-0 w-[300px]" />
+          <span className="text-[11px] muted truncate">{draft.status === 'live' ? 'Live' : 'Draft'} · v{draft.version}{draft.updatedAt ? ` · updated ${draft.updatedAt}` : ''}{usedBy.length ? ` · used in ${usedBy.length} workflow${usedBy.length === 1 ? '' : 's'}` : ''}{dirty ? ' · unsaved changes' : ''}</span>
         </div>
         <div className="flex-1" />
-        {draft.status === 'live' && <Button size="sm" onClick={() => nav(`/chat/${draft.id}`)}><MessageSquare size={13} /> Open in Chat</Button>}
+        <AnimatePresence>{toast && <motion.span initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="text-[12px] font-medium text-[var(--ok)] flex items-center gap-1"><Check size={13} /> {toast}</motion.span>}</AnimatePresence>
+        <Button size="sm" onClick={() => nav(`/chat/${draft.id}`)}><MessageSquare size={13} /> {draft.status === 'live' ? 'Open in Chat' : 'Preview in Chat'}</Button>
         {editable && <Button onClick={() => save()} disabled={!dirty}>Save</Button>}
-        {editable && (draft.status === 'draft' ? <Button variant="primary" onClick={() => save('live')} title="Makes the agent available in Chat and workflows">Publish</Button> : <Button onClick={() => save('draft')}><RotateCcw size={13} /> Unpublish</Button>)}
+        {editable && (draft.status === 'draft' ? <Button variant="primary" onClick={() => (issues.length ? setConfirm({ kind: 'publish' }) : save('live'))}>Publish</Button> : <Button onClick={() => setConfirm({ kind: 'unpublish' })}><RotateCcw size={13} /> Unpublish</Button>)}
       </header>
 
       <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_minmax(380px,0.8fr)] gap-3">
-        <div className="clay scroll">
+        <div className="clay scroll" onClick={() => avatarOpen && setAvatarOpen(false)}>
           <fieldset disabled={!editable} className="max-w-[680px] mx-auto px-6 py-6 flex flex-col gap-4 disabled:opacity-80">
-            {/* assistant */}
             <div className="clay-sm p-3">
               <button type="button" onClick={() => setAssist((a) => ({ ...a, open: !a.open }))} className="w-full flex items-center gap-3 text-left">
-                <Tile color="#10385b" size={32} radius={10}><Sparkles size={15} /></Tile>
+                <span className="w-8 h-8 rounded-[10px] grid place-items-center text-white shrink-0" style={{ background: 'linear-gradient(145deg,#1a4a73,#10385b)' }}><Sparkles size={15} /></span>
                 <div className="flex-1 min-w-0"><div className="text-[13px] font-semibold">{ASSISTANT_NAME}</div><div className="text-[11.5px] muted truncate">{apiKey ? 'Describe a change and the card updates: instructions, tools, sample prompts, name.' : 'Not available right now.'}</div></div>
                 {apiKey && (assist.open ? <ChevronDown size={16} className="muted" /> : <ChevronRight size={16} className="muted" />)}
               </button>
@@ -137,11 +156,9 @@ export default function AgentEditor() {
             <Section n={1} title="What it does" hint="A clear description helps people and the assistant pick this agent.">
               <Input value={draft.description} onChange={(e) => set({ description: e.target.value })} placeholder="e.g. Answers HR policy questions from the handbook and escalates exceptions" />
             </Section>
-
             <Section n={2} title="Instructions" hint="The system prompt. Say what the agent is for, how it answers, and what it must not do." right={<span className="text-[11px] muted tabular-nums">{draft.instructions.length} chars</span>}>
               <Textarea rows={12} value={draft.instructions} onChange={(e) => set({ instructions: e.target.value })} className="!leading-relaxed" />
             </Section>
-
             <Section n={3} title="Model" hint="Pick a profile for a sensible default, or choose any model from the catalog.">
               <div className="flex gap-2 mb-3">
                 {MODEL_PROFILES.map((p) => { const id = profiles.find((x) => x.id === p.id)?.model ?? p.model; const I = profileIcon[p.id]; const on = draft.model === id; return (
@@ -154,7 +171,6 @@ export default function AgentEditor() {
               </div>
               {toolModels.length ? <Select value={draft.model} onChange={(e) => set({ model: e.target.value })}>{!toolModels.some((m) => m.id === draft.model) && <option value={draft.model}>{modelName(draft.model)}</option>}{toolModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</Select> : <Input value={draft.model} onChange={(e) => set({ model: e.target.value })} placeholder="provider/model" />}
             </Section>
-
             <Section n={4} title="Tools" hint="What the agent can do beyond talking. Locked tools take external actions and always wait for a person." right={<Chip>{draft.tools.length} on</Chip>}>
               <div className="flex flex-col gap-3">
                 {[...cats, ...(customTools.length ? (['Custom'] as const) : [])].map((c) => { const I = catIcon[c]; const rows = toolRows.filter((t) => t.cat === c); return (
@@ -172,46 +188,44 @@ export default function AgentEditor() {
                 ) })}
               </div>
             </Section>
-
             <Section n={5} title="Knowledge" hint="Attached libraries are given to the agent and searched by the knowledge tool." right={<Chip>{draft.knowledge.length} attached</Chip>}>
               <div className="flat divide-y divide-[var(--line)]">
                 {libraries.map((l) => <label key={l.id} className="flex items-center gap-3 px-3 h-11 cursor-pointer"><div className="flex-1 min-w-0"><div className="text-[13px] font-medium">{l.name}</div><div className="text-[11.5px] muted">{l.docs.length} document{l.docs.length === 1 ? '' : 's'}</div></div><Toggle checked={draft.knowledge.includes(l.id)} onChange={(v) => set({ knowledge: v ? [...draft.knowledge, l.id] : draft.knowledge.filter((x) => x !== l.id) })} /></label>)}
               </div>
             </Section>
-
             <Section n={6} title="Autonomy" hint={['Notify only: gated tools are switched off; the agent can only inform.', 'Draft for approval: gated actions are queued for a person.', hasWrite ? 'Locked: this agent has gated tools, so it cannot act on its own.' : 'Act within limits: no gated tools, so nothing needs approval.'][draft.autonomy - 1]}>
               <Segmented value={String(draft.autonomy) as '1' | '2' | '3'} onChange={(v) => set({ autonomy: Number(v) as Autonomy })} items={[{ id: '1', label: 'Notify only' }, { id: '2', label: 'Draft for approval' }, { id: '3', label: hasWrite ? 'Act (locked)' : 'Act within limits' }]} />
             </Section>
-
             <Section n={7} title="Sample prompts" hint="Shown as suggestions in Chat and in the preview. One per line.">
               <Textarea rows={3} value={draft.samplePrompts.join('\n')} onChange={(e) => set({ samplePrompts: e.target.value.split('\n').filter(Boolean) })} placeholder={'What is our parental leave policy?\nSummarise the latest expense rules'} />
             </Section>
 
-            {issues.length > 0 && (
-              <div className="flat p-4">
-                <div className="text-[12px] font-semibold mb-2">Before you publish</div>
-                <ul className="flex flex-col gap-1">{issues.map((i) => <li key={i} className="text-[12px] muted flex gap-2"><span className="w-1 h-1 rounded-full bg-[var(--warn)] mt-2 shrink-0" />{i}</li>)}</ul>
-              </div>
-            )}
+            {issues.length > 0 && <div className="flat p-4"><div className="text-[12px] font-semibold mb-2">Before you publish</div><ul className="flex flex-col gap-1">{issues.map((i) => <li key={i} className="text-[12px] muted flex gap-2"><span className="w-1 h-1 rounded-full bg-[var(--warn)] mt-2 shrink-0" />{i}</li>)}</ul></div>}
 
             <div>
-              <button type="button" onClick={() => setAdvanced((a) => !a)} className="text-[12px] font-semibold inline-flex items-center gap-1 muted hover:text-[var(--text)]">{advanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Versions, export and more</button>
+              <button type="button" onClick={() => setAdvanced((a) => !a)} className="text-[12px] font-semibold inline-flex items-center gap-1 muted hover:text-[var(--text)]">{advanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Versions, usage, export and more</button>
               {advanced && (
                 <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="mt-4 flex flex-col gap-5">
+                  <Field label="Used in workflows">
+                    <div className="flat divide-y divide-[var(--line)]">
+                      {usedBy.length === 0 && <div className="px-3 py-3 text-[12px] muted">Not used in any workflow yet. Add an Agent step in a workflow and pick this agent.</div>}
+                      {usedBy.map((w) => <button type="button" key={w.id} onClick={() => nav(`/workflows/${w.id}`)} className="w-full flex items-center gap-3 px-3 h-10 text-[12.5px] hover:bg-[var(--surface)] text-left"><WorkflowIcon size={13} className="muted" /><span className="flex-1">{w.name}</span><span className="muted capitalize">{w.status}</span></button>)}
+                    </div>
+                  </Field>
                   <Field label="Version history" hint="Every save creates a version. Roll back restores an earlier one as a new version.">
                     <div className="flat divide-y divide-[var(--line)]">
                       <div className="flex items-center gap-3 px-3 h-10 text-[12.5px]"><History size={13} className="muted" /><span className="flex-1">v{draft.version} · current</span></div>
                       {(draft.history ?? []).length === 0 && <div className="px-3 py-3 text-[12px] muted">No earlier versions yet.</div>}
-                      {(draft.history ?? []).map((h) => <div key={h.version} className="flex items-center gap-3 px-3 h-10 text-[12.5px]"><History size={13} className="muted" /><span className="flex-1">v{h.version} · {h.at} · {h.by}</span><Button size="sm" onClick={() => { if (confirm(`Roll back to v${h.version}?`)) rollbackAgent(draft.id, h.version) }}>Roll back</Button></div>)}
+                      {(draft.history ?? []).map((h) => <div key={h.version} className="flex items-center gap-3 px-3 h-10 text-[12.5px]"><History size={13} className="muted" /><span className="flex-1">v{h.version} · {h.at} · {h.by}</span><Button size="sm" onClick={() => setConfirm({ kind: 'rollback', version: h.version })}>Roll back</Button></div>)}
                     </div>
                   </Field>
                   <div className="flex flex-wrap gap-2">
-                    <Button size="sm" onClick={() => download(`${draft.name.replace(/\s+/g, '-').toLowerCase()}.agent.json`, JSON.stringify({ name: draft.name, description: draft.description, instructions: draft.instructions, model: draft.model, tools: draft.tools, knowledge: draft.knowledge, autonomy: draft.autonomy, samplePrompts: draft.samplePrompts }, null, 2))}><Download size={13} /> Export JSON</Button>
+                    <Button size="sm" onClick={() => download(`${draft.name.replace(/\s+/g, '-').toLowerCase()}.agent.json`, JSON.stringify({ name: draft.name, description: draft.description, instructions: draft.instructions, model: draft.model, tools: draft.tools, knowledge: draft.knowledge, autonomy: draft.autonomy, samplePrompts: draft.samplePrompts, icon: draft.icon, color: draft.color }, null, 2))}><Download size={13} /> Export JSON</Button>
                     <Button size="sm" onClick={() => fileRef.current?.click()}><Upload size={13} /> Import JSON</Button>
                     <input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) importJson(f); e.target.value = '' }} />
                     <Button size="sm" onClick={duplicate}><Copy size={13} /> Duplicate</Button>
                     <div className="flex-1" />
-                    <button type="button" onClick={() => { if (confirm('Delete this agent?')) { deleteAgent(draft.id); nav('/agents') } }} className="text-[12px] font-medium text-[var(--danger)] inline-flex items-center gap-1.5 hover:underline"><Trash2 size={13} /> Delete agent</button>
+                    <button type="button" onClick={() => setConfirm({ kind: 'delete' })} className="text-[12px] font-medium text-[var(--danger)] inline-flex items-center gap-1.5 hover:underline"><Trash2 size={13} /> Delete agent</button>
                   </div>
                 </motion.div>
               )}
@@ -221,8 +235,7 @@ export default function AgentEditor() {
 
         <section className="clay flex flex-col min-h-0">
           <div className="h-12 px-5 flex items-center gap-2 border-b hairline text-[13px]">
-            <span className="font-semibold">Preview</span>
-            <span className="muted">{modelName(draft.model)}</span>
+            <span className="font-semibold">Preview</span><span className="muted">{modelName(draft.model)}</span>
             {dirty && <Chip tone="warn">testing unsaved changes</Chip>}
             <div className="flex-1" />
             {chat.msgs.length > 0 && <button className="text-[12px] muted hover:text-[var(--text)] inline-flex items-center gap-1" onClick={chat.clear}><X size={12} /> Reset</button>}
@@ -230,7 +243,7 @@ export default function AgentEditor() {
           <div className="flex-1 scroll">
             {chat.msgs.length === 0 ? (
               <div className="px-6 pt-14 text-center">
-                <Tile color={colorFor(draft.name)} size={48} radius={15} className="mx-auto mb-4"><Sparkles size={22} /></Tile>
+                <AgentAvatar name={draft.name} icon={draft.icon} color={draft.color} size={48} className="mx-auto mb-4" />
                 <h2 className="display text-[18px] font-bold">Test {draft.name || 'your agent'}</h2>
                 <p className="muted text-[12.5px] mt-1 max-w-[300px] mx-auto">Talk to it exactly as a user would. Tool calls show inline. Changes on the left apply straight away.</p>
                 <div className="flex flex-col items-center gap-2 mt-6">{previewPrompts.slice(0, 3).map((p) => <button key={p} onClick={() => chat.send(p)} className="btn btn-sm !font-medium max-w-full truncate">{p}</button>)}</div>
@@ -241,6 +254,12 @@ export default function AgentEditor() {
           <div className="p-3"><Composer onSend={(t) => chat.send(t)} busy={chat.busy} onStop={chat.stop} placeholder={`Message ${draft.name || 'agent'}…`} /></div>
         </section>
       </div>
+
+      <Confirm open={confirm?.kind === 'delete'} onClose={() => setConfirm(null)} title={`Delete ${draft.name}?`} danger confirmLabel="Delete" body={usedBy.length ? `This agent is used in ${usedBy.length} workflow${usedBy.length === 1 ? '' : 's'}; those steps will need a new agent. Chat history and versions are removed.` : 'Chat history and versions are removed. This cannot be undone.'} onConfirm={() => { deleteAgent(draft.id); nav('/agents') }} />
+      <Confirm open={confirm?.kind === 'rollback'} onClose={() => setConfirm(null)} title={`Roll back to v${confirm?.kind === 'rollback' ? confirm.version : ''}?`} confirmLabel="Roll back" body="The earlier version becomes a new version. Nothing is lost; you can roll forward again." onConfirm={() => confirm?.kind === 'rollback' && rollbackAgent(draft.id, confirm.version)} />
+      <Confirm open={confirm?.kind === 'unpublish'} onClose={() => setConfirm(null)} title="Unpublish this agent?" confirmLabel="Unpublish" body={usedBy.length ? `It is used in ${usedBy.length} workflow${usedBy.length === 1 ? '' : 's'}. Those steps keep working, but the agent disappears from Chat for others.` : 'It disappears from Chat for others. You can publish again any time.'} onConfirm={() => save('draft')} />
+      <Confirm open={confirm?.kind === 'publish'} onClose={() => setConfirm(null)} title="Publish with open items?" confirmLabel="Publish anyway" onConfirm={() => save('live')} body={<div><div className="mb-2">The checklist still has suggestions:</div><ul className="flex flex-col gap-1">{issues.map((i) => <li key={i} className="flex gap-2"><span className="w-1 h-1 rounded-full bg-[var(--warn)] mt-2 shrink-0" />{i}</li>)}</ul></div>} />
+      <Confirm open={blocker.state === 'blocked'} onClose={() => blocker.state === 'blocked' && blocker.reset()} title="Leave without saving?" danger confirmLabel="Discard changes" body="You have unsaved changes to this agent." onConfirm={() => blocker.state === 'blocked' && blocker.proceed()} />
     </Page>
   )
 }

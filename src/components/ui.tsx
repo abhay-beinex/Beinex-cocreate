@@ -130,3 +130,20 @@ export function Drawer({ open, onClose, title, children, width = 500 }: { open: 
     </div>
   )
 }
+
+export function Confirm({ open, title, body, confirmLabel = 'Confirm', danger, onConfirm, onClose, children }: { open: boolean; title: string; body?: ReactNode; confirmLabel?: string; danger?: boolean; onConfirm: () => void; onClose: () => void; children?: ReactNode }) {
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-[60] grid place-items-center p-4" onClick={onClose} style={{ background: 'rgba(10,20,40,.3)', backdropFilter: 'blur(6px)' }}>
+      <div className="clay p-6 w-full max-w-[440px] fade-up" onClick={(e) => e.stopPropagation()}>
+        <h2 className="display text-[16px] font-bold">{title}</h2>
+        {body && <div className="text-[13px] muted mt-2 leading-relaxed">{body}</div>}
+        {children}
+        <div className="flex justify-end gap-2 mt-5">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" className={danger ? '!bg-[var(--danger)] !bg-none !shadow-none' : undefined} onClick={() => { onConfirm(); onClose() }}>{confirmLabel}</Button>
+        </div>
+      </div>
+    </div>
+  )
+}

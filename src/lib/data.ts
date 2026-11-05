@@ -27,25 +27,25 @@ export type Autonomy = 1 | 2 | 3
 export type AgentSnapshot = { version: number; at: string; by: string; data: Omit<Agent, 'history'> }
 export type Agent = {
   id: string; name: string; description: string; instructions: string; model: string; tools: string[]; knowledge: string[]
-  autonomy: Autonomy; status: 'live' | 'draft'; version: number; samplePrompts: string[]; updatedAt: string; createdBy: string; history?: AgentSnapshot[]
+  autonomy: Autonomy; status: 'live' | 'draft'; version: number; samplePrompts: string[]; updatedAt: string; createdBy: string; history?: AgentSnapshot[]; icon?: string; color?: string
 }
 
 export const GOVERNED = 'You never take an external action yourself: drafts, emails and approvals go to a person. If you are unsure or information is missing, say so and ask rather than guessing.'
 
-export const agentTemplates: { id: string; name: string; description: string; instructions: string; tools: string[]; samplePrompts: string[]; model?: string }[] = [
-  { id: 'research', name: 'Research Assistant', description: 'Searches the web, reads sources and writes sourced briefs.', model: 'anthropic/claude-sonnet-5.5',
+export const agentTemplates: { id: string; name: string; description: string; instructions: string; tools: string[]; samplePrompts: string[]; model?: string; icon?: string; color?: string }[] = [
+  { id: 'research', icon: 'search', color: '#0ea5e9', name: 'Research Assistant', description: 'Searches the web, reads sources and writes sourced briefs.', model: 'anthropic/claude-sonnet-5.5',
     instructions: `You are a research assistant. For any question, search the web, open the most relevant pages, and answer with a short brief: key findings as bullets, then sources as links. Prefer primary sources and recent material. Say when sources disagree. ${GOVERNED}`,
     tools: ['web_search', 'deep_research', 'read_url', 'save_document', 'current_datetime'], samplePrompts: ['What changed in the EU AI Act this quarter?', 'Compare the top three vector databases for enterprise use', 'Summarise the latest guidance on prompt injection defences'] },
-  { id: 'writer', name: 'Writing Assistant', description: 'Drafts emails, memos and documents in the company voice.', model: 'anthropic/claude-sonnet-5.5',
+  { id: 'writer', icon: 'pen', color: '#8b5cf6', name: 'Writing Assistant', description: 'Drafts emails, memos and documents in the company voice.', model: 'anthropic/claude-sonnet-5.5',
     instructions: `You are a writing assistant. Draft clear, concise business writing. Check the attached knowledge for tone, templates and facts before writing. Offer a short version and a long version when useful. Emails are created as drafts for a person to send. ${GOVERNED}`,
     tools: ['search_knowledge', 'draft_email', 'save_document'], samplePrompts: ['Draft a memo announcing the new expense policy', 'Rewrite this paragraph to be friendlier', 'Write a follow-up email after a vendor meeting'] },
-  { id: 'analyst', name: 'Data Analyst', description: 'Runs calculations and small scripts over pasted data.', model: 'anthropic/claude-sonnet-5.5',
+  { id: 'analyst', icon: 'chart', color: '#10b981', name: 'Data Analyst', description: 'Runs calculations and small scripts over pasted data.', model: 'anthropic/claude-sonnet-5.5',
     instructions: `You are a data analyst. When given numbers or tables, use the calculator or run JavaScript to compute answers rather than estimating. Show the method briefly, then the result. Flag data quality issues. ${GOVERNED}`,
     tools: ['calculate', 'run_javascript', 'read_url', 'save_document'], samplePrompts: ['What is the compound growth from 1.2M to 3.4M over 4 years?', 'Here is a CSV, find the top 5 rows by revenue', 'Convert these quarterly figures into a yearly summary'] },
-  { id: 'support', name: 'Support Agent', description: 'Answers questions from the knowledge base and escalates when unsure.', model: 'anthropic/claude-haiku-5.5',
+  { id: 'support', icon: 'support', color: '#f59e0b', name: 'Support Agent', description: 'Answers questions from the knowledge base and escalates when unsure.', model: 'anthropic/claude-haiku-5.5',
     instructions: `You are a support agent. Answer only from the attached knowledge; cite the document title. If the answer is not in the knowledge, say so and request approval to escalate to a person. Be warm and brief. ${GOVERNED}`,
     tools: ['search_knowledge', 'request_approval', 'draft_email'], samplePrompts: ['How do I request access to the VPN?', 'What is the travel reimbursement limit?', 'Who approves overtime?'] },
-  { id: 'monitor', name: 'Web Monitor', description: 'Checks pages or topics on a schedule and reports what changed.', model: 'anthropic/claude-haiku-5.5',
+  { id: 'monitor', icon: 'globe', color: '#14b8a6', name: 'Web Monitor', description: 'Checks pages or topics on a schedule and reports what changed.', model: 'anthropic/claude-haiku-5.5',
     instructions: `You monitor the web for changes on a topic or page. Search or read the given sources, compare with the previous summary if provided, and report only what is new or changed, with links. ${GOVERNED}`,
     tools: ['web_search', 'read_url', 'current_datetime', 'request_approval'], samplePrompts: ['Any new announcements from the Dubai Chamber this week?', 'Has the pricing page at example.com changed?'] },
 ]
