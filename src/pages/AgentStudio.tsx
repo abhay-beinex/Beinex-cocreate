@@ -118,7 +118,7 @@ Reply ONLY with JSON: {"name":"2-4 words","description":"one line","icon":"one o
                   </div>
                 </div>
                 {draftError && <div className="text-[12.5px] text-[var(--danger)] mt-2 px-1">{draftError}</div>}
-                <div className="flex flex-wrap gap-1.5 mt-3 justify-center">{BRIEFS.map((t) => <button key={t} onClick={() => setPurpose(t)} className="chip hover:text-[var(--text)] !h-auto !py-1.5 !px-3 text-left max-w-[320px]"><CornerDownRight size={11} className="shrink-0" /> <span className="truncate">{t}</span></button>)}</div>
+                <div className="flex flex-wrap gap-1.5 mt-3 justify-center">{BRIEFS.map((t) => <button key={t} onClick={() => setPurpose(t)} className="chip hover:text-[var(--text)] !h-auto !py-1.5 !px-3 text-left max-w-[300px] !whitespace-normal !leading-snug"><CornerDownRight size={11} className="shrink-0 mt-0.5" /> <span>{t}</span></button>)}</div>
               </div>
               <div className="w-full pt-4 border-t hairline">
                 <div className="flex items-center justify-between mb-3"><div><h3 className="display text-[15px] font-bold">Or start from a template</h3><div className="text-[12.5px] muted">Ready-made agents you can change on the review page.</div></div><label className="text-[12px] muted inline-flex items-center gap-1.5 cursor-pointer hover:text-[var(--text)]"><Upload size={12} /> Import JSON<input type="file" accept="application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) importFile(f); e.target.value = '' }} /></label></div>

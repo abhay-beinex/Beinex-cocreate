@@ -59,7 +59,7 @@ export default function Agents() {
       <button onClick={() => setMenu(menu === a.id ? null : a.id)} className="btn btn-ghost btn-sm btn-icon" title="More"><MoreHorizontal size={15} /></button>
       <AnimatePresence>
         {menu === a.id && (
-          <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="absolute right-0 top-full mt-1 w-[190px] glass rounded-[14px] p-1.5 z-20 text-[13px]">
+          <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="absolute right-0 top-full mt-1 w-[190px] pop rounded-[14px] p-1.5 z-40 text-[13px]">
             <button onClick={() => nav(`/chat/${a.id}`)} className="w-full flex items-center gap-2 px-2 h-9 rounded-[9px] hover:bg-[var(--clay-dark)]"><MessageSquare size={14} /> {a.status === 'live' ? 'Chat' : 'Try it'}</button>
             <button onClick={() => nav(`/agents/${a.id}`)} className="w-full flex items-center gap-2 px-2 h-9 rounded-[9px] hover:bg-[var(--clay-dark)]"><Pencil size={14} /> Open</button>
             {editable && <button onClick={() => duplicate(a)} className="w-full flex items-center gap-2 px-2 h-9 rounded-[9px] hover:bg-[var(--clay-dark)]"><Copy size={14} /> Duplicate</button>}

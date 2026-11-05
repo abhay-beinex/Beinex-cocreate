@@ -5,7 +5,7 @@ import { useBlocker, useNavigate, useParams, useSearchParams } from 'react-route
 import { AnimatePresence, motion } from 'framer-motion'
 import { ReactFlow, ReactFlowProvider, Background, BackgroundVariant, Controls, MiniMap, useNodesState, useEdgesState, useReactFlow, type Connection } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { ArrowLeft, Play, Check, Pause, X, Trash2, MoreHorizontal, Download, Copy, LayoutGrid, AlertTriangle, CheckCircle2, Clock, Zap, Sparkles, ArrowUp, ExternalLink, ChevronDown, ChevronRight, Loader2, Hourglass, ThumbsUp, ThumbsDown, History, SlidersHorizontal, ListChecks, Plus, Link2, Eye, FileInput, Wrench, Globe, Workflow as WorkflowIcon, Search, RotateCw, Braces, FlaskConical, Undo2, Redo2, Minus } from 'lucide-react'
+import { ArrowLeft, Play, Check, Pause, X, Trash2, MoreHorizontal, Download, Copy, LayoutGrid, AlertTriangle, CheckCircle2, Clock, Zap, Sparkles, ArrowUp, ExternalLink, ChevronDown, ChevronRight, Loader2, Hourglass, ThumbsUp, ThumbsDown, History, SlidersHorizontal, ListChecks, Plus, Link2, Eye, FileInput, Wrench, Globe, Workflow as WorkflowIcon, Search, RotateCw, Braces, FlaskConical, Undo2, Redo2, Minus, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { useApp, useUser, can } from '@/store/app'
 import { workflowTemplates, roleLabel, type Brick, type StepData, type Workflow, type Schedule, type Run, type RunStep, type WfNode, type WfEdge, type TriggerType, type RuleOp } from '@/lib/data'
 import { streamChat } from '@/lib/openrouter'
@@ -84,6 +84,17 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
   const [palette, setPalette] = useState(false)
   const [drawer, setDrawer] = useState(false)
   const [assistantOpen, setAssistantOpen] = useState(!!buildText)
+  const [panelOpen, setPanelOpen] = useState(() => localStorage.getItem('builder-panel-v2') === '1')
+  useEffect(() => { localStorage.setItem('builder-panel-v2', panelOpen ? '1' : '0') }, [panelOpen])
+  const focusRef = useRef<((animate?: boolean) => void) | null>(null)
+  // Refit the flow whenever the canvas changes size: panels opening, the drawer, the window.
+  useEffect(() => {
+    const el = canvasRef.current; if (!el) return
+    let last = { w: el.clientWidth, h: el.clientHeight }; let t: ReturnType<typeof setTimeout> | null = null
+    const ro = new ResizeObserver(() => { const w = el.clientWidth, h = el.clientHeight; if (w === last.w && h === last.h) return; last = { w, h }; if (t) clearTimeout(t); t = setTimeout(() => focusRef.current?.(true), 80) })
+    ro.observe(el); return () => { ro.disconnect(); if (t) clearTimeout(t) }
+  }, [])
+  useEffect(() => { const t = setTimeout(() => focusRef.current?.(true), 60); return () => clearTimeout(t) }, [drawer]) // eslint-disable-line react-hooks/exhaustive-deps
   const [flowTab, setFlowTab] = useState<'setup' | 'checks' | 'history'>('setup')
   const [runInput, setRunInput] = useState(base.schedule?.input || base.watch?.input || '')
   const [testRunId, setTestRunId] = useState<string | null>(null)
@@ -193,14 +204,16 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
     if (sy + h > ch - 24) y = ch - 24 - (p.y + 100) * vp.zoom; else if (sy < TOP_H + 16) y = TOP_H + 16 - p.y * vp.zoom
     if (x !== vp.x || y !== vp.y) rf.setViewport({ x, y, zoom: vp.zoom }, { duration: 300 })
   }
+  const showRightRef = useRef(true)
+  const drawerRef = useRef(false)
   const viewportFor = useCallback((ns: { position: { x: number; y: number } }[], full: { w: number; h: number }) => {
-    const left = 72, top = TOP_H + 12, right = RIGHT_W + 24, bottom = 24
+    const left = 72, top = TOP_H + 12, right = (showRightRef.current ? RIGHT_W : 0) + 24, bottom = drawerRef.current ? 288 + 24 : 24
     const size = { w: Math.max(200, full.w - left - right), h: Math.max(200, full.h - top - bottom) }
     if (!ns.length) return { x: left + 40, y: top + 40, zoom: 1 }
     const minX = Math.min(...ns.map((n) => n.position.x)), maxX = Math.max(...ns.map((n) => n.position.x + NODE_W))
     const minY = Math.min(...ns.map((n) => n.position.y)), maxY = Math.max(...ns.map((n) => n.position.y + 110))
     const pad = 36
-    const zoom = Math.min(1, Math.max(0.5, Math.min((size.w - pad * 2) / (maxX - minX), (size.h - pad * 2) / (maxY - minY))))
+    const zoom = Math.min(1, Math.max(0.45, Math.min((size.w - pad * 2) / (maxX - minX), (size.h - pad * 2) / (maxY - minY))))
     const gw = (maxX - minX) * zoom, gh = (maxY - minY) * zoom
     const x = left + (gw < size.w - pad * 2 ? (size.w - gw) / 2 - minX * zoom : pad - minX * zoom)
     const y = top + (gh < size.h - pad * 2 ? (size.h - gh) / 2 - minY * zoom : pad - minY * zoom)
@@ -210,6 +223,7 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
     const el = canvasRef.current; if (!el || !ns.length) return
     rf.setViewport(viewportFor(ns, { w: el.clientWidth, h: el.clientHeight }), { duration: animate ? 350 : 0 })
   }, [rf, viewportFor])
+  focusRef.current = (animate) => focus(nodes, animate)
   const arrange = useCallback((ns?: FlowNode[], es?: BranchEdge[]) => {
     const srcN = ns ?? nodes; const srcE = es ?? edges
     if (!ns) commit()
@@ -327,7 +341,8 @@ Reply with ONE JSON object and nothing else, no prose before or after: {"reply":
   const rfEdges = useMemo<BranchEdge[]>(() => edges.map((e) => ({ ...e, selected: sel?.kind === 'edge' && sel.id === e.id, data: { ...e.data, active: statusOf.get(e.source) === 'ok' && (statusOf.get(e.target) === 'running'), editable, onDelete: removeEdge, onFlip: flipEdge, onInsert: (id) => { const e = edges.find((x) => x.id === id); if (!e) return; setAdding({ after: e.source, branch: e.data?.label, edge: id }); setSel({ kind: 'edge', id }); setPalette(true) } } })), [edges, sel, statusOf, editable]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const statusTone = meta.status === 'live' ? 'ok' : meta.status === 'paused' ? 'warn' : undefined
-  const showRight = !!selectedNode || !!selectedEdge || !assistantOpen
+  const showRight = !!selectedNode || !!selectedEdge || (!assistantOpen && panelOpen)
+  showRightRef.current = showRight; drawerRef.current = drawer
   const addTarget = (): { after?: string; branch?: string; edge?: string; position?: { x: number; y: number } } => adding ? { after: adding.after, branch: adding.branch, edge: adding.edge, position: adding.position } : selectedNode ? { after: selectedNode.id, branch: selectedNode.data.brick === 'logic' ? 'yes' : selectedNode.data.brick === 'loop' ? 'each' : selectedNode.data.brick === 'classify' ? selectedNode.data.categories?.[0]?.toLowerCase() : undefined } : { after: [...nodes].reverse().find((n) => !edges.some((e) => e.source === n.id) && n.data.brick !== 'parallel')?.id }
   const lastRun = wfRuns[0]
   const sampleVars = useMemo(() => (lastRun ? varsAfter(lastRun, lastRun.steps.length) : { input: runInput }), [lastRun, runInput])
@@ -361,8 +376,9 @@ Reply with ONE JSON object and nothing else, no prose before or after: {"reply":
           <Chip tone={statusTone as any} className="whitespace-nowrap shrink-0">{meta.status === 'live' ? 'Live' : meta.status === 'paused' ? 'Paused' : 'Draft'} · v{meta.version}</Chip>
           {dirty && <span className="text-[11.5px] muted whitespace-nowrap hidden lg:inline">Unsaved</span>}
           <div className="flex-1" />
-          <button onClick={() => { setSel(null); setFlowTab('checks') }} className={cx('chip !h-8 hover:text-[var(--text)] whitespace-nowrap shrink-0', problems.length ? 'chip-warn' : 'chip-ok')}>{problems.length ? <><AlertTriangle size={12} /> {problems.length} to fix</> : <><CheckCircle2 size={12} /> Ready</>}</button>
+          <button onClick={() => { setSel(null); setFlowTab('checks'); setPanelOpen(true) }} className={cx('chip !h-8 hover:text-[var(--text)] whitespace-nowrap shrink-0', problems.length ? 'chip-warn' : 'chip-ok')}>{problems.length ? <><AlertTriangle size={12} /> {problems.length} to fix</> : <><CheckCircle2 size={12} /> Ready</>}</button>
           <button onClick={() => arrange()} className="btn btn-ghost btn-sm btn-icon" title="Tidy up the layout"><LayoutGrid size={15} /></button>
+          <button onClick={() => { setSel(null); setPanelOpen(!panelOpen) }} className={cx('btn btn-ghost btn-sm btn-icon', panelOpen && !sel && 'text-[var(--text)]')} title={panelOpen ? 'Hide the workflow panel' : 'Show the workflow panel'} aria-label={panelOpen ? 'Hide the workflow panel' : 'Show the workflow panel'}>{panelOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}</button>
           {editable && <Button size="sm" onClick={() => persist()} disabled={!dirty}><Check size={13} /> Save</Button>}
           <Button size="sm" variant="primary" onClick={() => { setSel(null); setDrawer(!drawer) }} disabled={problems.length > 0 && !drawer} title={problems[0]?.text}><Play size={13} /> {drawer ? 'Hide run' : 'Test run'}</Button>
           {editable && (meta.status === 'live' ? <Button size="sm" onClick={() => persist('paused')}><Pause size={13} /> Pause</Button> : <Button size="sm" onClick={() => persist('live')} disabled={problems.length > 0} title={problems[0]?.text}>Publish</Button>)}

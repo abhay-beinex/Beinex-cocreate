@@ -31,13 +31,13 @@ export function ThinkingMeter({ model, profiles, defaultModel, withLabel = true 
 export function AgentCard({ a, custom, profiles, defaultModel, onOpen, onChat, menu, selected, onSelect, selectable, usedIn = 0 }: { a: Agent; custom: CustomTool[]; profiles: { id: string; model: string }[]; defaultModel: string; onOpen: () => void; onChat: () => void; menu?: React.ReactNode; selected?: boolean; onSelect?: () => void; selectable?: boolean; usedIn?: number }) {
   const tests = a.tests ?? []; const ran = tests.filter((t) => t.last); const passed = ran.filter((t) => t.last!.pass).length
   return (
-    <motion.div whileHover={{ y: -3 }} onClick={onOpen} className={cx('clay p-5 cursor-pointer flex flex-col gap-3 min-h-[196px] relative overflow-hidden group', selected && 'outline outline-2 outline-[var(--accent)]')}>
-      <div className="absolute -right-10 -top-10 w-32 h-32 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style={{ background: `radial-gradient(circle, ${a.color ?? '#0ea5e9'}33, transparent 70%)` }} />
+    <motion.div whileHover={{ y: -3 }} onClick={onOpen} className={cx('clay p-5 cursor-pointer flex flex-col gap-3 min-h-[196px] relative group', selected && 'outline outline-2 outline-[var(--accent)]')}>
+      <div className="absolute inset-0 rounded-[24px] overflow-hidden pointer-events-none"><div className="absolute -right-10 -top-10 w-32 h-32 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{ background: `radial-gradient(circle, ${a.color ?? '#0ea5e9'}33, transparent 70%)` }} /></div>
       {selectable && <button onClick={(e) => { e.stopPropagation(); onSelect?.() }} className={cx('absolute top-3 left-3 z-10 w-5 h-5 rounded-[6px] border grid place-items-center transition-opacity', selected ? 'opacity-100 bg-[var(--accent)] border-[var(--accent)] text-white' : 'opacity-0 group-hover:opacity-100 border-[var(--muted)]')} title="Select">{selected && <span className="text-[11px] font-bold">✓</span>}</button>}
       <div className="flex items-start gap-3">
         <AgentAvatar name={a.name} icon={a.icon} color={a.color} size={42} />
         <div className="flex-1 min-w-0 pt-0.5"><div className="display font-bold text-[15px] truncate">{a.name}</div><div className="text-[11.5px] muted flex items-center gap-1.5"><Dot tone={a.status === 'live' ? 'ok' : 'muted'} /><span>{a.status === 'live' ? 'Live' : 'Draft'}</span><span>· v{a.version}</span></div></div>
-        <div onClick={(e) => e.stopPropagation()}>{menu ?? <button className="btn btn-ghost btn-sm btn-icon"><MoreHorizontal size={15} /></button>}</div>
+        <div onClick={(e) => e.stopPropagation()} className="relative z-10">{menu ?? <button className="btn btn-ghost btn-sm btn-icon"><MoreHorizontal size={15} /></button>}</div>
       </div>
       <p className="text-[12.5px] muted leading-relaxed line-clamp-2 min-h-[36px]">{a.description || 'No description yet.'}</p>
       <AbilityWells tools={a.tools} custom={custom} />

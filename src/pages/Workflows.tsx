@@ -65,8 +65,8 @@ export default function Workflows() {
               <input value={ask} onChange={(e) => setAsk(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && build()} disabled={!apiKey} placeholder={apiKey ? 'Research a competitor every Monday, summarise what changed, and notify me if prices moved' : 'Models are not available right now'} aria-label="Describe a workflow" className="flex-1 bg-transparent outline-0 text-[13.5px]" />
               <button aria-label="Build this workflow" onClick={build} disabled={!ask.trim() || !apiKey} className="btn btn-primary btn-sm btn-icon !rounded-full"><ArrowUp size={14} /></button>
             </div>
-            <div className={cx('flex items-center gap-2 overflow-x-auto scroll pb-1', empty ? 'mt-5' : 'mt-3')}>
-              <span className="text-[11.5px] font-semibold muted shrink-0 inline-flex items-center gap-1"><LayoutTemplate size={12} /> Start from</span>
+            <div className={cx('flex items-center gap-2 flex-wrap', empty ? 'mt-5' : 'mt-3')}>
+              <span className="text-[11.5px] font-semibold muted shrink-0 inline-flex items-center gap-1 mr-1"><LayoutTemplate size={12} /> Start from</span>
               {templates.map((t) => { const tm = triggerMeta(t); return (
                 <button key={t.id} onClick={() => nav(`/workflows/new?template=${t.id}`)} title={t.desc} className="flat shrink-0 h-10 pl-2 pr-3 flex items-center gap-2.5 hover:border-[color-mix(in_srgb,var(--accent)_45%,var(--line))] hover:-translate-y-px transition-all">
                   <StepChain w={t} size={18} /><span className="text-[12.5px] font-semibold whitespace-nowrap">{t.name}</span><tm.icon size={12} className="muted" />

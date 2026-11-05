@@ -62,8 +62,8 @@ export default function Home() {
           <div>
             <div className="text-[11.5px] font-semibold muted mb-1.5">{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })} · {roleLabel[user.role]}</div>
             <h1 className="display text-[30px] font-bold leading-tight">{greeting()}, {user.name.split(' ')[0]}</h1>
+            <p className="muted mt-1.5 text-[14px]">{needs > 0 ? [waiting.length > 0 ? `${waiting.length} waiting for your sign-off` : '', failed.length > 0 ? `${failed.length} failed` : '', running.length > 0 ? `${running.length} running` : ''].filter(Boolean).join(' · ') + '.' : empty ? 'Start by describing an agent or a workflow below.' : 'Nothing needs you right now. Ask anything, or build something.'}</p>
           </div>
-          {needs > 0 ? <Chip tone="warn" className="!h-7 !px-3">{waiting.length > 0 ? `${waiting.length} waiting for you` : ''}{waiting.length > 0 && (failed.length > 0 || running.length > 0) ? ' · ' : ''}{failed.length > 0 ? `${failed.length} failed` : ''}{failed.length > 0 && running.length > 0 ? ' · ' : ''}{running.length > 0 ? `${running.length} running` : ''}</Chip> : <span className="text-[12.5px] muted">Nothing needs you right now.</span>}
         </div>
       </Rise>
 
@@ -123,7 +123,8 @@ export default function Home() {
         <Rise delay={0.16}>
           <div className="flex items-center justify-between mb-2 px-1"><h2 className="text-[13px] font-semibold">Last 14 days</h2><span className="text-[12px] muted">${spent.toFixed(2)} of ${caps.user} today</span></div>
           <div className="clay p-4">
-            <div className="flex items-end gap-1 h-[52px]" role="img" aria-label={`${total14} runs in the last 14 days, ${failed14} failed`}>
+            <div className="relative flex items-end gap-1 h-[52px]" role="img" aria-label={`${total14} runs in the last 14 days, ${failed14} failed`}>
+              {total14 === 0 && <div className="absolute inset-0 grid place-items-center text-[12px] muted">No runs yet</div>}
               {days.map((d) => { const h = (d.ok + d.bad) / max; return <div key={d.day} className="flex-1 flex flex-col justify-end gap-px h-full" title={`${d.day}: ${d.ok + d.bad} run${d.ok + d.bad === 1 ? '' : 's'}${d.bad ? `, ${d.bad} failed` : ''}`}>{d.bad > 0 && <div className="rounded-[2px] bg-[var(--danger)] opacity-80" style={{ height: `${Math.max(3, (d.bad / (d.ok + d.bad)) * h * 100)}%` }} />}<div className={cx('rounded-[2px]', d.ok + d.bad ? 'bg-[var(--accent)]' : 'bg-[var(--clay-dark)]')} style={{ height: d.ok + d.bad ? `${Math.max(4, (d.ok / (d.ok + d.bad)) * h * 100)}%` : '3px', opacity: d.ok + d.bad ? 0.85 : 1 }} /></div> })}
             </div>
             <div className="flex items-center gap-1.5 mt-3 flex-wrap"><Chip>{total14} run{total14 === 1 ? '' : 's'}</Chip><Chip tone={failed14 ? 'danger' : undefined}>{failed14} failed</Chip><Chip>{decided} decided</Chip><Chip><Clock size={11} /> {workflows.filter((w) => w.status === 'live' && w.triggerType !== 'manual').length} automated</Chip></div>

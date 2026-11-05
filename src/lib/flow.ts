@@ -34,7 +34,7 @@ export const uid = () => `n${Date.now().toString(36)}${Math.random().toString(36
 
 export const NODE_W = 232
 export const NODE_H = 96
-const GAP_X = 76
+const GAP_X = 56
 const GAP_Y = 44
 
 export const outEdges = (edges: WfEdge[], id: string) => edges.filter((e) => e.source === id)

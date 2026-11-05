@@ -73,7 +73,7 @@ export function Thread({ msgs, agent, compact, onPrompt, onAction, emptyExtra }:
           <h2 className="display text-[20px] font-bold">{compact ? 'Try it' : agent.id === 'assistant' ? 'How can I help?' : agent.name}</h2>
           {!compact && <p className="muted text-[13px] mt-1 max-w-[460px] mx-auto">{agent.description}</p>}
           {!apiKey && <div className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] font-medium text-[var(--warn)]"><KeyRound size={13} /> Models are not available right now. Contact your administrator.</div>}
-          {onPrompt && agent.samplePrompts.length > 0 && <div className="flex flex-wrap justify-center gap-2 mt-6">{agent.samplePrompts.slice(0, 4).map((p) => <button key={p} onClick={() => onPrompt(p)} className="btn btn-sm !font-medium !h-9 max-w-[320px] truncate">{p}</button>)}</div>}
+          {onPrompt && agent.samplePrompts.length > 0 && <div className="flex flex-wrap justify-center gap-2 mt-6">{agent.samplePrompts.slice(0, 4).map((p) => <button key={p} onClick={() => onPrompt(p)} className="btn btn-sm !font-medium !h-9 max-w-[340px] !justify-start"><span className="truncate">{p}</span></button>)}</div>}
           {emptyExtra}
         </motion.div>
       )}

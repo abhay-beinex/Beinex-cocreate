@@ -14,7 +14,7 @@ const ASSISTANT: AgentLike = {
   id: 'assistant', name: `${BRAND.name} Assistant`, description: 'Searches the web, reads pages, calculates, runs code and uses your knowledge. External actions wait for a person.',
   instructions: `You are the ${BRAND.full} assistant. Use the tools to answer with real information: search the web for anything current, read pages when a URL is given, calculate exactly, and run JavaScript for data work. When a file is attached, work from its contents. Cite sources as links. Be concise and use markdown sparingly. ${GOVERNED}`,
   model: '', tools: ['web_search', 'deep_research', 'read_url', 'calculate', 'run_javascript', 'current_datetime', 'search_knowledge', 'save_document', 'draft_email', 'request_approval'], knowledge: ['company'],
-  samplePrompts: ['What happened in AI this week?', 'Read https://en.wikipedia.org/wiki/Dubai and summarise it in 3 bullets', 'Compound 1.2M at 18% for 4 years', 'Draft a short note announcing a new expense policy'],
+  samplePrompts: ['What happened in AI this week?', 'Summarise the Wikipedia page on Dubai in 3 bullets', 'Compound 1.2M at 18% for 4 years', 'Draft a short note announcing a new expense policy'],
 }
 const uid = () => `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`
 const dayOf = (t: number) => { const d = new Date(t); const today = new Date(); const y = new Date(); y.setDate(today.getDate() - 1); return d.toDateString() === today.toDateString() ? 'Today' : d.toDateString() === y.toDateString() ? 'Yesterday' : Date.now() - t < 7 * 86400000 ? 'This week' : 'Earlier' }
@@ -82,7 +82,7 @@ export default function Chat() {
                   {t.agentId === 'assistant' ? <Tile color="#10385b" size={24} radius={7}><Sparkles size={12} /></Tile> : <AgentAvatar name={a?.name ?? '?'} icon={a?.icon} color={a?.color} size={24} radius={7} />}
                   {renaming === t.id ? <input autoFocus value={renameVal} onChange={(e) => setRenameVal(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { upsertThread({ ...t, title: renameVal.trim() || t.title }); setRenaming(null) } if (e.key === 'Escape') setRenaming(null) }} onBlur={() => { upsertThread({ ...t, title: renameVal.trim() || t.title }); setRenaming(null) }} aria-label="Chat title" className="flex-1 min-w-0 bg-transparent outline-0 text-[12.5px] font-medium border-b border-[var(--accent)]" />
                     : <button onClick={() => setParams({ t: t.id })} className="flex-1 min-w-0 text-left"><span className="block text-[12.5px] font-medium truncate">{t.title}</span><span className="block text-[10.5px] muted truncate">{nameOf(t.agentId)}</span></button>}
-                  <div className={cx('flex items-center opacity-0 group-hover:opacity-100 focus-within:opacity-100', on && 'opacity-100')}>
+                  <div className="flex items-center opacity-0 group-hover:opacity-100 focus-within:opacity-100">
                     <button onClick={() => { setRenaming(t.id); setRenameVal(t.title) }} className="btn btn-ghost btn-sm btn-icon !w-7 !h-7" title="Rename" aria-label="Rename chat"><Pencil size={12} /></button>
                     <button onClick={() => { removeThread(t.id); if (on) setParams({}, { replace: true }) }} className="btn btn-ghost btn-sm btn-icon !w-7 !h-7 hover:!text-[var(--danger)]" title="Delete" aria-label="Delete chat"><Trash2 size={12} /></button>
                   </div>
