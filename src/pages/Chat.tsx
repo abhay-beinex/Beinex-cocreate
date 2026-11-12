@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Sparkles, Plus, ChevronDown, Trash2, Pencil, MessageSquare, Search } from 'lucide-react'
-import { useApp } from '@/store/app'
+import { useApp, useUser, can } from '@/store/app'
 import { Tile, cx } from '@/components/ui'
 import { Dropdown } from '@/components/Dropdown'
 import { AgentAvatar } from '@/components/AgentAvatar'
@@ -24,6 +24,8 @@ export default function Chat() {
   const { agentId } = useParams()
   const [params, setParams] = useSearchParams()
   const nav = useNavigate()
+  const user = useUser()!
+  const editable = can(user, 'build')
   const store = useApp()
   const { agents, threads, chats, upsertThread, removeThread, defaultModel, profiles, addDoc } = store
   const [filter, setFilter] = useState('')
@@ -128,7 +130,7 @@ export default function Chat() {
           {chat.msgs.length > 0 && <button className="btn btn-ghost btn-sm" onClick={() => newThread(thread?.agentId)}><Plus size={13} /> New chat with {agent.id === 'assistant' ? 'the assistant' : agent.name}</button>}
         </header>
         <div className="flex-1 scroll">
-          <Thread msgs={chat.msgs} agent={agent} onPrompt={(p) => send(p)} onAction={onAction} emptyExtra={agent.id === 'assistant' && live.length > 0 ? (
+          <Thread msgs={chat.msgs} agent={agent} onPrompt={(p) => send(p)} onAction={editable ? onAction : undefined} emptyExtra={agent.id === 'assistant' && live.length > 0 ? (
             <div className="mt-8"><div className="text-[11px] font-semibold uppercase tracking-wider muted mb-2">Or chat with an agent</div><div className="flex flex-wrap justify-center gap-2">{live.slice(0, 6).map((a) => <button key={a.id} onClick={() => switchAgent(a.id)} className="flat pl-1.5 pr-3 h-9 flex items-center gap-2 text-[12.5px] font-medium hover:border-[color-mix(in_srgb,var(--accent)_45%,var(--line))]"><AgentAvatar name={a.name} icon={a.icon} color={a.color} size={24} radius={7} />{a.name}</button>)}</div></div>
           ) : undefined} />
         </div>

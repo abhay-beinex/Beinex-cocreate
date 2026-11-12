@@ -136,7 +136,7 @@ export function checkFlow(nodes: WfNode[], edges: WfEdge[], ctx: { hasAgent: (id
   if (nodes.length === 1 && triggers.length === 1) out.push({ text: 'Add a step after Start, such as an Agent.' })
   if (ctx.triggerType === 'watch' && !/^https?:\/\//.test(ctx.watchUrl ?? '')) out.push({ nodeId: triggers[0]?.id, text: 'Start: give the page address to watch.' })
   const nested = nestedNodes(nodes, edges)
-  const known = new Set(['input', 'item', 'index', 'count', 'now', 'trigger', ...nodes.filter((n) => producesVar(n.data.brick)).map((n) => keyOf(n.data)), ...nodes.flatMap((n) => (n.data.assign ?? []).map((a) => slug(a.key)))])
+  const allKnown = new Set(['input', 'item', 'index', 'count', 'now', 'trigger', 'steps', ...nodes.filter((n) => producesVar(n.data.brick)).map((n) => keyOf(n.data)), ...nodes.filter((n) => n.data.brick === 'loop').map((n) => `${keyOf(n.data)}_items`), ...nodes.flatMap((n) => (n.data.assign ?? []).map((a) => slug(a.key)))])
   const seenKeys = new Map<string, string>()
   for (const n of nodes) {
     const d = n.data; const name = d.label || brickOf(d.brick).label
@@ -178,8 +178,42 @@ export function checkFlow(nodes: WfNode[], edges: WfEdge[], ctx: { hasAgent: (id
       else if (d.workflowId === ctx.selfId) out.push({ nodeId: n.id, text: `${name}: a workflow cannot run itself.` })
     }
     if (d.brick !== 'trigger' && !edges.some((e) => e.target === n.id)) out.push({ nodeId: n.id, text: `${name} is not connected to anything before it.` })
-    for (const tpl of [d.input, d.prompt, d.items, d.url, d.body, d.rule?.left, d.rule?.right, ...(d.assign ?? []).map((a) => a.value)]) for (const r of refs(tpl)) if (!known.has(r)) out.push({ nodeId: n.id, text: `${name}: {{${r}}} is not produced by any step.` })
+    const avail = new Set(['input', 'now', 'trigger', 'steps', ...varsBefore(nodes, edges, n.id).map((v) => v.key.split('.')[0])])
+    for (const tpl of [d.input, d.prompt, d.items, d.url, d.body, d.rule?.left, d.rule?.right, ...(d.assign ?? []).map((a) => a.value)]) {
+      for (const r of refs(tpl)) {
+        if (!allKnown.has(r)) out.push({ nodeId: n.id, text: `${name}: {{${r}}} is not produced by any step.` })
+        else if (!avail.has(r)) {
+          if (r === 'item' || r === 'index' || r === 'count') out.push({ nodeId: n.id, text: `${name}: {{${r}}} can only be used inside a Repeat step's Each branch.` })
+          else out.push({ nodeId: n.id, text: `${name}: {{${r}}} is not available here — it is produced by a later step or on another branch.` })
+        }
+      }
+    }
   }
+  // Detect cycles in connections (excluding edges returning to a Repeat step).
+  const visitState = new Map<string, 0 | 1 | 2>()
+  const reportedCycles = new Set<string>()
+  const dfs = (u: string) => {
+    visitState.set(u, 1)
+    for (const e of outEdges(edges, u)) {
+      const v = e.target
+      const vNode = nodes.find((x) => x.id === v)
+      if (!vNode) continue
+      const st = visitState.get(v) ?? 0
+      if (st === 1) {
+        if (vNode.data.brick !== 'loop' && !reportedCycles.has(`${u}->${v}`)) {
+          reportedCycles.add(`${u}->${v}`)
+          const uNode = nodes.find((x) => x.id === u)
+          const uName = uNode?.data.label || brickOf(uNode?.data.brick ?? 'agent').label
+          const vName = vNode.data.label || brickOf(vNode.data.brick).label
+          out.push({ nodeId: u, text: `${uName}: connects back to "${vName}", creating an infinite loop. Use a "Repeat for each" step instead.` })
+        }
+      } else if (st === 0) {
+        dfs(v)
+      }
+    }
+    visitState.set(u, 2)
+  }
+  for (const n of nodes) if ((visitState.get(n.id) ?? 0) === 0) dfs(n.id)
   return out
 }
 
@@ -228,11 +262,28 @@ export function varsBefore(nodes: WfNode[], edges: WfEdge[], nodeId: string): { 
   const before = new Set<string>()
   const q = edges.filter((e) => e.target === nodeId).map((e) => e.source)
   while (q.length) { const cur = q.shift()!; if (before.has(cur)) continue; before.add(cur); edges.filter((e) => e.target === cur).forEach((e) => q.push(e.source)) }
-  const out: { key: string; label: string; brick: Brick | 'builtin' }[] = [{ key: 'input', label: 'The run input', brick: 'builtin' }]
   const nested = nestedNodes(nodes, edges)
+  // When a step sits after a Repeat step (on its Done branch), variables produced inside the Repeat's Each body are also aggregated into vars.
+  for (const n of nodes) {
+    if (n.data.brick === 'loop' && before.has(n.id) && nested.get(nodeId) !== 'loop') {
+      const eachStart = nextOf(edges, n.id, 'each')
+      const doneStart = nextOf(edges, n.id, 'done')
+      if (eachStart) {
+        const lq = [eachStart]
+        while (lq.length) {
+          const cur = lq.shift()!
+          if (cur === n.id || cur === doneStart || cur === nodeId || before.has(cur)) continue
+          before.add(cur)
+          outEdges(edges, cur).forEach((e) => lq.push(e.target))
+        }
+      }
+    }
+  }
+  const out: { key: string; label: string; brick: Brick | 'builtin' }[] = [{ key: 'input', label: 'The run input', brick: 'builtin' }]
   if (nested.get(nodeId) === 'loop') out.push({ key: 'item', label: 'Current item', brick: 'builtin' }, { key: 'index', label: 'Item number', brick: 'builtin' }, { key: 'count', label: 'Number of items', brick: 'builtin' })
   for (const n of nodes) if (before.has(n.id)) {
     if (producesVar(n.data.brick)) out.push({ key: keyOf(n.data), label: n.data.label, brick: n.data.brick })
+    if (n.data.brick === 'loop') out.push({ key: `${keyOf(n.data)}_items`, label: `${n.data.label} · items JSON`, brick: 'loop' })
     if (n.data.brick === 'extract') for (const f of n.data.fields ?? []) if (f.name.trim()) out.push({ key: `${keyOf(n.data)}.${slug(f.name)}`, label: `${n.data.label} · ${f.name}`, brick: 'extract' })
     if (n.data.brick === 'set') for (const a of n.data.assign ?? []) if (a.key.trim()) out.push({ key: slug(a.key), label: `${n.data.label} · ${a.key}`, brick: 'set' })
   }

@@ -35,7 +35,13 @@ export function useAgentChat(agent: AgentLike, storeKey?: string) {
     const update = () => save([...history, { ...cur }])
     const mdl = model ?? agent.model
     try {
-      for await (const ev of runAgentTurn({ key: s.apiKey, model: mdl, models: profileModels(s), custom: s.customTools, autonomy: agent.autonomy, instructions: agent.instructions, tools: agent.tools, libraries: s.libraries.filter((l) => agent.knowledge.includes(l.id)), history: history.map((m) => ({ role: m.role, content: m.content })), signal: abort.current.signal })) {
+      const apiHistory = history.map((m) => ({
+        role: m.role,
+        content: m.role === 'assistant' && m.tools?.some((t) => t.result)
+          ? `${m.content}${m.tools.filter((t) => t.result).map((t) => `\n\n[Tool ${t.name}(${t.args}) result:\n${t.result!.slice(0, 4000)}]`).join('')}`
+          : m.content,
+      }))
+      for await (const ev of runAgentTurn({ key: s.apiKey, model: mdl, models: profileModels(s), custom: s.customTools, autonomy: agent.autonomy, instructions: agent.instructions, tools: agent.tools, libraries: s.libraries.filter((l) => agent.knowledge.includes(l.id)), history: apiHistory, signal: abort.current.signal })) {
         if (ev.type === 'text') cur.content += ev.text
         else if (ev.type === 'tool_start') cur.tools = [...(cur.tools ?? []), { id: ev.id, name: ev.name, args: ev.args }]
         else if (ev.type === 'tool_end') cur.tools = (cur.tools ?? []).map((t) => ((t.id ? t.id === ev.id : t.name === ev.name && !t.result) ? { ...t, result: ev.result } : t))

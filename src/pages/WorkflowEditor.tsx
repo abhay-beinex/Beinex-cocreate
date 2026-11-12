@@ -1,7 +1,7 @@
 // Workflow builder v2: canvas-first with a floating header and toolbar, a searchable palette, a floating inspector,
 // a run drawer and a docked Co-Create Assistant panel that proposes changes before applying them.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent } from 'react'
-import { useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Navigate, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ReactFlow, ReactFlowProvider, Background, BackgroundVariant, Controls, MiniMap, useNodesState, useEdgesState, useReactFlow, type Connection } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -58,9 +58,10 @@ export default function WorkflowEditor() {
   const base = useMemo<Workflow>(() => {
     if (stored) return stored
     const approver = users.find((u) => can(u, 'approve'))?.id
-    const nodes = template.id === 'blank' ? [{ id: 't', type: 'step' as const, position: { x: 60, y: 160 }, data: newStep('trigger', { model: defaultModel }) }] : template.nodes.map((n) => ({ ...n, data: { ...n.data, ...(n.data.brick === 'council' && params.get('council') ? { councilId: params.get('council')!, label: councils.find((c) => c.id === params.get('council'))?.name ?? n.data.label } : {}), ...(n.data.brick === 'human' ? { approver } : {}) } }))
+    const nodes = template.id === 'blank' ? [{ id: 't', type: 'step' as const, position: { x: 60, y: 160 }, data: newStep('trigger', { model: defaultModel }) }] : template.nodes.map((n) => ({ ...n, data: { ...n.data, ...((n.data.brick === 'council' || (template.id === 'standard' && n.id === 'a')) && params.get('council') ? { brick: 'council' as const, councilId: params.get('council')!, label: councils.find((c) => c.id === params.get('council'))?.name ?? 'Council', sub: 'Deliberate on the case' } : {}), ...(n.data.brick === 'human' ? { approver } : {}) } }))
     return { id: `wf-${Date.now().toString(36)}`, name: template.id === 'blank' ? 'Untitled workflow' : template.name, description: template.id === 'blank' ? '' : template.desc, status: 'draft', version: 1, triggerType: template.triggerType, schedule: template.schedule, autonomy: 2, nodes: autoLayout(nodes, template.edges), edges: template.edges, updatedAt: '', createdBy: user.id }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [workflowId]) // eslint-disable-line react-hooks/exhaustive-deps
+  if (isNew && !can(user, 'build')) return <Navigate to="/workflows" replace />
   if (!isNew && !stored) return <div className="h-full grid place-items-center muted text-[13px]">This flow no longer exists.</div>
   return <ReactFlowProvider><Editor key={base.id} base={base} stored={stored} isNew={isNew} buildText={params.get('build') ?? ''} /></ReactFlowProvider>
 }
@@ -119,8 +120,23 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
 
   // ---------- derived ----------
   const plain = useCallback((): { nodes: WfNode[]; edges: WfEdge[] } => ({ nodes: nodes.map((n) => { const { ui: _ui, ...data } = n.data; return { id: n.id, type: 'step', position: { x: Math.round(n.position.x), y: Math.round(n.position.y) }, data } }), edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target, label: e.data?.label })) }), [nodes, edges])
-  const current = useCallback((): Workflow => ({ ...base, ...meta, schedule: meta.triggerType === 'schedule' ? meta.schedule : undefined, watch: meta.triggerType === 'watch' ? { ...(stored?.watch ?? {}), ...meta.watch } : undefined, event: meta.triggerType === 'event' ? meta.event : undefined, ...plain(), updatedAt: new Date().toISOString().slice(0, 10) }), [base, meta, plain, stored])
-  const strip = (w: Workflow) => JSON.stringify({ ...w, updatedAt: '', version: 0, lastRunAt: 0, status: '', watch: w.watch ? { url: w.watch.url, every: w.watch.every, input: w.watch.input } : undefined })
+  const current = useCallback((): Workflow => ({ ...(stored ?? base), ...meta, id: stored?.id ?? base.id, schedule: meta.triggerType === 'schedule' ? meta.schedule : undefined, watch: meta.triggerType === 'watch' ? { ...(stored?.watch ?? {}), ...meta.watch } : undefined, event: meta.triggerType === 'event' ? meta.event : undefined, ...plain(), updatedAt: new Date().toISOString().slice(0, 10) }), [base, meta, plain, stored])
+  const strip = (w: Workflow) => JSON.stringify({
+    id: w.id,
+    name: w.name,
+    description: w.description,
+    triggerType: w.triggerType,
+    autonomy: w.autonomy,
+    schedule: w.triggerType === 'schedule' && w.schedule ? { every: w.schedule.every, at: w.schedule.at, day: w.schedule.day ?? null, input: w.schedule.input } : null,
+    watch: w.triggerType === 'watch' && w.watch ? { url: w.watch.url, every: w.watch.every, input: w.watch.input } : null,
+    event: w.triggerType === 'event' && w.event ? { kind: w.event.kind, libraryId: w.event.libraryId ?? null } : null,
+    nodes: w.nodes.map((n) => {
+      const { ui: _ui, ...raw } = n.data as StepData & { ui?: unknown }
+      const data = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined).sort(([a], [b]) => a.localeCompare(b)))
+      return { id: n.id, x: Math.round(n.position.x), y: Math.round(n.position.y), data }
+    }),
+    edges: w.edges.map((e) => ({ id: e.id, source: e.source, target: e.target, label: branchOf(w.nodes.find((n) => n.id === e.source)?.data.brick, e.label) ?? null })),
+  })
   const dirty = strip(current()) !== strip(stored ?? base) || (isNew && !stored)
   const problems = useMemo<Problem[]>(() => { const p = plain(); return checkFlow(p.nodes, p.edges, { hasAgent: (id) => !!id && agents.some((a) => a.id === id), hasCouncil: (id) => !!id && councils.some((c) => c.id === id), hasUser: (id) => !!id && users.some((u) => u.id === id), hasWorkflow: (id) => !!id && workflows.some((w) => w.id === id), hasTool: (name) => !!name && (TOOLS.some((t) => t.name === name) || customTools.some((t) => t.name === name)), selfId: base.id, triggerType: meta.triggerType, watchUrl: meta.watch.url }) }, [plain, agents, councils, users, workflows, customTools, base.id, meta.triggerType, meta.watch.url])
   const wfRuns = useMemo(() => runs.filter((r) => r.workflowId === base.id), [runs, base.id])
@@ -274,15 +290,24 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
   }, [nodes, edges, setNodes, focus, commit])
 
   // ---------- persistence ----------
+  const navBypassRef = useRef(false)
   const persist = (status?: Workflow['status']) => {
     const w: Workflow = { ...current(), status: status ?? meta.status, version: stored ? meta.version + 1 : 1 }
+    navBypassRef.current = true
     upsertWorkflow(w); setMeta((m) => ({ ...m, status: w.status, version: w.version }))
     if (isNew) nav(`/workflows/${w.id}`, { replace: true })
+    setTimeout(() => { navBypassRef.current = false }, 0)
     return w
   }
-  const duplicate = () => { const w: Workflow = { ...current(), id: `wf-${Date.now().toString(36)}`, name: `${meta.name} copy`, status: 'draft', version: 1, lastRunAt: undefined }; upsertWorkflow(w); nav(`/workflows/${w.id}`) }
+  const duplicate = () => {
+    const w: Workflow = { ...current(), id: `wf-${Date.now().toString(36)}`, name: `${meta.name} copy`, status: 'draft', version: 1, lastRunAt: undefined }
+    navBypassRef.current = true
+    upsertWorkflow(w)
+    nav(`/workflows/${w.id}`)
+    setTimeout(() => { navBypassRef.current = false }, 0)
+  }
   const exportJson = () => { const blob = new Blob([JSON.stringify(current(), null, 2)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${meta.name.replace(/\s+/g, '-').toLowerCase()}.workflow.json`; a.click(); URL.revokeObjectURL(a.href) }
-  const blocker = useBlocker(({ currentLocation, nextLocation }) => editable && currentLocation.pathname !== nextLocation.pathname && (isNew && !stored ? nodes.length > 1 && !nextLocation.pathname.startsWith('/workflows/wf-') : dirty))
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => !navBypassRef.current && editable && currentLocation.pathname !== nextLocation.pathname && (isNew && !stored ? nodes.length > 1 && !nextLocation.pathname.startsWith('/workflows/wf-') : dirty))
   const blocked = blocker.state === 'blocked' ? blocker : null
 
   useEffect(() => {
@@ -810,8 +835,8 @@ function StepInspector({ node, editable, canRun, onClose, onRemove, patch, meta,
             {meta.triggerType === 'manual' && <div className="text-[12px] muted -mt-2 leading-relaxed">Each run starts with an input you type. It becomes <code className="text-[11px]">{'{{input}}'}</code>, which every step can see.</div>}
             {meta.triggerType === 'schedule' && (
               <>
-                <div className={cx('grid gap-3', meta.schedule.every === 'week' ? 'grid-cols-1' : 'grid-cols-2')}>
-                  <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3">
+                  <div className={cx('grid gap-3', meta.schedule.every === 'week' ? 'grid-cols-2' : 'grid-cols-[minmax(0,1fr)_minmax(0,2fr)]')}>
                     <Field label="Every"><Select value={meta.schedule.every} onChange={(e) => setMeta({ ...meta, schedule: { ...meta.schedule, every: e.target.value as Schedule['every'], ...(e.target.value === 'week' ? { day: meta.schedule.day ?? 1 } : {}) } })}><option value="hour">Hour</option><option value="day">Day</option><option value="week">Week</option></Select></Field>
                     {meta.schedule.every === 'week' && (
                       <Field label="On"><Select value={String(meta.schedule.day ?? 1)} onChange={(e) => setMeta({ ...meta, schedule: { ...meta.schedule, day: Number(e.target.value) } })} aria-label="Day of week">{[1, 2, 3, 4, 5, 6, 0].map((dIdx) => <option key={dIdx} value={dIdx}>{DAYS[dIdx]}</option>)}</Select></Field>

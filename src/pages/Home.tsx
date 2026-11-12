@@ -52,7 +52,14 @@ export default function Home() {
   const decided = runs.filter((r) => r.decidedBy).length
   const spent = spentToday(user.id)
   const decide = async (r: Run, d: 'approved' | 'rejected') => { decideRun(r.id, d); if (d === 'approved' && r.kind !== 'chat' && r.cursor) await resumeRun(r.id) }
-  const retry = (r: Run) => { const i = r.steps.findIndex((s) => s.status === 'failed'); rerunFrom(r.id, Math.max(0, i), (id) => nav(`/runs?open=${id}`)) }
+  const retry = (r: Run) => {
+    let i = -1
+    for (let idx = r.steps.length - 1; idx >= 0; idx--) {
+      if (r.steps[idx].status === 'failed' && !r.steps[idx].continued) { i = idx; break }
+    }
+    if (i < 0) i = r.steps.findIndex((s) => s.status === 'failed')
+    rerunFrom(r.id, Math.max(0, i), (id) => nav(`/runs?open=${id}`))
+  }
   const hour = new Date().getHours()
   const sky = hour < 11 ? ['#ffd59e', '#04bbf2'] : hour < 17 ? ['#04bbf2', '#0074d9'] : ['#6d5cff', '#0074d9']
 
@@ -112,7 +119,7 @@ export default function Home() {
               </div>
             ))}
             {failed.map((r) => {
-              const f = r.steps.find((s) => s.status === 'failed'); return (
+              const f = [...r.steps].reverse().find((s) => s.status === 'failed' && !s.continued) ?? r.steps.find((s) => s.status === 'failed'); return (
                 <div key={r.id} className="flex items-center gap-3 p-2.5 rounded-[14px] hover:bg-[var(--clay-dark)]">
                   <Tile color="#e5484d" size={36}><AlertTriangle size={16} /></Tile>
                   <button onClick={() => nav(`/runs?open=${r.id}`)} className="flex-1 min-w-0 text-left"><div className="text-[13px] font-semibold truncate">Failed at {f?.name ?? 'a step'} · {r.workflow}</div><div className="text-[11.5px] muted truncate">{r.id} · {(f?.output ?? '').replace(/^Error:\s*/, '').slice(0, 90)}</div></button>

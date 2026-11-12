@@ -43,7 +43,8 @@ export default function AgentEditor() {
   const editable = can(user, 'build')
   const abil = useMemo(() => abilities(customTools), [customTools])
 
-  useEffect(() => { if (stored && (!draft || stored.version > (draft?.version ?? 0))) setDraft(stored) }, [stored]) // eslint-disable-line react-hooks/exhaustive-deps
+  const navBypassRef = useRef(false)
+  useEffect(() => { if (stored && (!draft || draft.id !== stored.id || stored.version > (draft?.version ?? 0))) setDraft(stored) }, [stored]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!models.length && apiKey) listModels(apiKey).then(setModels).catch(() => { }) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(''), 2600); return () => clearTimeout(t) }, [toast])
   const autoRan = useRef(false)
@@ -54,8 +55,9 @@ export default function AgentEditor() {
   const hasGated = !!draft && draft.tools.some((t) => TOOLS.find((x) => x.name === t)?.write)
   useEffect(() => { if (draft && hasGated && draft.autonomy === 3) setDraft({ ...draft, autonomy: 2 }) }, [hasGated]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const dirty = !!draft && !!stored && JSON.stringify({ ...draft, history: undefined, testedAt: undefined }) !== JSON.stringify({ ...stored, history: undefined, testedAt: undefined })
-  const blocker = useBlocker(dirty)
+  const stripAgent = (a: Agent) => JSON.stringify({ id: a.id, name: a.name, description: a.description, instructions: a.instructions, model: a.model, tools: a.tools, knowledge: a.knowledge, samplePrompts: a.samplePrompts, autonomy: a.autonomy, status: a.status, icon: a.icon ?? null, color: a.color ?? null, tones: a.tones ?? [], tests: a.tests ?? [] })
+  const dirty = !!draft && !!stored && stripAgent(draft) !== stripAgent(stored)
+  const blocker = useBlocker(() => !navBypassRef.current && dirty)
   useEffect(() => { const h = (e: BeforeUnloadEvent) => { if (dirty) { e.preventDefault(); e.returnValue = '' } }; window.addEventListener('beforeunload', h); return () => window.removeEventListener('beforeunload', h) }, [dirty])
   useEffect(() => { const h = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') { e.preventDefault(); if (dirty && editable) save() } }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h) })
 
@@ -110,7 +112,13 @@ export default function AgentEditor() {
   }
   const fixForMe = () => { const missing = ready.items.filter((i) => !i.ok && i.fixable).map((i) => i.label); setTab('instructions'); runAssist(`Fix these readiness items without changing the agent's purpose: ${missing.join('; ')}. Keep everything else as it is.`) }
   const importJson = (f: File) => { const r = new FileReader(); r.onload = () => { try { const j = JSON.parse(String(r.result)); set({ name: j.name ?? draft.name, description: j.description ?? draft.description, instructions: j.instructions ?? draft.instructions, model: j.model ?? draft.model, tools: Array.isArray(j.tools) ? j.tools : draft.tools, knowledge: Array.isArray(j.knowledge) ? j.knowledge : draft.knowledge, autonomy: j.autonomy ?? draft.autonomy, samplePrompts: Array.isArray(j.samplePrompts) ? j.samplePrompts : draft.samplePrompts, icon: j.icon ?? draft.icon, color: j.color ?? draft.color }); setToast('Imported. Review and save.') } catch { setToast('That file is not a valid agent export.') } }; r.readAsText(f) }
-  const duplicate = () => { const id = `agent-${Date.now().toString(36)}`; upsertAgent({ ...draft, id, name: `${draft.name} (copy)`, status: 'draft', version: 1, history: undefined, testedAt: undefined, createdBy: user.id, updatedAt: new Date().toISOString().slice(0, 10) }); nav(`/agents/${id}`) }
+  const duplicate = () => {
+    const id = `agent-${Date.now().toString(36)}`
+    navBypassRef.current = true
+    upsertAgent({ ...draft, id, name: `${draft.name} (copy)`, status: 'draft', version: 1, history: undefined, testedAt: undefined, createdBy: user.id, updatedAt: new Date().toISOString().slice(0, 10) })
+    nav(`/agents/${id}`)
+    setTimeout(() => { navBypassRef.current = false }, 0)
+  }
   const toggleTone = (t: string) => { const tones = new Set(draft.tones ?? []); tones.has(t) ? tones.delete(t) : tones.add(t); set({ tones: [...tones], instructions: applyTonesToInstructions(draft.instructions, [...tones]) }) }
   const cats = ['Web', 'Reasoning', 'Knowledge', 'Actions', 'Custom'] as const
   const previewPrompts = draft.samplePrompts.length ? draft.samplePrompts : ['Introduce yourself in two lines', 'What can you help me with?', 'What would you not do?']

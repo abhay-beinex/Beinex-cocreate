@@ -39,7 +39,7 @@ export default function Agents() {
     if (id) setParams({}, { replace: true })
   }, [params]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { localStorage.setItem('agents-view', view) }, [view])
-  useEffect(() => { if (!models.length && apiKey) listModels(apiKey).then(setModels).catch(() => {}) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!models.length && apiKey) listModels(apiKey).then(setModels).catch(() => { }) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const close = () => setMenu(null); window.addEventListener('click', close); return () => window.removeEventListener('click', close) }, [])
 
   const duplicate = (a: Agent) => { const id = `agent-${Date.now().toString(36)}`; upsertAgent({ ...a, id, name: `${a.name} (copy)`, status: 'draft', version: 1, history: undefined, createdBy: user.id, updatedAt: new Date().toISOString().slice(0, 10) }); nav(`/agents/${id}`) }
@@ -88,11 +88,11 @@ export default function Agents() {
       )}
 
       <div className="flex items-center gap-3 mb-5 flex-wrap">
-        <Segmented value={tab} onChange={setTab} items={[{ id: 'all', label: <>All <span className="muted">{agents.length}</span></> }, { id: 'live', label: <>Live <span className="muted">{live}</span></> }, { id: 'draft', label: <>Drafts <span className="muted">{agents.length - live}</span></> }, { id: 'councils', label: <>Councils <span className="chip !h-[18px] !text-[10px] !px-1.5 ml-0.5">Soon</span></> }]} />
+        <Segmented value={tab} onChange={setTab} items={[{ id: 'all', label: <>All <span className="muted">{agents.length}</span></> }, { id: 'live', label: <>Live <span className="muted">{live}</span></> }, { id: 'draft', label: <>Drafts <span className="muted">{agents.length - live}</span></> }, { id: 'councils', label: <>Councils <span className="muted">{councils.length}</span></> }]} />
         <SearchBox value={q} onChange={setQ} placeholder="Search" className="w-[220px]" />
         <div className="flex-1" />
         {tab !== 'councils' ? <div className="seg"><button className={cx(view === 'grid' && 'on')} onClick={() => setView('grid')} title="Cards"><LayoutGrid size={14} /></button><button className={cx(view === 'list' && 'on')} onClick={() => setView('list')} title="List"><List size={14} /></button></div>
-          : null}
+          : editable ? <Button variant="primary" onClick={() => setTemplates(true)}><Plus size={15} /> New council</Button> : null}
       </div>
 
       <AnimatePresence>
@@ -117,33 +117,44 @@ export default function Agents() {
         ) : (
           <Stagger className="clay px-3 py-1" delay={0.04}>
             <div className="row text-[11px] font-semibold uppercase tracking-wider muted !py-2"><button onClick={() => setSelected(selected.length === list.length ? [] : list.map((a) => a.id))} className="w-[24px] grid place-items-center muted hover:text-[var(--text)]">{selected.length === list.length && list.length > 0 ? <CheckSquare size={15} /> : <Square size={15} />}</button><span className="w-[40px]" /><span className="flex-1">Agent</span><span className="w-[80px]">Status</span><span className="w-[180px]">Abilities</span><span className="w-[110px]">Thinking</span><span className="w-[90px] text-right">Used in</span><span className="w-[100px] text-right">Updated</span><span className="w-[40px]" /></div>
-            {list.map((a) => { const u = usedIn(a); return (
-              <Item key={a.id}>
-                <div className={cx('row hover cursor-pointer', selected.includes(a.id) && 'bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] rounded-[12px]')} onClick={() => nav(`/agents/${a.id}`)}>
-                  <button onClick={(e) => { e.stopPropagation(); setSelected((s) => (s.includes(a.id) ? s.filter((x) => x !== a.id) : [...s, a.id])) }} className={cx('w-[24px] grid place-items-center', selected.includes(a.id) ? 'accent-ink' : 'muted hover:text-[var(--text)]')}>{selected.includes(a.id) ? <CheckSquare size={15} /> : <Square size={15} />}</button>
-                  <AgentAvatar name={a.name} icon={a.icon} color={a.color} size={32} />
-                  <div className="flex-1 min-w-0"><div className="text-[13.5px] font-medium truncate">{a.name}</div><div className="text-[12px] muted truncate">{a.description || 'No description yet.'}</div></div>
-                  <span className="w-[80px]"><Chip tone={a.status === 'live' ? 'ok' : undefined}>{a.status === 'live' ? 'Live' : 'Draft'}</Chip></span>
-                  <span className="w-[180px]"><AbilityWells tools={a.tools} custom={customTools} max={5} size={22} /></span>
-                  <span className="w-[110px]"><ThinkingMeter model={a.model} profiles={profiles} defaultModel={defaultModel} /></span>
-                  <span className="w-[90px] text-right text-[12.5px] muted">{u ? `${u} workflow${u === 1 ? '' : 's'}` : '—'}</span>
-                  <span className="w-[100px] text-right text-[12.5px] muted">{since(a.updatedAt)}</span>
-                  <span className="w-[40px] text-right"><AgentMenu a={a} /></span>
-                </div>
-              </Item>
-            ) })}
+            {list.map((a) => {
+              const u = usedIn(a); return (
+                <Item key={a.id}>
+                  <div className={cx('row hover cursor-pointer', selected.includes(a.id) && 'bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] rounded-[12px]')} onClick={() => nav(`/agents/${a.id}`)}>
+                    <button onClick={(e) => { e.stopPropagation(); setSelected((s) => (s.includes(a.id) ? s.filter((x) => x !== a.id) : [...s, a.id])) }} className={cx('w-[24px] grid place-items-center', selected.includes(a.id) ? 'accent-ink' : 'muted hover:text-[var(--text)]')}>{selected.includes(a.id) ? <CheckSquare size={15} /> : <Square size={15} />}</button>
+                    <AgentAvatar name={a.name} icon={a.icon} color={a.color} size={32} />
+                    <div className="flex-1 min-w-0"><div className="text-[13.5px] font-medium truncate">{a.name}</div><div className="text-[12px] muted truncate">{a.description || 'No description yet.'}</div></div>
+                    <span className="w-[80px]"><Chip tone={a.status === 'live' ? 'ok' : undefined}>{a.status === 'live' ? 'Live' : 'Draft'}</Chip></span>
+                    <span className="w-[180px]"><AbilityWells tools={a.tools} custom={customTools} max={5} size={22} /></span>
+                    <span className="w-[110px]"><ThinkingMeter model={a.model} profiles={profiles} defaultModel={defaultModel} /></span>
+                    <span className="w-[90px] text-right text-[12.5px] muted">{u ? `${u} workflow${u === 1 ? '' : 's'}` : '—'}</span>
+                    <span className="w-[100px] text-right text-[12.5px] muted">{since(a.updatedAt)}</span>
+                    <span className="w-[40px] text-right"><AgentMenu a={a} /></span>
+                  </div>
+                </Item>
+              )
+            })}
           </Stagger>
         )
-      ) : (
+      ) : councils.length === 0 ? (
         <div className="clay p-8 md:p-10 flex flex-col md:flex-row items-start gap-8">
           <div className="flex-1 min-w-0">
-            <span className="chip chip-accent">Coming soon</span>
+            <span className="chip chip-accent">Multi-agent deliberation</span>
             <h2 className="display text-[22px] font-bold mt-3 leading-tight">Councils: several agents, one recommendation</h2>
-            <p className="text-[13.5px] muted mt-2 leading-relaxed max-w-[520px]">A council gives one case to a handful of specialist agents, lets them deliberate by consensus, debate or vote, and hands a single recommendation to a person who decides. We are finishing the deliberation view and the audit trail before switching it on.</p>
+            <p className="text-[13.5px] muted mt-2 leading-relaxed max-w-[520px]">A council gives one case to a handful of specialist agents, lets them deliberate by consensus, debate or vote, and hands a single recommendation to a person who decides.</p>
             <div className="flex flex-wrap gap-2 mt-5">
-              {[['Review board', 'Specialists review a proposal from different angles'], ['Red team', 'Agents argue for and against, surfacing risks'], ['Quality gate', 'A majority vote on whether a draft is ready']].map(([n, d]) => <div key={n} className="flat px-3.5 py-2.5 min-w-[180px]"><div className="text-[12.5px] font-semibold">{n}</div><div className="text-[11.5px] muted">{d}</div></div>)}
+              {councilTemplates.map((t) => (
+                <button key={t.name} onClick={() => editable && createCouncil(t)} disabled={!editable} className="flat px-3.5 py-2.5 min-w-[180px] text-left hover:bg-[var(--surface)] transition-colors">
+                  <div className="text-[12.5px] font-semibold">{t.name}</div>
+                  <div className="text-[11.5px] muted">{t.description}</div>
+                </button>
+              ))}
             </div>
-            <div className="text-[12.5px] muted mt-6">In the meantime, chain agents and an approval step in a workflow. <button onClick={() => nav('/workflows/new?template=standard')} className="accent-ink font-medium hover:underline">Start one</button></div>
+            {editable && (
+              <div className="mt-6">
+                <Button variant="primary" onClick={() => setTemplates(true)}><Plus size={15} /> Create a council</Button>
+              </div>
+            )}
           </div>
           <div className="shrink-0 w-[200px] hidden md:flex flex-col items-center gap-3 self-center">
             <div className="flex -space-x-3">{['search', 'chart', 'shield'].map((ic, i) => <span key={ic} className="rounded-full border-[3px] border-[var(--surface)]"><AgentAvatar name={ic} icon={ic} color={['#0ea5e9', '#10b981', '#6366f1'][i]} size={44} radius={22} /></span>)}</div>
@@ -153,6 +164,53 @@ export default function Agents() {
             <div className="chip !h-7">Recommendation → a person decides</div>
           </div>
         </div>
+      ) : clist.length === 0 ? (
+        <div className="clay"><Empty title="No councils match" body="Try a different search." /></div>
+      ) : (
+        <Stagger className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4" delay={0.05}>
+          {clist.map((c) => {
+            const members = c.members.map((id) => agents.find((a) => a.id === id)).filter((a): a is Agent => !!a)
+            const gk = users.find((u) => u.id === c.gatekeeper)
+            const usedCount = workflows.filter((w) => w.nodes.some((n) => n.data.councilId === c.id)).length
+            return (
+              <Item key={c.id}>
+                <div onClick={() => setOpen(c)} className="clay p-5 flex flex-col gap-3 cursor-pointer hover:translate-y-[-2px] transition-transform min-h-[196px]">
+                  <div className="flex items-start gap-3">
+                    <Tile color={colorFor(c.name)} size={38} radius={12}><Users size={17} /></Tile>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold text-[14.5px] truncate">{c.name}</div>
+                      <div className="text-[11.5px] muted capitalize">{c.mode === 'quorum' ? 'Quorum vote' : c.mode}{gk ? ` · Gatekeeper: ${gk.name}` : ''}</div>
+                    </div>
+                    <Chip tone={c.status === 'live' ? 'ok' : undefined}>{c.status === 'live' ? 'Live' : 'Draft'}</Chip>
+                  </div>
+                  <p className="text-[12.5px] muted line-clamp-2 flex-1">{c.description || 'Specialist agents deliberate and hand one recommendation to a gatekeeper.'}</p>
+                  <div className="flex items-center justify-between pt-2 border-t hairline">
+                    <div className="flex items-center gap-2">
+                      <div className="flex -space-x-2">
+                        {members.slice(0, 4).map((m) => (
+                          <span key={m.id} className="rounded-full border-2 border-[var(--surface)]" title={m.name}>
+                            <AgentAvatar name={m.name} icon={m.icon} color={m.color} size={24} radius={12} />
+                          </span>
+                        ))}
+                      </div>
+                      <span className="text-[11.5px] muted">{members.length} {members.length === 1 ? 'agent' : 'agents'}{usedCount ? ` · ${usedCount} flow${usedCount === 1 ? '' : 's'}` : ''}</span>
+                    </div>
+                    <span className="text-[12px] font-medium accent-ink">Open</span>
+                  </div>
+                </div>
+              </Item>
+            )
+          })}
+          {editable && (
+            <Item>
+              <button onClick={() => setTemplates(true)} className="w-full h-full min-h-[196px] rounded-[24px] border-2 border-dashed border-[var(--line)] flex flex-col items-center justify-center gap-2 text-center hover:bg-[var(--clay-dark)] transition-colors">
+                <span className="clay-sm w-11 h-11 rounded-[14px] grid place-items-center muted"><Plus size={18} /></span>
+                <span className="text-[13.5px] font-semibold">New council</span>
+                <span className="text-[12px] muted px-6">Pick a deliberation template or choose specialist agents yourself</span>
+              </button>
+            </Item>
+          )}
+        </Stagger>
       )}
 
       <Confirm open={!!toDelete} onClose={() => setToDelete(null)} title={`Delete ${toDelete?.name}?`} danger confirmLabel="Delete" onConfirm={() => toDelete && deleteAgent(toDelete.id)} body={toDelete && (usedIn(toDelete) > 0 ? `This agent is used by ${usedIn(toDelete)} workflow${usedIn(toDelete) === 1 ? '' : 's'}; those steps will need a new agent. Its chat history and versions are removed.` : 'Its chat history and versions are removed. This cannot be undone.')} />
@@ -163,15 +221,15 @@ export default function Agents() {
           <button onClick={() => createCouncil()} className="flat p-4 text-left hover:bg-[var(--surface)]"><div className="text-[13.5px] font-semibold">Blank council</div><div className="text-[12px] muted">Choose members and a deliberation mode yourself.</div></button>
         </div>
       </Modal>
-      <CouncilDrawer council={open} onClose={() => setOpen(null)} onDelete={(id) => { deleteCouncil(id); setOpen(null) }} />
+      <CouncilDrawer council={open} editable={editable} onSave={(c) => { upsertCouncil(c); setOpen(c) }} onClose={() => setOpen(null)} onDelete={(id) => { deleteCouncil(id); setOpen(null) }} />
     </Page>
   )
 }
 
-function CouncilDrawer({ council, onClose, onDelete }: { council: Council | null; onClose: () => void; onDelete: (id: string) => void }) {
+function CouncilDrawer({ council, editable, onSave, onClose, onDelete }: { council: Council | null; editable: boolean; onSave: (c: Council) => void; onClose: () => void; onDelete: (id: string) => void }) {
   const nav = useNavigate()
   const store = useApp()
-  const { agents, users, upsertCouncil, apiKey, libraries, models, customTools } = store
+  const { agents, users, apiKey, libraries, models, customTools } = store
   const [draft, setDraft] = useState<Council | null>(council)
   const [tab, setTab] = useState<'setup' | 'simulate'>('setup')
   const [caseText, setCaseText] = useState('Proposal: move our customer support knowledge base to a new vendor next quarter. Budget 40,000, migration in 6 weeks, two engineers.')
@@ -210,20 +268,20 @@ function CouncilDrawer({ council, onClose, onDelete }: { council: Council | null
       <div className="flex items-center gap-2 mb-4">
         <Segmented value={tab} onChange={setTab} items={[{ id: 'setup', label: 'Setup' }, { id: 'simulate', label: 'Simulate' }]} />
         <div className="flex-1" />
-        {dirty && <Button size="sm" variant="primary" onClick={() => upsertCouncil(draft)}><Check size={13} /> Save</Button>}
-        {!dirty && draft.status === 'draft' && <Button size="sm" variant="primary" onClick={() => { const n = { ...draft, status: 'live' as const }; setDraft(n); upsertCouncil(n) }}>Publish</Button>}
+        {editable && dirty && <Button size="sm" variant="primary" onClick={() => onSave(draft)}><Check size={13} /> Save</Button>}
+        {editable && !dirty && draft.status === 'draft' && <Button size="sm" variant="primary" onClick={() => { const n = { ...draft, status: 'live' as const }; setDraft(n); onSave(n) }}>Publish</Button>}
       </div>
       {tab === 'setup' ? (
         <div className="flex flex-col gap-4">
-          <Field label="Name"><Input value={draft.name} onChange={(e) => set({ name: e.target.value })} /></Field>
-          <Field label="Purpose"><Textarea rows={2} value={draft.description} onChange={(e) => set({ description: e.target.value })} /></Field>
-          <Field label="Members"><div className="flat divide-y divide-[var(--line)]">{agents.map((a) => <div key={a.id} className="flex items-center gap-3 px-3 h-11"><AgentAvatar name={a.name} icon={a.icon} color={a.color} size={24} /><span className="flex-1 text-[13px]">{a.name}{a.status === 'draft' && <span className="muted"> · draft</span>}</span><Toggle checked={draft.members.includes(a.id)} onChange={(v) => set({ members: v ? [...draft.members, a.id] : draft.members.filter((m) => m !== a.id) })} /></div>)}</div></Field>
-          <Field label="Deliberation mode"><Segmented value={draft.mode} onChange={(m) => set({ mode: m })} items={[{ id: 'consensus', label: 'Consensus' }, { id: 'debate', label: 'Debate' }, { id: 'quorum', label: 'Quorum vote' }]} /></Field>
+          <Field label="Name"><Input value={draft.name} disabled={!editable} onChange={(e) => set({ name: e.target.value })} /></Field>
+          <Field label="Purpose"><Textarea rows={2} value={draft.description} disabled={!editable} onChange={(e) => set({ description: e.target.value })} /></Field>
+          <Field label="Members"><div className="flat divide-y divide-[var(--line)]">{agents.map((a) => <div key={a.id} className="flex items-center gap-3 px-3 h-11"><AgentAvatar name={a.name} icon={a.icon} color={a.color} size={24} /><span className="flex-1 text-[13px]">{a.name}{a.status === 'draft' && <span className="muted"> · draft</span>}</span><Toggle checked={draft.members.includes(a.id)} onChange={(v) => editable && set({ members: v ? [...draft.members, a.id] : draft.members.filter((m) => m !== a.id) })} /></div>)}</div></Field>
+          <Field label="Deliberation mode"><Segmented value={draft.mode} onChange={(m) => editable && set({ mode: m })} items={[{ id: 'consensus', label: 'Consensus' }, { id: 'debate', label: 'Debate' }, { id: 'quorum', label: 'Quorum vote' }]} /></Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Gatekeeper"><Select value={draft.gatekeeper} onChange={(e) => set({ gatekeeper: e.target.value })}>{users.filter((u) => u.role === 'approver' || u.role === 'security' || u.role === 'admin').map((u) => <option key={u.id} value={u.id}>{u.name} · {roleLabel[u.role]}</option>)}</Select></Field>
-            <Field label="Synthesis model">{models.length ? <Select value={draft.model} onChange={(e) => set({ model: e.target.value })}>{!models.some((m) => m.id === draft.model) && <option value={draft.model}>{draft.model}</option>}{models.filter((m) => m.supported_parameters?.includes('tools')).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</Select> : <Input value={draft.model} onChange={(e) => set({ model: e.target.value })} />}</Field>
+            <Field label="Gatekeeper"><Select value={draft.gatekeeper} disabled={!editable} onChange={(e) => set({ gatekeeper: e.target.value })}>{users.filter((u) => u.role === 'approver' || u.role === 'security' || u.role === 'admin').map((u) => <option key={u.id} value={u.id}>{u.name} · {roleLabel[u.role]}</option>)}</Select></Field>
+            <Field label="Synthesis model">{models.length ? <Select value={draft.model} disabled={!editable} onChange={(e) => set({ model: e.target.value })}>{!models.some((m) => m.id === draft.model) && <option value={draft.model}>{draft.model}</option>}{models.filter((m) => m.supported_parameters?.includes('tools')).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</Select> : <Input value={draft.model} disabled={!editable} onChange={(e) => set({ model: e.target.value })} />}</Field>
           </div>
-          <div className="flex items-center gap-2 pt-2"><Button size="sm" onClick={() => nav(`/workflows/new?template=council&council=${draft.id}`)}><WorkflowIcon size={13} /> Use in a workflow</Button><div className="flex-1" /><button onClick={() => setConfirmDel(true)} className="text-[12px] font-medium text-[var(--danger)] inline-flex items-center gap-1 hover:underline"><Trash2 size={12} /> Delete</button></div>
+          {editable && <div className="flex items-center gap-2 pt-2"><Button size="sm" onClick={() => nav(`/workflows/new?template=standard&council=${draft.id}`)}><WorkflowIcon size={13} /> Use in a workflow</Button><div className="flex-1" /><button onClick={() => setConfirmDel(true)} className="text-[12px] font-medium text-[var(--danger)] inline-flex items-center gap-1 hover:underline"><Trash2 size={12} /> Delete</button></div>}
           <Confirm open={confirmDel} onClose={() => setConfirmDel(false)} title={`Delete ${draft.name}?`} danger confirmLabel="Delete" body="Workflow steps that use this council will need a new one." onConfirm={() => onDelete(draft.id)} />
         </div>
       ) : (
