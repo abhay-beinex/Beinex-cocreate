@@ -384,8 +384,11 @@ Reply with ONE JSON object and nothing else, no prose before or after: {"reply":
       const c = j.changes
       const add: PlanStep[] = Array.isArray(c?.add) ? c.add.filter((s: any) => ['agent', 'council', 'logic', 'human', 'tool', 'notify', 'loop', 'parallel', 'code', 'http', 'flow', 'wait', 'set', 'extract', 'classify'].includes(s.brick)) : []
       const plan: Plan | undefined = c && (add.length || c.remove?.length || c.set?.length) ? { name: typeof c.name === 'string' ? c.name : undefined, description: typeof c.description === 'string' ? c.description : undefined, add, remove: Array.isArray(c.remove) ? c.remove.filter((x: unknown) => typeof x === 'string') : [], set: Array.isArray(c.set) ? c.set.filter((x: any) => x && typeof x.label === 'string' && x.patch && typeof x.patch === 'object') : [] } : undefined
+      const msgIndex = assist.log.length + 1 // the user's question is appended first, then this reply
       setAssist((a) => ({ ...a, busy: false, log: [...a.log, { role: 'assistant', text: String(j.reply ?? (plan ? 'Here is what I would change.' : 'Done.')), plan }] }))
-      if (plan && nodes.filter((n) => n.data.brick !== 'trigger').length === 0 && buildText && !builtRef.current) { builtRef.current = true; setTimeout(() => setAssist((a) => { const i = a.log.length - 1; applyPlan(plan, i); return a }), 10) }
+      // Auto-apply the first plan when the page was opened with ?build=. This must not run inside a setState updater:
+      // updaters can run twice and drop nested updates, which left the message un-applied so a later click on Apply added every step again.
+      if (plan && nodes.filter((n) => n.data.brick !== 'trigger').length === 0 && buildText && !builtRef.current) { builtRef.current = true; setTimeout(() => applyPlan(plan, msgIndex), 10) }
     } catch { setAssist((a) => ({ ...a, busy: false, log: [...a.log, { role: 'assistant', text: acc.slice(0, 400) || 'I could not turn that into steps. Try describing it as a sequence: research X, then check Y, then ask Z to approve.' }] })) }
   }, [apiKey, assist.log, agents, councils, customTools, workflows, libraries, base.id, meta.name, flowSummary, wfRuns, defaultModel, store, nodes, buildText, applyPlan])
   const seeded = useRef(false)
