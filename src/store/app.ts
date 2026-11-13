@@ -171,7 +171,7 @@ export const useApp = create<State>()(
           const a = get().agents.find((x) => x.id === id); const snap = a?.history?.find((h) => h.version === version); if (!a || !snap) return
           get().upsertAgent({ ...snap.data, id, version: a.version + 1, updatedAt: today(), history: a.history }, `Rolled back agent to v${version}`)
         },
-        deleteAgent: (id) => { log('Deleted agent', get().agents.find((a) => a.id === id)?.name ?? id); set({ agents: get().agents.filter((a) => a.id !== id) }) },
+        deleteAgent: (id) => { log('Deleted agent', get().agents.find((a) => a.id === id)?.name ?? id); set({ agents: get().agents.filter((a) => a.id !== id), councils: get().councils.map((c) => (c.members.includes(id) ? { ...c, members: c.members.filter((m) => m !== id) } : c)) }) },
         upsertCouncil: (c) => { const exists = get().councils.some((x) => x.id === c.id); set({ councils: exists ? get().councils.map((x) => (x.id === c.id ? c : x)) : [c, ...get().councils] }); log(exists ? 'Saved council' : 'Created council', c.name) },
         deleteCouncil: (id) => { log('Deleted council', get().councils.find((c) => c.id === id)?.name ?? id); set({ councils: get().councils.filter((c) => c.id !== id) }) },
         upsertWorkflow: (w) => { const exists = get().workflows.some((x) => x.id === w.id); set({ workflows: exists ? get().workflows.map((x) => (x.id === w.id ? w : x)) : [w, ...get().workflows] }); log(exists ? 'Saved workflow' : 'Created workflow', `${w.name} v${w.version}`) },

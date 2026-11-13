@@ -88,8 +88,9 @@ export default function Agents() {
       )}
 
       <div className="flex items-center gap-3 mb-5 flex-wrap">
-        <Segmented value={tab} onChange={setTab} items={[{ id: 'all', label: <>All <span className="muted">{agents.length}</span></> }, { id: 'live', label: <>Live <span className="muted">{live}</span></> }, { id: 'draft', label: <>Drafts <span className="muted">{agents.length - live}</span></> }, { id: 'councils', label: <>Councils <span className="muted">{councils.length}</span></> }]} />
-        <SearchBox value={q} onChange={setQ} placeholder="Search" className="w-[220px]" />
+        <Segmented value={tab === 'councils' ? 'councils' : 'agents'} onChange={(k) => { setTab(k === 'councils' ? 'councils' : 'all'); setSelected([]); setQ('') }} items={[{ id: 'agents', label: <><Users size={13} className="inline -mt-0.5 mr-1" />Agents <span className="muted">{agents.length}</span></> }, { id: 'councils', label: <><Users size={13} className="inline -mt-0.5 mr-1" />Councils <span className="muted">{councils.length}</span></> }]} />
+        {tab !== 'councils' && <Segmented value={tab} onChange={setTab} items={[{ id: 'all', label: <>All <span className="muted">{agents.length}</span></> }, { id: 'live', label: <>Live <span className="muted">{live}</span></> }, { id: 'draft', label: <>Drafts <span className="muted">{agents.length - live}</span></> }]} />}
+        <SearchBox value={q} onChange={setQ} placeholder={tab === 'councils' ? 'Search councils' : 'Search agents'} className="w-[220px]" />
         <div className="flex-1" />
         {tab !== 'councils' ? <div className="seg"><button className={cx(view === 'grid' && 'on')} onClick={() => setView('grid')} title="Cards"><LayoutGrid size={14} /></button><button className={cx(view === 'list' && 'on')} onClick={() => setView('list')} title="List"><List size={14} /></button></div>
           : editable ? <Button variant="primary" onClick={() => setTemplates(true)}><Plus size={15} /> New council</Button> : null}
@@ -239,29 +240,34 @@ function CouncilDrawer({ council, editable, onSave, onClose, onDelete }: { counc
   const [confirmDel, setConfirmDel] = useState(false)
   useEffect(() => { setDraft(council); setTab('setup'); setFindings([]); setSynthesis('') }, [council])
   if (!draft) return null
-  const set = (p: Partial<Council>) => setDraft({ ...draft, ...p })
+  const set = (p: Partial<Council>) => setDraft((d) => d && ({ ...d, ...p }))
   const dirty = JSON.stringify(draft) !== JSON.stringify(council)
+  const validMembers = draft.members.filter((id) => agents.some((a) => a.id === id))
   const simulate = async () => {
     if (!apiKey) { setSynthesis('Models are not available right now.'); return }
+    if (!caseText.trim()) { setSynthesis('Write a case for the council first.'); return }
     setBusy(true); setFindings([]); setSynthesis('')
-    const out: { agent: string; text: string }[] = []
-    for (const id of draft.members) {
-      const a = agents.find((x) => x.id === id); if (!a) continue
-      let text = ''
-      for await (const ev of runAgentTurn({ key: apiKey, model: a.model, models: profileModels(store), custom: customTools, autonomy: 1, instructions: a.instructions + '\n\nYou are a member of a council. Give your findings on the case in under 120 words, with a clear position (Approve / Reject / Need more info). Use tools if they help.', tools: a.tools, libraries: libraries.filter((l) => a.knowledge.includes(l.id)), history: [{ role: 'user', content: caseText }], maxRounds: 4 })) {
-        if (ev.type === 'text') { text += ev.text; setFindings([...out, { agent: a.name, text }]) }
-        if (ev.type === 'done') store.recordSpend(ev.usage?.cost ?? 0)
+    try {
+      const out: { agent: string; text: string }[] = []
+      for (const id of validMembers) {
+        const a = agents.find((x) => x.id === id); if (!a) continue
+        let text = ''
+        for await (const ev of runAgentTurn({ key: apiKey, model: a.model, models: profileModels(store), custom: customTools, autonomy: 1, instructions: a.instructions + '\n\nYou are a member of a council. Give your findings on the case in under 120 words, with a clear position (Approve / Reject / Need more info). Use tools if they help.', tools: a.tools, libraries: libraries.filter((l) => a.knowledge.includes(l.id)), history: [{ role: 'user', content: caseText }], maxRounds: 4 })) {
+          if (ev.type === 'text') { text += ev.text; setFindings([...out, { agent: a.name, text }]) }
+          if (ev.type === 'done') store.recordSpend(ev.usage?.cost ?? 0)
+          if (ev.type === 'error') { text += `${text ? '\n\n' : ''}(could not respond: ${ev.message})`; setFindings([...out, { agent: a.name, text }]) }
+        }
+        out.push({ agent: a.name, text }); setFindings([...out])
       }
-      out.push({ agent: a.name, text }); setFindings([...out])
-    }
-    const modeHint = { consensus: 'Seek consensus; note any dissent.', debate: 'Cross-examine each finding, surface contradictions, then conclude.', quorum: 'Count positions; a majority decides, note the vote.' }[draft.mode]
-    let syn = ''
-    for await (const ev of streamChat({ key: apiKey, model: draft.model, messages: [{ role: 'system', content: `You synthesise a council's findings into one recommendation for the human gatekeeper. ${modeHint} Output: Recommendation (one line), Confidence (0-100%), Key reasons (3 bullets), Dissent (if any). Under 150 words.` }, { role: 'user', content: `Case: ${caseText}\n\n${out.map((f) => `${f.agent}:\n${f.text}`).join('\n\n')}` }] })) {
-      if (ev.type === 'delta') { syn += ev.text; setSynthesis(syn) }
-      if (ev.type === 'usage') store.recordSpend(ev.usage.cost ?? 0)
-      if (ev.type === 'error') setSynthesis(`Error: ${ev.message}`)
-    }
-    setBusy(false)
+      const modeHint = { consensus: 'Seek consensus; note any dissent.', debate: 'Cross-examine each finding, surface contradictions, then conclude.', quorum: 'Count positions; a majority decides, note the vote.' }[draft.mode]
+      let syn = ''
+      for await (const ev of streamChat({ key: apiKey, model: draft.model, messages: [{ role: 'system', content: `You synthesise a council's findings into one recommendation for the human gatekeeper. ${modeHint} Output: Recommendation (one line), Confidence (0-100%), Key reasons (3 bullets), Dissent (if any). Under 150 words.` }, { role: 'user', content: `Case: ${caseText}\n\n${out.map((f) => `${f.agent}:\n${f.text}`).join('\n\n')}` }] })) {
+        if (ev.type === 'delta') { syn += ev.text; setSynthesis(syn) }
+        if (ev.type === 'usage') store.recordSpend(ev.usage.cost ?? 0)
+        if (ev.type === 'error') setSynthesis(`Error: ${ev.message}`)
+      }
+    } catch (e) { setSynthesis(`Error: ${e instanceof Error ? e.message : String(e)}`) }
+    finally { setBusy(false) }
   }
   return (
     <Drawer open={!!council} onClose={onClose} title={draft.name} width={600}>
@@ -275,10 +281,19 @@ function CouncilDrawer({ council, editable, onSave, onClose, onDelete }: { counc
         <div className="flex flex-col gap-4">
           <Field label="Name"><Input value={draft.name} disabled={!editable} onChange={(e) => set({ name: e.target.value })} /></Field>
           <Field label="Purpose"><Textarea rows={2} value={draft.description} disabled={!editable} onChange={(e) => set({ description: e.target.value })} /></Field>
-          <Field label="Members"><div className="flat divide-y divide-[var(--line)]">{agents.map((a) => <div key={a.id} className="flex items-center gap-3 px-3 h-11"><AgentAvatar name={a.name} icon={a.icon} color={a.color} size={24} /><span className="flex-1 text-[13px]">{a.name}{a.status === 'draft' && <span className="muted"> · draft</span>}</span><Toggle checked={draft.members.includes(a.id)} onChange={(v) => editable && set({ members: v ? [...draft.members, a.id] : draft.members.filter((m) => m !== a.id) })} /></div>)}</div></Field>
+          <Field label={`Members · ${draft.members.filter((id) => agents.some((a) => a.id === id)).length} selected`} hint={editable ? 'Switch agents on to add them to the council, then press Save.' : undefined}>
+            {agents.length === 0 ? (
+              <div className="flat p-4 text-[12.5px] muted flex items-center justify-between gap-3">
+                <span>There are no agents yet. A council needs at least one agent to deliberate.</span>
+                {editable && <Button size="sm" onClick={() => nav('/agents/new')}><Plus size={13} /> Create an agent</Button>}
+              </div>
+            ) : (
+              <div className="flat divide-y divide-[var(--line)]">{agents.map((a) => <div key={a.id} className="flex items-center gap-3 px-3 h-11"><AgentAvatar name={a.name} icon={a.icon} color={a.color} size={24} /><span className="flex-1 text-[13px]">{a.name}{a.status === 'draft' && <span className="muted"> · draft</span>}</span><Toggle disabled={!editable} checked={draft.members.includes(a.id)} onChange={(v) => setDraft((d) => d && ({ ...d, members: v ? (d.members.includes(a.id) ? d.members : [...d.members, a.id]) : d.members.filter((m) => m !== a.id) }))} /></div>)}</div>
+            )}
+          </Field>
           <Field label="Deliberation mode"><Segmented value={draft.mode} onChange={(m) => editable && set({ mode: m })} items={[{ id: 'consensus', label: 'Consensus' }, { id: 'debate', label: 'Debate' }, { id: 'quorum', label: 'Quorum vote' }]} /></Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Gatekeeper"><Select value={draft.gatekeeper} disabled={!editable} onChange={(e) => set({ gatekeeper: e.target.value })}>{users.filter((u) => u.role === 'approver' || u.role === 'security' || u.role === 'admin').map((u) => <option key={u.id} value={u.id}>{u.name} · {roleLabel[u.role]}</option>)}</Select></Field>
+            <Field label="Gatekeeper"><Select value={draft.gatekeeper} disabled={!editable} onChange={(e) => set({ gatekeeper: e.target.value })}>{users.filter((u) => u.role === 'approver' || u.role === 'security' || u.role === 'admin' || u.id === draft.gatekeeper).map((u) => <option key={u.id} value={u.id}>{u.name} · {roleLabel[u.role]}</option>)}</Select></Field>
             <Field label="Synthesis model">{models.length ? <Select value={draft.model} disabled={!editable} onChange={(e) => set({ model: e.target.value })}>{!models.some((m) => m.id === draft.model) && <option value={draft.model}>{draft.model}</option>}{models.filter((m) => m.supported_parameters?.includes('tools')).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</Select> : <Input value={draft.model} disabled={!editable} onChange={(e) => set({ model: e.target.value })} />}</Field>
           </div>
           {editable && <div className="flex items-center gap-2 pt-2"><Button size="sm" onClick={() => nav(`/workflows/new?template=standard&council=${draft.id}`)}><WorkflowIcon size={13} /> Use in a workflow</Button><div className="flex-1" /><button onClick={() => setConfirmDel(true)} className="text-[12px] font-medium text-[var(--danger)] inline-flex items-center gap-1 hover:underline"><Trash2 size={12} /> Delete</button></div>}
@@ -287,7 +302,8 @@ function CouncilDrawer({ council, editable, onSave, onClose, onDelete }: { counc
       ) : (
         <div className="flex flex-col gap-4">
           <Field label="Case"><Textarea rows={4} value={caseText} onChange={(e) => setCaseText(e.target.value)} /></Field>
-          <Button variant="primary" onClick={simulate} disabled={busy || !draft.members.length}><Play size={14} /> {busy ? 'Deliberating…' : 'Simulate deliberation'}</Button>
+          <Button variant="primary" onClick={simulate} disabled={busy || !validMembers.length}><Play size={14} /> {busy ? 'Deliberating…' : 'Simulate deliberation'}</Button>
+          {!validMembers.length && <div className="text-[12px] muted -mt-2">Add at least one member on the Setup tab first.</div>}
           {findings.map((f, i) => <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flat p-3"><div className="text-[12px] font-semibold mb-1 flex items-center gap-2">{(() => { const a = agents.find((x) => x.name === f.agent); return <AgentAvatar name={f.agent} icon={a?.icon} color={a?.color} size={20} radius={6} /> })()}{f.agent}</div><Md className="prose-chat text-[12.5px]">{f.text || '…'}</Md></motion.div>)}
           {synthesis && <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="clay-sm p-4"><div className="text-[12px] font-semibold mb-1">Council recommendation · for {users.find((u) => u.id === draft.gatekeeper)?.name}</div><Md className="prose-chat text-[13px]">{synthesis}</Md></motion.div>}
         </div>

@@ -121,16 +121,27 @@ export function makeEngine(run: Run, wf: Workflow, ctx: EngineCtx) {
           if (!c) { step.status = 'failed'; step.output = 'No council selected for this step.' }
           else {
             const findings: string[] = []
-            for (const id of c.members) {
-              const a = ctx.agents.find((x) => x.id === id); if (!a) continue
-              const res = await collect(runAgentTurn({ key: ctx.key, model: a.model, models: ctx.models, custom: ctx.custom, autonomy: 1, instructions: a.instructions + '\n\nYou are a member of a council. Give your findings on the case in under 120 words with a clear position (Approve / Reject / Need more info).', tools: a.tools, libraries: ctx.libraries.filter((l) => a.knowledge.includes(l.id)), history: [{ role: 'user', content: stepInput }], maxRounds: 4 }))
-              spend(res.cost); step.cost = (step.cost ?? 0) + res.cost; findings.push(`${a.name}:\n${res.text}`)
+            const memberAgents = c.members.map((id) => ctx.agents.find((x) => x.id === id)).filter((a): a is Agent => !!a)
+            if (!memberAgents.length) { step.status = 'failed'; step.output = `Council "${c.name}" has no members. Open it under Agents → Councils and add at least one agent.` }
+            else {
+              let memberErrors = 0
+              for (const a of memberAgents) {
+                const res = await collect(runAgentTurn({ key: ctx.key, model: a.model, models: ctx.models, custom: ctx.custom, autonomy: 1, instructions: a.instructions + '\n\nYou are a member of a council. Give your findings on the case in under 120 words with a clear position (Approve / Reject / Need more info).', tools: a.tools, libraries: ctx.libraries.filter((l) => a.knowledge.includes(l.id)), history: [{ role: 'user', content: stepInput }], maxRounds: 4 }))
+                spend(res.cost); step.cost = (step.cost ?? 0) + res.cost
+                if (res.error) memberErrors++
+                findings.push(`${a.name}:\n${res.error ? `(could not respond: ${res.error})` : res.text || '(no response)'}`)
+              }
+              if (memberErrors === memberAgents.length) { step.status = 'failed'; step.output = `Every council member failed to respond.\n\n${findings.join('\n\n')}` }
+              else {
+                const modeHint = { consensus: 'Seek consensus; note any dissent.', debate: 'Cross-examine each finding, surface contradictions, then conclude.', quorum: 'Count positions; a majority decides, note the vote.' }[c.mode]
+                let syn = ''; let synErr: string | undefined
+                for await (const ev of streamChat({ key: ctx.key, model: c.model, messages: [{ role: 'system', content: `You synthesise a council's findings into one recommendation for the human gatekeeper. ${modeHint} Output: Recommendation (one line), Confidence (0-100%), Key reasons (3 bullets), Dissent (if any). Under 150 words.` }, { role: 'user', content: `${stepInput}\n\nFindings:\n${findings.join('\n\n')}` }] })) { if (ev.type === 'delta') syn += ev.text; if (ev.type === 'usage') { spend(ev.usage.cost ?? 0); step.cost = (step.cost ?? 0) + (ev.usage.cost ?? 0) }; if (ev.type === 'error') synErr = ev.message }
+                step.model = short(c.model)
+                const memberText = findings.map((f) => `**${f.split(':\n')[0]}**\n${f.split(':\n').slice(1).join(':\n')}`).join('\n\n')
+                if (synErr || !syn.trim()) { step.status = 'failed'; step.output = `${memberText}\n\nThe council could not reach a recommendation: ${synErr ?? 'the model returned nothing'}` }
+                else { step.output = `${memberText}\n\n**Council recommendation**\n${syn}`; record(st, step, d, key, syn) }
+              }
             }
-            const modeHint = { consensus: 'Seek consensus; note any dissent.', debate: 'Cross-examine each finding, surface contradictions, then conclude.', quorum: 'Count positions; a majority decides, note the vote.' }[c.mode]
-            let syn = ''
-            for await (const ev of streamChat({ key: ctx.key, model: c.model, messages: [{ role: 'system', content: `You synthesise a council's findings into one recommendation for the human gatekeeper. ${modeHint} Output: Recommendation (one line), Confidence (0-100%), Key reasons (3 bullets), Dissent (if any). Under 150 words.` }, { role: 'user', content: `${stepInput}\n\nFindings:\n${findings.join('\n\n')}` }] })) { if (ev.type === 'delta') syn += ev.text; if (ev.type === 'usage') { spend(ev.usage.cost ?? 0); step.cost = (step.cost ?? 0) + (ev.usage.cost ?? 0) } }
-            step.model = short(c.model); step.output = `${findings.map((f) => `**${f.split(':\n')[0]}**\n${f.split(':\n').slice(1).join(':\n')}`).join('\n\n')}\n\n**Council recommendation**\n${syn}`
-            record(st, step, d, key, syn)
           }
         } else if (d.brick === 'logic') {
           let ans = ''
