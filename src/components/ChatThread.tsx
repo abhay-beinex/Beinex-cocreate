@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowUp, Square, Sparkles, Wrench, Check, ShieldCheck, KeyRound, Copy, FilePlus, Workflow as WorkflowIcon, Paperclip, X, Link2 } from 'lucide-react'
 import { useApp, useUser, profileModels, type ChatMsg } from '@/store/app'
 import { runAgentTurn } from '@/lib/agentRun'
+import { readFileText } from '@/lib/files'
 import { TOOLS } from '@/lib/tools'
 import type { Autonomy } from '@/lib/data'
 import { Avatar, Tile, cx } from './ui'
@@ -189,21 +190,39 @@ export const Typing = () => (
 export function Composer({ onSend, busy, onStop, placeholder, left, right, attach }: { onSend: (t: string, files: Attachment[]) => void; busy: boolean; onStop: () => void; placeholder: string; left?: React.ReactNode; right?: React.ReactNode; attach?: boolean }) {
   const [v, setV] = useState('')
   const [files, setFiles] = useState<Attachment[]>([])
+  const [reading, setReading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const ta = useRef<HTMLTextAreaElement>(null)
-  const submit = () => { if (v.trim() || files.length) { onSend(v, files); setV(''); setFiles([]); if (ta.current) ta.current.style.height = 'auto' } }
-  const pick = async (list: FileList | null) => { if (!list) return; const out: Attachment[] = []; for (const f of Array.from(list)) { if (f.size > 1_500_000) { useApp.getState().flashMsg(`${f.name} is over 1.5 MB. Paste the relevant part instead.`, 'danger'); continue } out.push({ name: f.name, text: await f.text() }) } setFiles((x) => [...x, ...out]) }
+  const submit = () => { if (!reading && (v.trim() || files.length)) { onSend(v, files); setV(''); setFiles([]); if (ta.current) ta.current.style.height = 'auto' } }
+  const pick = async (list: FileList | null) => {
+    if (!list) return
+    setReading(true)
+    const out: Attachment[] = []
+    try {
+      for (const f of Array.from(list)) {
+        try {
+          const text = await readFileText(f, { maxTextBytes: 1_500_000, maxPdfBytes: 10_000_000 })
+          out.push({ name: f.name, text })
+        } catch (err: any) {
+          useApp.getState().flashMsg(err?.message ?? `Could not read ${f.name}.`, 'danger')
+        }
+      }
+      if (out.length) setFiles((x) => [...x, ...out])
+    } finally {
+      setReading(false)
+    }
+  }
   const total = useMemo(() => files.reduce((a, f) => a + f.text.length, 0), [files])
   return (
     <div className="flat p-1.5 pl-2 flex flex-col gap-1 focus-within:border-[var(--accent)] transition-colors">
-      {files.length > 0 && <div className="flex flex-wrap gap-1.5 px-1 pt-1">{files.map((f) => <span key={f.name} className="chip !h-6 !text-[11px]"><Paperclip size={10} /> {f.name} <span className="muted">· {Math.round(f.text.length / 1000)}k</span><button onClick={() => setFiles((x) => x.filter((y) => y !== f))} className="ml-0.5 hover:text-[var(--danger)]" aria-label={`Remove ${f.name}`}><X size={10} /></button></span>)}{total > 60_000 && <span className="text-[11px] text-[var(--warn)]">Only the first 60k characters of each file are sent.</span>}</div>}
+      {(files.length > 0 || reading) && <div className="flex flex-wrap items-center gap-1.5 px-1 pt-1">{files.map((f, idx) => <span key={`${f.name}-${idx}`} className="chip !h-6 !text-[11px]"><Paperclip size={10} /> {f.name} <span className="muted">· {Math.max(1, Math.round(f.text.length / 1000))}k</span><button onClick={() => setFiles((x) => x.filter((_, i) => i !== idx))} className="ml-0.5 hover:text-[var(--danger)]" aria-label={`Remove ${f.name}`}><X size={10} /></button></span>)}{reading && <span className="text-[11px] muted">Reading file…</span>}{total > 60_000 && <span className="text-[11px] text-[var(--warn)]">Only the first 60k characters of each file are sent.</span>}</div>}
       <div className="flex items-end gap-1.5">
         {left}
         <textarea ref={ta} value={v} onChange={(e) => { setV(e.target.value); e.target.style.height = 'auto'; e.target.style.height = `${Math.min(e.target.scrollHeight, 180)}px` }} rows={1} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }} placeholder={placeholder} aria-label="Message" className="flex-1 bg-transparent outline-0 resize-none text-[13.5px] py-2.5 px-1.5 max-h-[180px] scroll" />
-        {attach && <><button onClick={() => fileRef.current?.click()} className="btn btn-ghost btn-sm btn-icon !h-9 !w-9" title="Attach a text file (.txt, .md, .csv, .json)" aria-label="Attach a file"><Paperclip size={15} /></button><input ref={fileRef} type="file" multiple accept=".txt,.md,.csv,.json,.html,.htm,text/*" className="hidden" onChange={(e) => { pick(e.target.files); e.target.value = '' }} /></>}
+        {attach && <><button onClick={() => fileRef.current?.click()} disabled={reading} className="btn btn-ghost btn-sm btn-icon !h-9 !w-9" title="Attach a PDF or text file (.pdf, .txt, .md, .csv, .json)" aria-label="Attach a file"><Paperclip size={15} /></button><input ref={fileRef} type="file" multiple accept=".pdf,.txt,.md,.csv,.json,.html,.htm,application/pdf,text/*" className="hidden" onChange={(e) => { pick(e.target.files); e.target.value = '' }} /></>}
         {right}
         {busy ? <button onClick={onStop} className="btn btn-icon !rounded-full !w-9 !h-9" title="Stop" aria-label="Stop"><Square size={14} /></button>
-          : <motion.button whileTap={{ scale: 0.9 }} onClick={submit} disabled={!v.trim() && !files.length} className="btn btn-primary btn-icon !rounded-full !w-9 !h-9" title="Send" aria-label="Send"><ArrowUp size={16} /></motion.button>}
+          : <motion.button whileTap={{ scale: 0.9 }} onClick={submit} disabled={reading || (!v.trim() && !files.length)} className="btn btn-primary btn-icon !rounded-full !w-9 !h-9" title="Send" aria-label="Send"><ArrowUp size={16} /></motion.button>}
       </div>
     </div>
   )

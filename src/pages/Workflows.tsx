@@ -98,7 +98,7 @@ export default function Workflows() {
                 const last = wr[0]
                 const tm = triggerMeta(w)
                 return (
-                  <Item key={w.id}>
+                  <Item key={w.id} className={cx('relative', menu === w.id && 'z-30')}>
                     <div className="clay-sm px-4 py-3.5 flex items-center gap-4 hover:-translate-y-px transition-transform relative">
                       <Tile color={w.status === 'live' ? '#10b981' : w.status === 'paused' ? '#f59e0b' : '#64748b'} size={40} radius={12}><tm.icon size={17} /></Tile>
                       <button onClick={() => nav(`/workflows/${w.id}`)} className="flex-1 min-w-0 text-left">
