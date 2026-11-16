@@ -5,6 +5,11 @@ include:
   - template: Security/SAST.gitlab-ci.yml
   - template: Security/Secret-Detection.gitlab-ci.yml
 
+# The shared runner only picks up jobs carrying its tag; this applies to the template jobs too.
+default:
+  tags:
+    - digital-client-runner
+
 stages:
   - check
   - test
