@@ -1,6 +1,6 @@
 # Co-Create v2: what changed and what was left out
 
-Date: 2026-11-05. Base commit `b1a1fe3`. Research and concepts: `design/gap-list.md`, `design/v2-concepts.html`.
+Date: 2026-11-05. Base commit `b1a1fe3`. Research and concepts: `gap-list.md`, `v2-concepts.html`.
 
 ## Redesigned screens
 

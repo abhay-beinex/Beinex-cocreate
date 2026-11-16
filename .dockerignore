@@ -1,0 +1,16 @@
+# Never send secrets or local builds into the image context
+.env
+.env.*
+!.env.example
+node_modules
+dist
+.git
+.gitlab
+.gitlab-ci.yml
+.claude
+docs
+*.md
+*.zip
+*.tsbuildinfo
+Dockerfile
+.dockerignore

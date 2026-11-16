@@ -1,42 +1,76 @@
 # Beinex Co-Create
 
-An agent and workflow builder. Teams create AI agents with real abilities (web search, deep research, page reading, calculator, JavaScript sandbox, knowledge search, documents, public API connectors) and chain them into workflows with loops, parallel branches, conditions, code and API steps. Every external action (emails, approvals) waits for a person.
+An agent and workflow builder. Teams create AI agents with real abilities (web search, deep research, page reading, calculator, JavaScript sandbox, knowledge search, documents, HTTP connectors) and chain them into workflows with loops, parallel branches, conditions, code and API steps. Anything that leaves the platform (an email, an approval) waits for a person.
 
-## Run it
+It is a browser app: React + TypeScript + Vite, state in the browser's local storage, model calls through OpenRouter. A small Node server (`server/proxy.mjs`) serves the release build and keeps the model key off the client.
+
+## Quick start
+
+Needs Node 20 or newer.
 
 ```bash
 npm install
-npm run dev
+cp .env.example .env        # then put a model key in VITE_OPENROUTER_API_KEY
+npm run dev                 # http://localhost:5173
 ```
 
-Open http://localhost:5173.
+Sign in with the demo account `demo@beinex.com` / `cocreate` (admin). The workspace starts empty; create an agent under **Agents › New** to check that model calls work.
 
-## Sign in
+Without a key the app still starts and you can sign in and browse; anything that calls a model will fail.
 
-One demo account exists: `demo@beinex.com` / `cocreate` (admin, shown as Spencer). Add more users under Settings › Users; each gets an email, password and role (Builder, Approver, Security, Auditor, Admin).
+## Scripts
 
-## Models
+| Command | What it does |
+|---|---|
+| `npm run dev` | Vite dev server with hot reload on port 5173 |
+| `npm run typecheck` | TypeScript check only (`tsc -b`) |
+| `npm run build` | Type-check, then build to `dist/` |
+| `npm run preview` | Serve `dist/` with Vite (no proxy, no security headers) |
+| `npm run serve` | Run the release server: `dist/` + model proxy. Needs `OPENROUTER_API_KEY` |
 
-Models are served through OpenRouter behind the scenes; the UI never mentions it. Put the key in `.env` as `VITE_OPENROUTER_API_KEY=...` (see `.env.example`). There is no key UI; users only pick models per agent and under Models (Fast / Balanced / Reasoning profiles).
+There is no test runner or linter yet. `npm run build` is the gate CI runs.
 
-## What is in the product
+## Repository layout
 
-- Home: an inbox and a pulse. One line to ask, build an agent or build a workflow; approvals, failed runs and running runs with inline actions; 14-day activity and spend; agents, workflows and recent runs at a glance
-- Chat: threads (many per agent) with search, rename and delete; switch the agent and thinking level per thread; attach text files as context; copy, save an answer as a document or turn it into a workflow; sources collected under answers; gated actions go to Approvals
-- Agents: brief-first Studio (describe it, the Co-Create Assistant drafts name, abilities, behaviour, instructions, sample prompts and tests; review on one page; create), templates, agent page with Abilities, Behaviour, Knowledge, Instructions, Tests and Versions, readiness checklist, Test drive, export/import, duplicate
-- Tests: a prompt plus what a good answer must do; the agent answers for real and a model judges pass/fail with a reason; "Write tests for me"
-- Workflows: canvas-first builder with a searchable palette (steps, abilities, connectors, other workflows), floating inspector, run drawer (steps, lanes, variables, run again from a step) and a docked Co-Create Assistant that builds, extends, explains and proposes changes you apply
-- Steps: Start, Agent, Approval, Action, Notify, Condition (plain-language or rule), Repeat for each (loops with Each/Done), Split (parallel branches that join), Run a workflow, Run code (JavaScript sandbox), Call an API
-- Variables: every step stores its result as `{{key}}`; steps can take an input template with `{{a.b.0}}` paths into JSON; `{{item}}`, `{{index}}`, `{{count}}` inside loops; a variable picker in the inspector
-- Triggers: by hand, on a schedule, by link (`/run/<id>?input=…`), when a page changes (polled while the app is open), when a document is added to a library
-- Reliability: retries with back-off, timeouts, "if it fails: stop or continue", re-run a finished run from any step, try one step on its own with the last run's variables
-- Abilities: web search, deep research, read web page, calculator, JavaScript sandbox, date/time, knowledge search, save document, draft email (gated), request approval (gated), your own HTTP APIs, and a connector catalogue of keyless public APIs (weather, places, exchange rates, crypto prices, country facts, Wikipedia, dictionary, books, public holidays, Hacker News, GitHub, postcodes)
-- Knowledge: libraries; add by pasting, uploading text files, or importing a URL
-- Runs: runs with step outputs, lanes for loops and branches, variables, cost; approvals that resume workflows; audit log
-- Notifications: only for things a person must act on (approvals, failed runs, schedule problems); explicit Notify steps still notify
-- Governance: pause all schedules; daily spend caps per user and workspace enforced from real usage
-- Settings: users with passwords and roles, governance, workspace export/import/reset
+```
+src/
+  main.tsx          routes
+  store/app.ts      the single Zustand store (all state, persisted to local storage)
+  lib/              logic with no UI: engine, runner, tools, model client, auth, data types
+  pages/            one file per screen
+  components/       shared UI (shell, chat thread, canvas nodes, dropdowns, primitives)
+  index.css         Tailwind v4 theme and global styles
+server/proxy.mjs    release server: static files, security headers, model proxy
+public/             static assets
+docs/               everything in the table below
+Dockerfile          release image (build + proxy)
+.gitlab-ci.yml      type-check and build on every push and merge request
+.gitlab/            issue and merge request templates
+```
 
-Inbound webhooks and email triggers need a server and are not part of this browser-only build. Councils are marked coming soon.
+## Documentation
 
-The workspace starts empty. All data lives in the browser (local storage).
+| Read this | When you want to |
+|---|---|
+| [docs/architecture.md](docs/architecture.md) | Understand how the pieces fit: store, engine, tools, model client, proxy |
+| [docs/development.md](docs/development.md) | Add a step type, an ability, a connector, a page or a store field |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | Go from a symptom to the file that causes it |
+| [docs/features.md](docs/features.md) | See everything the product does |
+| [docs/user-guide.md](docs/user-guide.md) | Use the product (written for the pilot team) |
+| [docs/deployment.md](docs/deployment.md) | Release to Azure Container Apps, roll back, rotate the key |
+| [SECURITY.md](SECURITY.md) | Know what a release must do to keep the key and users safe |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Branch, commit and open a merge request |
+| [docs/design/](docs/design/) | Design concepts and the v2 gap analysis (historical) |
+
+## Known limits
+
+- All data is per browser (local storage). No shared database, no server-side audit.
+- No single sign-on. Users and salted password hashes live in the browser.
+- Schedules, page watches and document triggers only fire while a tab is open.
+- Inbound webhooks and email triggers need a backend and are not built.
+- No automated tests.
+
+## Two rules that matter
+
+1. Never commit `.env`, and never build a release with `VITE_OPENROUTER_API_KEY` set. Vite inlines every `VITE_` variable into the JavaScript bundle. See [SECURITY.md](SECURITY.md).
+2. The UI never names the model provider. Keep it that way in labels, errors and toasts.

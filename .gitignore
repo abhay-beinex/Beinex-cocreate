@@ -1,4 +1,18 @@
+# dependencies and build output
 node_modules
 dist
+*.tsbuildinfo
+
+# secrets: never commit a real key (see SECURITY.md)
 .env
-.env.local
+.env.*
+!.env.example
+
+# local artefacts
+*.zip
+*.log
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea
