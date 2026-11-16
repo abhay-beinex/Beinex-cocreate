@@ -55,7 +55,7 @@ export default function Shell() {
   return (
     <div className="h-full flex relative z-[1] p-3 gap-3">
       <div className="ambient" />
-      <aside ref={wrap} className={cx('glass rounded-[22px] flex flex-col p-2.5 transition-[width] duration-300 shrink-0', collapsed ? 'w-[66px]' : 'w-[224px]')}>
+      <aside ref={wrap} className={cx('glass rounded-[22px] flex flex-col p-2.5 transition-[width] duration-300 shrink-0 relative z-40', collapsed ? 'w-[66px]' : 'w-[224px]')}>
         {/* brand + collapse */}
         <div className={cx('flex items-center gap-2.5 h-12 mb-2', collapsed ? 'justify-center' : 'px-1.5')}>
           <button onClick={() => nav('/')} className="flex items-center gap-2.5 text-left min-w-0">
@@ -90,15 +90,17 @@ export default function Shell() {
             </button>
             <AnimatePresence>
               {menu === 'bell' && (
-                <motion.div initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -6 }} className="absolute bottom-0 left-full ml-3 w-[340px] pop rounded-[18px] p-2 z-30 max-h-[460px] scroll">
+                <motion.div initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -6 }} className="absolute bottom-0 start-full ms-3 w-[340px] pop rounded-[18px] p-2 z-50 max-h-[460px] scroll">
                   <div className="flex items-center justify-between px-2 py-1.5"><span className="text-[12.5px] font-semibold">Notifications</span>{unread > 0 && <button onClick={() => markRead()} className="text-[11px] muted hover:text-[var(--text)] inline-flex items-center gap-1"><CheckCheck size={12} /> Mark all read</button>}</div>
                   {notifications.length === 0 && <div className="px-2 py-8 text-center text-[12px] muted">Nothing needs you. Approvals, failed runs and schedule problems show up here.</div>}
-                  {notifications.slice(0, 30).map((n) => { const I = kindIcon[n.kind]; return (
-                    <button key={n.id} onClick={() => { markRead(n.id); setMenu(null); if (n.link) nav(n.link) }} className={cx('w-full text-left flex gap-2.5 p-2 rounded-[11px] hover:bg-[var(--clay-dark)]', !n.read && 'bg-[color-mix(in_srgb,var(--accent)_8%,transparent)]')}>
-                      <span className="w-7 h-7 rounded-[8px] grid place-items-center shrink-0 bg-[var(--clay-dark)] muted"><I size={13} /></span>
-                      <span className="min-w-0"><span className="block text-[12.5px] font-medium truncate">{n.title}</span>{n.body && <span className="block text-[11.5px] muted line-clamp-2">{n.body}</span>}<span className="block text-[10.5px] muted mt-0.5">{n.at}</span></span>
-                    </button>
-                  ) })}
+                  {notifications.slice(0, 30).map((n) => {
+                    const I = kindIcon[n.kind]; return (
+                      <button key={n.id} onClick={() => { markRead(n.id); setMenu(null); if (n.link) nav(n.link) }} className={cx('w-full text-left flex gap-2.5 p-2 rounded-[11px] hover:bg-[var(--clay-dark)]', !n.read && 'bg-[color-mix(in_srgb,var(--accent)_8%,transparent)]')}>
+                        <span className="w-7 h-7 rounded-[8px] grid place-items-center shrink-0 bg-[var(--clay-dark)] muted"><I size={13} /></span>
+                        <span className="min-w-0"><span className="block text-[12.5px] font-medium truncate">{n.title}</span>{n.body && <span className="block text-[11.5px] muted line-clamp-2">{n.body}</span>}<span className="block text-[10.5px] muted mt-0.5">{n.at}</span></span>
+                      </button>
+                    )
+                  })}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -110,7 +112,7 @@ export default function Shell() {
             </button>
             <AnimatePresence>
               {menu === 'user' && (
-                <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }} className={cx('absolute bottom-full mb-2 w-[260px] pop rounded-[18px] p-2 z-30', collapsed ? 'left-0' : 'left-0')}>
+                <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }} className="absolute bottom-full mb-2 start-0 w-[260px] pop rounded-[18px] p-2 z-50">
                   <div className="px-2 py-2 flex items-center gap-2.5"><Avatar initials={user.initials} size={34} /><div className="min-w-0"><div className="text-[13px] font-semibold truncate">{user.name}</div><div className="text-[11.5px] muted truncate">{user.email}</div></div></div>
                   <div className="h-px bg-[var(--line)] my-1" />
                   <div className="px-2 py-1.5 text-[10.5px] font-semibold uppercase tracking-wider muted">Appearance</div>

@@ -46,6 +46,26 @@ export const toneLine = (tones: string[]) => {
   return tones.map((t) => map[t]).filter(Boolean).join('; ')
 }
 
+export const applyTonesToInstructions = (instructions: string, tones: string[]): string => {
+  const tl = toneLine(tones)
+  const line = tl ? `How you answer: ${tl}.` : ''
+  if (/(?:^|\n)How you answer:[^\n]*/i.test(instructions)) {
+    return line
+      ? instructions.replace(/(^|\n)How you answer:[^\n]*/i, `$1${line}`)
+      : instructions.replace(/\n?How you answer:[^\n]*\n?/i, '\n').replace(/\n{3,}/g, '\n\n').trim()
+  }
+  if (!line) return instructions
+  if (/\n\n(When unsure|Use your abilities)/i.test(instructions)) {
+    return instructions.replace(/\n\n(When unsure|Use your abilities)/i, `\n\n${line}\n\n$1`)
+  }
+  const parts = instructions.trim().split(/\n\n+/)
+  if (parts.length > 1) {
+    parts.splice(1, 0, line)
+    return parts.join('\n\n')
+  }
+  return `${instructions.trim()}\n\n${line}`
+}
+
 /** Which thinking profile an agent's model corresponds to, if any. */
 export const thinkingOf = (agent: Pick<Agent, 'model'>, profiles: { id: string; model: string }[], defaultModel: string) => {
   const hit = profiles.find((p) => p.model === agent.model)

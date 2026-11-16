@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { BookOpen, Plus, FileText, Trash2, ChevronRight, Upload, Link2, Type } from 'lucide-react'
 import { useApp, useUser, can } from '@/store/app'
+import { readFileText } from '@/lib/files'
 import { runTool } from '@/lib/tools'
 import { Button, Confirm, Field, Input, Modal, PageHeader, Segmented, Textarea, Tile, colorFor, cx } from '@/components/ui'
 import { Page, Stagger, Item } from '@/components/motion'
@@ -23,12 +24,17 @@ export default function Knowledge() {
   const editable = can(user, 'build')
 
   const readFiles = async (files: FileList) => {
+    let added = 0
     for (const f of Array.from(files)) {
-      if (f.size > 2_000_000) { flashMsg(`${f.name} is over 2 MB. Paste the relevant section instead.`, 'danger'); continue }
-      const text = await f.text()
-      addDoc(adding!, { title: f.name.replace(/\.(txt|md|csv|json|html?)$/i, ''), content: text.slice(0, 200_000), source: f.name })
+      try {
+        const text = await readFileText(f, { maxTextBytes: 2_000_000, maxPdfBytes: 10_000_000 })
+        addDoc(adding!, { title: f.name.replace(/\.(pdf|txt|md|csv|json|html?)$/i, ''), content: text.slice(0, 200_000), source: f.name })
+        added++
+      } catch (err: any) {
+        flashMsg(err?.message ?? `Could not read ${f.name}.`, 'danger')
+      }
     }
-    setAdding(null)
+    if (added > 0) setAdding(null)
   }
   const importUrl = async () => {
     setFetching(true)
@@ -63,7 +69,7 @@ export default function Knowledge() {
                 {editable && lib.id !== 'outputs' && lib.id !== 'company' && <button className="btn btn-ghost btn-sm btn-icon" title="Delete library" onClick={() => setConfirmLib({ id: lib.id, name: lib.name, count: lib.docs.length })} aria-label="Delete library"><Trash2 size={13} /></button>}
               </div>
               <div className="flat divide-y divide-[var(--line)]">
-                {lib.docs.length === 0 && <div className="p-6 text-center muted text-[12.5px]">No documents yet. Paste text, upload .txt / .md / .csv / .json files, or import a web page.</div>}
+                {lib.docs.length === 0 && <div className="p-6 text-center muted text-[12.5px]">No documents yet. Paste text, upload .pdf / .txt / .md / .csv / .json files, or import a web page.</div>}
                 {lib.docs.map((d) => (
                   <details key={d.id} className="group">
                     <summary className="flex items-center gap-3 px-3 h-12 cursor-pointer list-none">
@@ -90,9 +96,9 @@ export default function Knowledge() {
             <div className="flex justify-end"><Button variant="primary" disabled={!doc.title.trim() || !doc.content.trim()} onClick={() => { addDoc(adding!, doc); setAdding(null) }}>Add</Button></div>
           </>}
           {mode === 'file' && <>
-            <button onClick={() => fileRef.current?.click()} className="flat p-10 text-center hover:bg-[var(--surface)]"><Upload size={20} className="mx-auto muted mb-2" /><div className="text-[13px] font-medium">Choose files</div><div className="text-[12px] muted">.txt, .md, .csv, .json or .html · up to 2 MB each</div></button>
-            <input ref={fileRef} type="file" multiple accept=".txt,.md,.csv,.json,.html,.htm,text/*" className="hidden" onChange={(e) => { if (e.target.files?.length) readFiles(e.target.files); e.target.value = '' }} />
-            <div className="text-[11.5px] muted">PDF and Word import arrive with the production roll-out; export them to text for now.</div>
+            <button onClick={() => fileRef.current?.click()} className="flat p-10 text-center hover:bg-[var(--surface)]"><Upload size={20} className="mx-auto muted mb-2" /><div className="text-[13px] font-medium">Choose files</div><div className="text-[12px] muted">.pdf, .txt, .md, .csv, .json or .html · up to 2 MB text / 10 MB PDF</div></button>
+            <input ref={fileRef} type="file" multiple accept=".pdf,.txt,.md,.csv,.json,.html,.htm,application/pdf,text/*" className="hidden" onChange={(e) => { if (e.target.files?.length) readFiles(e.target.files); e.target.value = '' }} />
+            <div className="text-[11.5px] muted">Word (.docx) import arrives with the production roll-out; export Word files to PDF or text for now.</div>
           </>}
           {mode === 'url' && <>
             <Field label="Web page URL" hint="The readable text of the page is saved as a document."><Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" /></Field>

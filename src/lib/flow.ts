@@ -21,7 +21,7 @@ export const BRICKS: BrickInfo[] = [
   { id: 'extract', label: 'Extract fields', tag: 'Extract', desc: 'Pull named fields out of text into JSON you can reference', icon: ScanSearch, color: '#be185d', group: 'Data' },
   { id: 'code', label: 'Run code', tag: 'Code', desc: 'JavaScript over the variables, no model involved', icon: Code2, color: '#0f766e', group: 'Data' },
   { id: 'http', label: 'Call an API', tag: 'API', desc: 'An HTTP request with the result stored as a variable', icon: Globe, color: '#2563eb', group: 'Data' },
-  { id: 'council', label: 'Council', tag: 'Council', desc: 'Several agents deliberate on one case', icon: Users, color: '#6366f1', soon: true, group: 'Core' },
+  { id: 'council', label: 'Council', tag: 'Council', desc: 'Several agents deliberate on one case', icon: Users, color: '#6366f1', group: 'Core' },
 ]
 export const brickOf = (b: Brick): BrickInfo => BRICKS.find((x) => x.id === b) ?? BRICKS[1]
 /** Steps whose output is stored as a variable */
@@ -40,11 +40,15 @@ const GAP_Y = 44
 export const outEdges = (edges: WfEdge[], id: string) => edges.filter((e) => e.source === id)
 export const nextOf = (edges: WfEdge[], id: string, branch?: string) => {
   const out = outEdges(edges, id)
-  if (branch) { const hit = out.find((e) => (e.label ?? '').toLowerCase().startsWith(branch)); return hit?.target }
+  if (branch) {
+    const b = branch.toLowerCase()
+    const hit = out.find((e) => (e.label ?? '').toLowerCase() === b) ?? out.find((e) => (e.label ?? '').toLowerCase().startsWith(b))
+    return hit?.target
+  }
   return out[0]?.target
 }
 
-/** For a Split step: the first step that two or more of its branches reach, where the branches join again. */
+/** For a Split step: the step where the maximum number of its branches converge again. */
 export function joinOf(nodeId: string, edges: WfEdge[]): string | undefined {
   const outs = outEdges(edges, nodeId)
   if (outs.length < 2) return undefined
@@ -56,8 +60,9 @@ export function joinOf(nodeId: string, edges: WfEdge[]): string | undefined {
   })
   const counts = new Map<string, number>()
   dist.forEach((d) => d.forEach((_, id) => counts.set(id, (counts.get(id) ?? 0) + 1)))
-  const shared = [...counts.entries()].filter(([, c]) => c >= 2).map(([id]) => id)
-  if (!shared.length) return undefined
+  const maxCount = Math.max(0, ...counts.values())
+  if (maxCount < 2) return undefined
+  const shared = [...counts.entries()].filter(([, c]) => c === maxCount).map(([id]) => id)
   return shared.sort((a, b) => dist.reduce((s, d) => s + (d.get(a) ?? 99), 0) - dist.reduce((s, d) => s + (d.get(b) ?? 99), 0))[0]
 }
 
@@ -122,7 +127,7 @@ export function autoLayout(nodes: WfNode[], edges: WfEdge[]): WfNode[] {
 
 export type Problem = { nodeId?: string; text: string }
 
-export function checkFlow(nodes: WfNode[], edges: WfEdge[], ctx: { hasAgent: (id?: string) => boolean; hasCouncil: (id?: string) => boolean; hasUser: (id?: string) => boolean; hasWorkflow?: (id?: string) => boolean; selfId?: string; triggerType?: Workflow['triggerType']; watchUrl?: string }): Problem[] {
+export function checkFlow(nodes: WfNode[], edges: WfEdge[], ctx: { hasAgent: (id?: string) => boolean; hasCouncil: (id?: string) => boolean; hasUser: (id?: string) => boolean; hasWorkflow?: (id?: string) => boolean; hasTool?: (name?: string) => boolean; selfId?: string; triggerType?: Workflow['triggerType']; watchUrl?: string }): Problem[] {
   const out: Problem[] = []
   if (nodes.length === 0) return [{ text: 'Add a Start step and at least one more step.' }]
   const triggers = nodes.filter((n) => n.data.brick === 'trigger')
@@ -131,9 +136,17 @@ export function checkFlow(nodes: WfNode[], edges: WfEdge[], ctx: { hasAgent: (id
   if (nodes.length === 1 && triggers.length === 1) out.push({ text: 'Add a step after Start, such as an Agent.' })
   if (ctx.triggerType === 'watch' && !/^https?:\/\//.test(ctx.watchUrl ?? '')) out.push({ nodeId: triggers[0]?.id, text: 'Start: give the page address to watch.' })
   const nested = nestedNodes(nodes, edges)
-  const known = new Set(['input', 'item', 'index', 'count', 'now', 'trigger', ...nodes.filter((n) => producesVar(n.data.brick)).map((n) => keyOf(n.data)), ...nodes.flatMap((n) => (n.data.assign ?? []).map((a) => slug(a.key)))])
+  const allKnown = new Set(['input', 'item', 'index', 'count', 'now', 'trigger', 'steps', ...nodes.filter((n) => producesVar(n.data.brick)).map((n) => keyOf(n.data)), ...nodes.filter((n) => n.data.brick === 'loop').map((n) => `${keyOf(n.data)}_items`), ...nodes.flatMap((n) => (n.data.assign ?? []).map((a) => slug(a.key)))])
+  const seenKeys = new Map<string, string>()
   for (const n of nodes) {
     const d = n.data; const name = d.label || brickOf(d.brick).label
+    if (producesVar(d.brick)) {
+      const k = keyOf(d)
+      if (k) {
+        if (seenKeys.has(k)) out.push({ nodeId: n.id, text: `${name}: variable {{${k}}} is already used by "${seenKeys.get(k)}" — rename one of the steps or change its "Stored as" key.` })
+        else seenKeys.set(k, name)
+      }
+    }
     if (d.brick === 'agent' && !ctx.hasAgent(d.agentId) && !d.prompt?.trim()) out.push({ nodeId: n.id, text: `${name}: pick an agent or write what this step should do.` })
     if (d.brick === 'agent' && d.agentId && !ctx.hasAgent(d.agentId)) out.push({ nodeId: n.id, text: `${name}: the agent it used no longer exists.` })
     if (d.brick === 'council' && !ctx.hasCouncil(d.councilId)) out.push({ nodeId: n.id, text: `${name}: pick a council.` })
@@ -157,6 +170,7 @@ export function checkFlow(nodes: WfNode[], edges: WfEdge[], ctx: { hasAgent: (id
     if (d.brick === 'extract' && !(d.fields ?? []).some((f) => f.name.trim())) out.push({ nodeId: n.id, text: `${name}: name at least one field to extract.` })
     if (d.brick === 'parallel' && outEdges(edges, n.id).length < 2) out.push({ nodeId: n.id, text: `${name}: connect at least two branches.` })
     if (d.brick === 'tool' && !d.tool) out.push({ nodeId: n.id, text: `${name}: choose the ability to call.` })
+    else if (d.brick === 'tool' && d.tool && ctx.hasTool && !ctx.hasTool(d.tool)) out.push({ nodeId: n.id, text: `${name}: the ability "${d.tool}" was deleted — choose another.` })
     if (d.brick === 'code' && !d.code?.trim()) out.push({ nodeId: n.id, text: `${name}: write the code to run.` })
     if (d.brick === 'http' && !/^https?:\/\/|^\{\{/.test(d.url?.trim() ?? '')) out.push({ nodeId: n.id, text: `${name}: give the address to call.` })
     if (d.brick === 'flow') {
@@ -164,8 +178,42 @@ export function checkFlow(nodes: WfNode[], edges: WfEdge[], ctx: { hasAgent: (id
       else if (d.workflowId === ctx.selfId) out.push({ nodeId: n.id, text: `${name}: a workflow cannot run itself.` })
     }
     if (d.brick !== 'trigger' && !edges.some((e) => e.target === n.id)) out.push({ nodeId: n.id, text: `${name} is not connected to anything before it.` })
-    for (const tpl of [d.input, d.prompt, d.items, d.url, d.body, d.rule?.left, d.rule?.right, ...(d.assign ?? []).map((a) => a.value)]) for (const r of refs(tpl)) if (!known.has(r)) out.push({ nodeId: n.id, text: `${name}: {{${r}}} is not produced by any step.` })
+    const avail = new Set(['input', 'now', 'trigger', 'steps', ...varsBefore(nodes, edges, n.id).map((v) => v.key.split('.')[0])])
+    for (const tpl of [d.input, d.prompt, d.items, d.url, d.body, d.rule?.left, d.rule?.right, ...(d.assign ?? []).map((a) => a.value)]) {
+      for (const r of refs(tpl)) {
+        if (!allKnown.has(r)) out.push({ nodeId: n.id, text: `${name}: {{${r}}} is not produced by any step.` })
+        else if (!avail.has(r)) {
+          if (r === 'item' || r === 'index' || r === 'count') out.push({ nodeId: n.id, text: `${name}: {{${r}}} can only be used inside a Repeat step's Each branch.` })
+          else out.push({ nodeId: n.id, text: `${name}: {{${r}}} is not available here — it is produced by a later step or on another branch.` })
+        }
+      }
+    }
   }
+  // Detect cycles in connections (excluding edges returning to a Repeat step).
+  const visitState = new Map<string, 0 | 1 | 2>()
+  const reportedCycles = new Set<string>()
+  const dfs = (u: string) => {
+    visitState.set(u, 1)
+    for (const e of outEdges(edges, u)) {
+      const v = e.target
+      const vNode = nodes.find((x) => x.id === v)
+      if (!vNode) continue
+      const st = visitState.get(v) ?? 0
+      if (st === 1) {
+        if (vNode.data.brick !== 'loop' && !reportedCycles.has(`${u}->${v}`)) {
+          reportedCycles.add(`${u}->${v}`)
+          const uNode = nodes.find((x) => x.id === u)
+          const uName = uNode?.data.label || brickOf(uNode?.data.brick ?? 'agent').label
+          const vName = vNode.data.label || brickOf(vNode.data.brick).label
+          out.push({ nodeId: u, text: `${uName}: connects back to "${vName}", creating an infinite loop. Use a "Repeat for each" step instead.` })
+        }
+      } else if (st === 0) {
+        dfs(v)
+      }
+    }
+    visitState.set(u, 2)
+  }
+  for (const n of nodes) if ((visitState.get(n.id) ?? 0) === 0) dfs(n.id)
   return out
 }
 
@@ -194,7 +242,7 @@ export function stepLine(d: StepData, lookup: { agentName?: (id?: string) => str
     case 'human': { const u = lookup.userName?.(d.approver); return u ? `${u} decides` : 'Choose who approves' }
     case 'tool': return lookup.toolLabel?.(d.tool) ?? d.tool ?? 'Choose an ability'
     case 'notify': return 'In-app notification with the latest result'
-    case 'council': return lookup.councilName?.(d.councilId) ?? 'Coming soon'
+    case 'council': return lookup.councilName?.(d.councilId) ?? 'Choose a council'
     case 'loop': return d.items?.trim() ? `Items from ${d.items.trim()}` : 'Items extracted from the last result'
     case 'parallel': return 'Every branch runs at once, then they join'
     case 'code': return d.code?.split('\n').find((l) => l.trim() && !l.trim().startsWith('//'))?.trim().slice(0, 60) || 'Write the code to run'
@@ -214,11 +262,28 @@ export function varsBefore(nodes: WfNode[], edges: WfEdge[], nodeId: string): { 
   const before = new Set<string>()
   const q = edges.filter((e) => e.target === nodeId).map((e) => e.source)
   while (q.length) { const cur = q.shift()!; if (before.has(cur)) continue; before.add(cur); edges.filter((e) => e.target === cur).forEach((e) => q.push(e.source)) }
-  const out: { key: string; label: string; brick: Brick | 'builtin' }[] = [{ key: 'input', label: 'The run input', brick: 'builtin' }]
   const nested = nestedNodes(nodes, edges)
+  // When a step sits after a Repeat step (on its Done branch), variables produced inside the Repeat's Each body are also aggregated into vars.
+  for (const n of nodes) {
+    if (n.data.brick === 'loop' && before.has(n.id) && nested.get(nodeId) !== 'loop') {
+      const eachStart = nextOf(edges, n.id, 'each')
+      const doneStart = nextOf(edges, n.id, 'done')
+      if (eachStart) {
+        const lq = [eachStart]
+        while (lq.length) {
+          const cur = lq.shift()!
+          if (cur === n.id || cur === doneStart || cur === nodeId || before.has(cur)) continue
+          before.add(cur)
+          outEdges(edges, cur).forEach((e) => lq.push(e.target))
+        }
+      }
+    }
+  }
+  const out: { key: string; label: string; brick: Brick | 'builtin' }[] = [{ key: 'input', label: 'The run input', brick: 'builtin' }]
   if (nested.get(nodeId) === 'loop') out.push({ key: 'item', label: 'Current item', brick: 'builtin' }, { key: 'index', label: 'Item number', brick: 'builtin' }, { key: 'count', label: 'Number of items', brick: 'builtin' })
   for (const n of nodes) if (before.has(n.id)) {
     if (producesVar(n.data.brick)) out.push({ key: keyOf(n.data), label: n.data.label, brick: n.data.brick })
+    if (n.data.brick === 'loop') out.push({ key: `${keyOf(n.data)}_items`, label: `${n.data.label} · items JSON`, brick: 'loop' })
     if (n.data.brick === 'extract') for (const f of n.data.fields ?? []) if (f.name.trim()) out.push({ key: `${keyOf(n.data)}.${slug(f.name)}`, label: `${n.data.label} · ${f.name}`, brick: 'extract' })
     if (n.data.brick === 'set') for (const a of n.data.assign ?? []) if (a.key.trim()) out.push({ key: slug(a.key), label: `${n.data.label} · ${a.key}`, brick: 'set' })
   }

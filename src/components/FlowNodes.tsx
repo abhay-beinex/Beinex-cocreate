@@ -84,12 +84,14 @@ export const StepNodeView = memo(function StepNodeView({ id, data, selected }: N
 
       {!isStart && <Handle type="target" position={Position.Left} className={cx(handleCls, '!border-[var(--muted)]')} />}
       {outs.length > 0 ? (
-        outs.map((o, i) => { const top = `${((i + 1) / (outs.length + 1)) * 100}%`; return (
-          <span key={o.id}>
-            <Handle id={o.id} type="source" position={Position.Right} style={{ top }} className={handleCls} />
-            {ui.editable && ui.onAdd && <AddButton title={`Add a step on the ${o.label} branch`} onClick={() => ui.onAdd!(id, o.id)} className="-right-8" style={{ top: `calc(${top} - 12px)` }} />}
-          </span>
-        ) })
+        outs.map((o, i) => {
+          const top = `${((i + 1) / (outs.length + 1)) * 100}%`; return (
+            <span key={o.id}>
+              <Handle id={o.id} type="source" position={Position.Right} style={{ top }} className={handleCls} />
+              {ui.editable && ui.onAdd && <AddButton title={`Add a step on the ${o.label} branch`} onClick={() => ui.onAdd!(id, o.id)} className="-right-8" style={{ top: `calc(${top} - 12px)` }} />}
+            </span>
+          )
+        })
       ) : (
         <>
           <Handle type="source" position={Position.Right} className={cx(handleCls, '!border-[var(--muted)]')} />
@@ -108,7 +110,7 @@ export const BranchEdgeView = memo(function BranchEdgeView({ id, sourceX, source
   const [path, lx, ly] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, curvature: 0.35 })
   const label = (data?.label ?? '').toLowerCase()
   const tone = label ? branchTone(label) : undefined
-  const flippable = label === 'yes' || label === 'no' || label === 'each' || label === 'done'
+  const flippable = !!label
   return (
     <>
       <BaseEdge id={id} path={path} style={{ stroke: selected ? 'var(--accent)' : tone ?? 'var(--muted)', strokeWidth: selected ? 2.2 : 1.7, opacity: selected || data?.active ? 1 : 0.75, strokeDasharray: data?.active ? '6 6' : undefined }} className={data?.active ? 'edge-flow' : undefined} />

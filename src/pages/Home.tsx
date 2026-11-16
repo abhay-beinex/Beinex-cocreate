@@ -40,7 +40,7 @@ export default function Home() {
   ]
   const go = () => {
     const t = q.trim(); if (!t) return
-    if (intent === 'ask') nav(`/chat?q=${encodeURIComponent(t)}`)
+    if (intent === 'ask' || !builder) nav(`/chat?q=${encodeURIComponent(t)}`)
     else if (intent === 'agent') nav(`/agents/new?purpose=${encodeURIComponent(t)}`)
     else nav(`/workflows/new?template=blank&build=${encodeURIComponent(t)}`)
   }
@@ -52,7 +52,14 @@ export default function Home() {
   const decided = runs.filter((r) => r.decidedBy).length
   const spent = spentToday(user.id)
   const decide = async (r: Run, d: 'approved' | 'rejected') => { decideRun(r.id, d); if (d === 'approved' && r.kind !== 'chat' && r.cursor) await resumeRun(r.id) }
-  const retry = (r: Run) => { const i = r.steps.findIndex((s) => s.status === 'failed'); rerunFrom(r.id, Math.max(0, i), (id) => nav(`/runs?open=${id}`)) }
+  const retry = (r: Run) => {
+    let i = -1
+    for (let idx = r.steps.length - 1; idx >= 0; idx--) {
+      if (r.steps[idx].status === 'failed' && !r.steps[idx].continued) { i = idx; break }
+    }
+    if (i < 0) i = r.steps.findIndex((s) => s.status === 'failed')
+    rerunFrom(r.id, Math.max(0, i), (id) => nav(`/runs?open=${id}`))
+  }
   const hour = new Date().getHours()
   const sky = hour < 11 ? ['#ffd59e', '#04bbf2'] : hour < 17 ? ['#04bbf2', '#0074d9'] : ['#6d5cff', '#0074d9']
 
@@ -111,13 +118,15 @@ export default function Home() {
                 {approver ? <div className="flex gap-1.5 shrink-0"><Button size="sm" variant="primary" onClick={() => decide(r, 'approved')} title="Approve and sign"><ThumbsUp size={12} /> Approve</Button><Button size="sm" onClick={() => decide(r, 'rejected')} title="Reject"><ThumbsDown size={12} /></Button></div> : <Button size="sm" onClick={() => nav(`/runs?open=${r.id}`)}>Open</Button>}
               </div>
             ))}
-            {failed.map((r) => { const f = r.steps.find((s) => s.status === 'failed'); return (
-              <div key={r.id} className="flex items-center gap-3 p-2.5 rounded-[14px] hover:bg-[var(--clay-dark)]">
-                <Tile color="#e5484d" size={36}><AlertTriangle size={16} /></Tile>
-                <button onClick={() => nav(`/runs?open=${r.id}`)} className="flex-1 min-w-0 text-left"><div className="text-[13px] font-semibold truncate">Failed at {f?.name ?? 'a step'} · {r.workflow}</div><div className="text-[11.5px] muted truncate">{r.id} · {(f?.output ?? '').replace(/^Error:\s*/, '').slice(0, 90)}</div></button>
-                {builder && workflows.some((w) => w.id === r.workflowId) && <Button size="sm" onClick={() => retry(r)} title="Start again from the failed step with the earlier results kept"><RotateCw size={12} /> Run again</Button>}
-              </div>
-            ) })}
+            {failed.map((r) => {
+              const f = [...r.steps].reverse().find((s) => s.status === 'failed' && !s.continued) ?? r.steps.find((s) => s.status === 'failed'); return (
+                <div key={r.id} className="flex items-center gap-3 p-2.5 rounded-[14px] hover:bg-[var(--clay-dark)]">
+                  <Tile color="#e5484d" size={36}><AlertTriangle size={16} /></Tile>
+                  <button onClick={() => nav(`/runs?open=${r.id}`)} className="flex-1 min-w-0 text-left"><div className="text-[13px] font-semibold truncate">Failed at {f?.name ?? 'a step'} · {r.workflow}</div><div className="text-[11.5px] muted truncate">{r.id} · {(f?.output ?? '').replace(/^Error:\s*/, '').slice(0, 90)}</div></button>
+                  {builder && workflows.some((w) => w.id === r.workflowId) && <Button size="sm" onClick={() => retry(r)} title="Start again from the failed step with the earlier results kept"><RotateCw size={12} /> Run again</Button>}
+                </div>
+              )
+            })}
           </div>
         </Rise>
 

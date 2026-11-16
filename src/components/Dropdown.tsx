@@ -38,22 +38,24 @@ export function Dropdown({ value, items, onChange, trigger, align = 'start', wid
   let lastGroup: string | undefined
   return (
     <>
-      <button ref={btn} type="button" disabled={disabled} aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel} onClick={() => setOpen(!open)} onKeyDown={(e) => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setOpen(true) } }} className={cx(trigger ? 'inline-flex' : 'input text-left flex items-center gap-2 pr-9 relative', className)}>
-        {trigger ? trigger(open, current) : <><span className={cx('truncate flex-1', !current && 'muted')}>{current?.label ?? placeholder ?? 'Choose'}</span><ChevronDown size={14} className={cx('absolute right-3 top-1/2 -translate-y-1/2 muted transition-transform', open && 'rotate-180')} /></>}
+      <button ref={btn} type="button" disabled={disabled} aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel} onClick={() => setOpen(!open)} onKeyDown={(e) => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setOpen(true) } }} className={cx(trigger ? 'inline-flex' : 'input text-start flex items-center gap-2 pe-9 relative', className)}>
+        {trigger ? trigger(open, current) : <><span className={cx('truncate flex-1', !current && 'muted')}>{current?.label ?? placeholder ?? 'Choose'}</span><ChevronDown size={14} className={cx('absolute end-3 top-1/2 -translate-y-1/2 muted transition-transform', open && 'rotate-180')} /></>}
       </button>
       {open && pos && createPortal(
         <div ref={list} role="listbox" aria-activedescendant={shown[active] ? `opt-${shown[active].value}` : undefined} tabIndex={-1} onKeyDown={onListKey} className="fixed z-[80] pop rounded-[14px] p-1.5 flex flex-col max-h-[360px]" style={{ top: pos.up ? undefined : pos.top, bottom: pos.up ? window.innerHeight - pos.top : undefined, left: pos.left, width: pos.width }}>
-          {search && <div className="relative mb-1 shrink-0"><Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 muted" /><input value={q} onChange={(e) => { setQ(e.target.value); setActive(0) }} placeholder="Search" aria-label="Search options" className="input !h-8 !pl-8 !text-[12.5px]" /></div>}
+          {search && <div className="relative mb-1 shrink-0"><Search size={13} className="absolute start-2.5 top-1/2 -translate-y-1/2 muted" /><input value={q} onChange={(e) => { setQ(e.target.value); setActive(0) }} placeholder="Search" aria-label="Search options" className="input !h-8 !ps-8 !text-[12.5px]" /></div>}
           <div className="scroll min-h-0 flex flex-col">
             {shown.length === 0 && <div className="px-2.5 py-3 text-[12.5px] muted">No match.</div>}
-            {shown.map((it, i) => { const head = it.group && it.group !== lastGroup ? it.group : undefined; lastGroup = it.group; return (
-              <div key={it.value}>
-                {head && <div className="text-[10.5px] font-semibold uppercase tracking-wider muted px-2.5 pt-2 pb-1">{head}</div>}
-                <button type="button" id={`opt-${it.value}`} role="option" aria-selected={it.value === value} data-active={i === active} disabled={it.disabled} onMouseEnter={() => setActive(i)} onClick={() => choose(it.value)} className={cx('w-full flex items-center gap-2 px-2.5 h-9 rounded-[9px] text-[13px] text-left disabled:opacity-50', i === active && 'bg-[var(--clay-dark)]', it.value === value && 'font-semibold')}>
-                  <span className="flex-1 min-w-0 truncate">{it.label}</span>{it.value === value && <Check size={13} className="accent-ink shrink-0" />}
-                </button>
-              </div>
-            ) })}
+            {shown.map((it, i) => {
+              const head = it.group && it.group !== lastGroup ? it.group : undefined; lastGroup = it.group; return (
+                <div key={it.value}>
+                  {head && <div className="text-[10.5px] font-semibold uppercase tracking-wider muted px-2.5 pt-2 pb-1">{head}</div>}
+                  <button type="button" id={`opt-${it.value}`} role="option" aria-selected={it.value === value} data-active={i === active} disabled={it.disabled} onMouseEnter={() => setActive(i)} onClick={() => choose(it.value)} className={cx('w-full flex items-center gap-2 px-2.5 h-9 rounded-[9px] text-[13px] text-left disabled:opacity-50', i === active && 'bg-[var(--clay-dark)]', it.value === value && 'font-semibold')}>
+                    <span className="flex-1 min-w-0 truncate">{it.label}</span>{it.value === value && <Check size={13} className="accent-ink shrink-0" />}
+                  </button>
+                </div>
+              )
+            })}
           </div>
         </div>, document.body)}
     </>

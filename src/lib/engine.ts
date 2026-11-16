@@ -22,6 +22,8 @@ export type EngineCtx = {
   onSaveDocument: (d: { title: string; content: string }) => void
   onNotify: (n: { title: string; body?: string; link?: string; kind: 'run' | 'approval' | 'schedule' | 'info' }) => void
   onUpdate: (run: Run) => void
+  /** Creates a waiting approval run when a step calls a gated action (e.g. draft_email, request_approval). */
+  onGatedAction?: (a: { wf: Workflow; run: Run; stepName: string; model?: string; tool: string; args: Record<string, unknown> }) => string | undefined
   /** Runs another workflow as a child run and resolves when it finishes (or pauses). */
   runChild?: (wf: Workflow, input: string, parent: Run) => Promise<Run>
 }
@@ -37,13 +39,16 @@ export function newRun(wf: Workflow, input: string, trigger: string, startedBy: 
   return { id: 'pending', kind: 'workflow', workflowId: wf.id, workflow: wf.name, trigger, status: 'running', started: now(), duration: '0s', cost: 0, steps: [], summary: input.slice(0, 120), input, context: `Input:\n${input}`, vars: { input }, cursor: startNode(wf)?.id ?? null, startedBy }
 }
 
-async function collect(gen: AsyncGenerator<any>, onSave?: (d: { title: string; content: string }) => void): Promise<{ text: string; cost: number; error?: string; gated: string[] }> {
+async function collect(gen: AsyncGenerator<any>, onSave?: (d: { title: string; content: string }) => void, onGated?: (tool: string, args: Record<string, unknown>) => string | undefined): Promise<{ text: string; cost: number; error?: string; gated: string[] }> {
   let text = ''; let cost = 0; let error: string | undefined; const gated: string[] = []
   for await (const ev of gen) {
     if (ev.type === 'text') text += ev.text
     else if (ev.type === 'done') cost += ev.usage?.cost ?? 0
     else if (ev.type === 'error') error = ev.message
-    else if (ev.type === 'gated') gated.push(`${ev.tool}: ${JSON.stringify(ev.args).slice(0, 200)}`)
+    else if (ev.type === 'gated') {
+      const id = onGated?.(ev.tool, ev.args ?? {})
+      gated.push(`${ev.tool}${id ? ` (${id})` : ''}: ${JSON.stringify(ev.args).slice(0, 200)}`)
+    }
     else if (ev.type === 'saved') onSave?.({ title: ev.title, content: ev.content })
   }
   return { text, cost, error, gated }
@@ -52,7 +57,7 @@ async function collect(gen: AsyncGenerator<any>, onSave?: (d: { title: string; c
 /** What a step sees and writes: the running context text, named variables, and the latest result. */
 export type State = { context: string; vars: Record<string, string>; last: string }
 type Outcome = 'done' | 'waiting' | 'failed'
-type WalkOpts = { depth: number; lane?: string; stopAt?: (id: string) => boolean }
+type WalkOpts = { depth: number; lane?: string; stopAt?: (id: string) => boolean; onStop?: (id?: string) => void }
 
 /** Builds a step runner bound to one run. Used by execute() and by single-step tries in the builder. */
 export function makeEngine(run: Run, wf: Workflow, ctx: EngineCtx) {
@@ -63,7 +68,7 @@ export function makeEngine(run: Run, wf: Workflow, ctx: EngineCtx) {
   const guard = (): string | undefined => (!ctx.key ? 'Models are not available right now. Contact your administrator.' : !ctx.canSpend() ? 'Daily spend cap reached for this user. Raise the cap under Settings › Governance or try tomorrow.' : undefined)
   const toolCtx = { key: ctx.key, models: ctx.models, libraries: ctx.libraries, custom: ctx.custom, onSaveDocument: ctx.onSaveDocument }
 
-  const record = (st: State, d: StepData, key: string, text: string) => { st.vars[key] = text; st.last = text; st.context += `\n\n[${d.label}]\n${text}` }
+  const record = (st: State, step: RunStep, d: StepData, key: string, text: string) => { st.vars[key] = text; st.last = text; st.context += `\n\n[${d.label}]\n${text}`; step.vars = { ...(step.vars ?? {}), [key]: text } }
 
   /** Runs one step once. Returns the step record and, for conditions, the branch taken. */
   async function runStep(node: WfNode, st: State, lane?: string): Promise<{ step: RunStep; branch?: string }> {
@@ -76,9 +81,9 @@ export function makeEngine(run: Run, wf: Workflow, ctx: EngineCtx) {
       if (d.brick === 'trigger') step.output = `Started with:\n${run.input ?? ''}`
       else if (d.brick === 'wait') { const secs = Math.min(600, Math.max(1, d.wait ?? 30)); await sleep(secs * 1000); step.output = `Waited ${secs} second${secs === 1 ? '' : 's'}.` }
       else if (d.brick === 'set') {
-        const lines: string[] = []
-        for (const a of d.assign ?? []) { if (!a.key.trim()) continue; const k = slug(a.key); const v = r(a.value); st.vars[k] = v; lines.push(`{{${k}}} = ${v.slice(0, 200).replace(/\n/g, ' ')}`) }
-        step.output = lines.join('\n') || 'Nothing to set.'
+        const lines: string[] = []; const setVars: Record<string, string> = {}
+        for (const a of d.assign ?? []) { if (!a.key.trim()) continue; const k = slug(a.key); const v = r(a.value); st.vars[k] = v; setVars[k] = v; lines.push(`{{${k}}} = ${v.slice(0, 200).replace(/\n/g, ' ')}`) }
+        step.vars = setVars; step.output = lines.join('\n') || 'Nothing to set.'
       }
       else if (d.brick === 'extract' || d.brick === 'classify') {
         const g = guard(); if (g) { step.status = 'failed'; step.output = g }
@@ -88,40 +93,55 @@ export function makeEngine(run: Run, wf: Workflow, ctx: EngineCtx) {
           for await (const ev of streamChat({ key: ctx.key, model: ctx.models.fast, temperature: 0, messages: [{ role: 'system', content: `Extract these fields from the text and reply with ONE JSON object and nothing else. Keys: ${fields.map((f) => `"${slug(f.name)}" (${f.description || f.name})`).join(', ')}. Use null when a field is not present. Keep values short.` }, { role: 'user', content: stepInput.slice(0, 12000) }] })) { if (ev.type === 'delta') ans += ev.text; if (ev.type === 'usage') { spend(ev.usage.cost ?? 0); step.cost = ev.usage.cost } }
           const obj = parseJsonLoose(ans)
           const json = JSON.stringify(obj, null, 2)
-          step.model = short(ctx.models.fast); step.output = '```json\n' + json + '\n```'; st.vars[key] = JSON.stringify(obj); st.last = json
+          const rawJson = JSON.stringify(obj)
+          step.model = short(ctx.models.fast); step.output = '```json\n' + json + '\n```'; step.vars = { [key]: rawJson }; st.vars[key] = rawJson; st.last = json
         } else {
           const cats = (d.categories ?? []).map((c) => c.trim()).filter(Boolean)
           let ans = ''
           for await (const ev of streamChat({ key: ctx.key, model: ctx.models.balanced, temperature: 0, max_tokens: 60, messages: [{ role: 'system', content: `Sort the text into exactly one of these categories: ${cats.join(' | ')}. Reply with the category name only, spelled exactly as given.` }, { role: 'user', content: stepInput.slice(0, 12000) }] })) { if (ev.type === 'delta') ans += ev.text; if (ev.type === 'usage') { spend(ev.usage.cost ?? 0); step.cost = ev.usage.cost } }
           const pick = cats.find((c) => c.toLowerCase() === ans.trim().toLowerCase()) ?? cats.find((c) => ans.toLowerCase().includes(c.toLowerCase())) ?? cats[cats.length - 1]
-          branch = pick.toLowerCase(); step.branch = pick; step.model = short(ctx.models.balanced); step.output = `Category → **${pick}**`; st.vars[key] = pick
+          branch = pick.toLowerCase(); step.branch = pick; step.model = short(ctx.models.balanced); step.output = `Category → **${pick}**`; step.vars = { [key]: pick }; st.vars[key] = pick
         }
       }
       else if (d.brick === 'agent' || d.brick === 'council' || d.brick === 'tool' || (d.brick === 'logic' && d.mode !== 'rule')) {
         const g = guard(); if (g) { step.status = 'failed'; step.output = g }
         else if (d.brick === 'agent') {
           const a = ctx.agents.find((x) => x.id === d.agentId)
+          const mdl = a?.model ?? d.model ?? ctx.models.balanced
           const signal = d.timeout ? AbortSignal.timeout(d.timeout * 1000) : undefined
-          const res = await collect(runAgentTurn({ key: ctx.key, model: a?.model ?? d.model ?? ctx.models.balanced, models: ctx.models, custom: ctx.custom, autonomy: a?.autonomy ?? wf.autonomy, signal,
+          const res = await collect(runAgentTurn({
+            key: ctx.key, model: mdl, models: ctx.models, custom: ctx.custom, autonomy: a?.autonomy ?? wf.autonomy, signal,
             instructions: (a?.instructions ?? 'You are a capable assistant working inside an automated workflow.') + (d.prompt ? `\n\nStep instructions: ${r(d.prompt)}` : '') + (d.input?.trim() ? '\n\nYou receive the input for this step. Produce the output for this step only. Be complete but concise.' : '\n\nYou receive the workflow context so far. Produce the output for this step only. Be complete but concise.'),
-            tools: a?.tools ?? DEFAULT_STEP_TOOLS, libraries: ctx.libraries.filter((l) => (a ? a.knowledge.includes(l.id) : l.id === 'company')), history: [{ role: 'user', content: stepInput }], maxRounds: 6 }), ctx.onSaveDocument)
+            tools: a?.tools ?? DEFAULT_STEP_TOOLS, libraries: ctx.libraries.filter((l) => (a ? a.knowledge.includes(l.id) : l.id === 'company')), history: [{ role: 'user', content: stepInput }], maxRounds: 6
+          }), ctx.onSaveDocument, (tool, args) => ctx.onGatedAction?.({ wf, run, stepName: d.label, model: short(mdl), tool, args }))
           spend(res.cost); step.cost = res.cost; step.model = short(a?.model ?? d.model)
-          if (res.error) { step.status = 'failed'; step.output = `Error: ${res.error}` } else { step.output = res.text + (res.gated.length ? `\n\nQueued for approval: ${res.gated.join('; ')}` : ''); record(st, d, key, res.text) }
+          if (res.error) { step.status = 'failed'; step.output = `Error: ${res.error}` } else { step.output = res.text + (res.gated.length ? `\n\nQueued for approval: ${res.gated.join('; ')}` : ''); record(st, step, d, key, res.text) }
         } else if (d.brick === 'council') {
           const c = ctx.councils.find((x) => x.id === d.councilId)
           if (!c) { step.status = 'failed'; step.output = 'No council selected for this step.' }
           else {
             const findings: string[] = []
-            for (const id of c.members) {
-              const a = ctx.agents.find((x) => x.id === id); if (!a) continue
-              const res = await collect(runAgentTurn({ key: ctx.key, model: a.model, models: ctx.models, custom: ctx.custom, autonomy: 1, instructions: a.instructions + '\n\nYou are a member of a council. Give your findings on the case in under 120 words with a clear position (Approve / Reject / Need more info).', tools: a.tools, libraries: ctx.libraries.filter((l) => a.knowledge.includes(l.id)), history: [{ role: 'user', content: stepInput }], maxRounds: 4 }))
-              spend(res.cost); step.cost = (step.cost ?? 0) + res.cost; findings.push(`${a.name}:\n${res.text}`)
+            const memberAgents = c.members.map((id) => ctx.agents.find((x) => x.id === id)).filter((a): a is Agent => !!a)
+            if (!memberAgents.length) { step.status = 'failed'; step.output = `Council "${c.name}" has no members. Open it under Agents → Councils and add at least one agent.` }
+            else {
+              let memberErrors = 0
+              for (const a of memberAgents) {
+                const res = await collect(runAgentTurn({ key: ctx.key, model: a.model, models: ctx.models, custom: ctx.custom, autonomy: 1, instructions: a.instructions + '\n\nYou are a member of a council. Give your findings on the case in under 120 words with a clear position (Approve / Reject / Need more info).', tools: a.tools, libraries: ctx.libraries.filter((l) => a.knowledge.includes(l.id)), history: [{ role: 'user', content: stepInput }], maxRounds: 4 }))
+                spend(res.cost); step.cost = (step.cost ?? 0) + res.cost
+                if (res.error) memberErrors++
+                findings.push(`${a.name}:\n${res.error ? `(could not respond: ${res.error})` : res.text || '(no response)'}`)
+              }
+              if (memberErrors === memberAgents.length) { step.status = 'failed'; step.output = `Every council member failed to respond.\n\n${findings.join('\n\n')}` }
+              else {
+                const modeHint = { consensus: 'Seek consensus; note any dissent.', debate: 'Cross-examine each finding, surface contradictions, then conclude.', quorum: 'Count positions; a majority decides, note the vote.' }[c.mode]
+                let syn = ''; let synErr: string | undefined
+                for await (const ev of streamChat({ key: ctx.key, model: c.model, messages: [{ role: 'system', content: `You synthesise a council's findings into one recommendation for the human gatekeeper. ${modeHint} Output: Recommendation (one line), Confidence (0-100%), Key reasons (3 bullets), Dissent (if any). Under 150 words.` }, { role: 'user', content: `${stepInput}\n\nFindings:\n${findings.join('\n\n')}` }] })) { if (ev.type === 'delta') syn += ev.text; if (ev.type === 'usage') { spend(ev.usage.cost ?? 0); step.cost = (step.cost ?? 0) + (ev.usage.cost ?? 0) }; if (ev.type === 'error') synErr = ev.message }
+                step.model = short(c.model)
+                const memberText = findings.map((f) => `**${f.split(':\n')[0]}**\n${f.split(':\n').slice(1).join(':\n')}`).join('\n\n')
+                if (synErr || !syn.trim()) { step.status = 'failed'; step.output = `${memberText}\n\nThe council could not reach a recommendation: ${synErr ?? 'the model returned nothing'}` }
+                else { step.output = `${memberText}\n\n**Council recommendation**\n${syn}`; record(st, step, d, key, syn) }
+              }
             }
-            const modeHint = { consensus: 'Seek consensus; note any dissent.', debate: 'Cross-examine each finding, surface contradictions, then conclude.', quorum: 'Count positions; a majority decides, note the vote.' }[c.mode]
-            let syn = ''
-            for await (const ev of streamChat({ key: ctx.key, model: c.model, messages: [{ role: 'system', content: `You synthesise a council's findings into one recommendation for the human gatekeeper. ${modeHint} Output: Recommendation (one line), Confidence (0-100%), Key reasons (3 bullets), Dissent (if any). Under 150 words.` }, { role: 'user', content: `${stepInput}\n\nFindings:\n${findings.join('\n\n')}` }] })) { if (ev.type === 'delta') syn += ev.text; if (ev.type === 'usage') { spend(ev.usage.cost ?? 0); step.cost = (step.cost ?? 0) + (ev.usage.cost ?? 0) } }
-            step.model = short(c.model); step.output = `${findings.map((f) => `**${f.split(':\n')[0]}**\n${f.split(':\n').slice(1).join(':\n')}`).join('\n\n')}\n\n**Council recommendation**\n${syn}`
-            record(st, d, key, syn)
           }
         } else if (d.brick === 'logic') {
           let ans = ''
@@ -131,9 +151,9 @@ export function makeEngine(run: Run, wf: Workflow, ctx: EngineCtx) {
           step.branch = branch; step.model = short(ctx.models.balanced); step.output = `Condition "${r(d.sub) || d.label}" → **${branch}**\n\n${ans.replace(/VERDICT:.*$/i, '').trim()}`
         } else if (d.brick === 'tool') {
           const tool = d.tool ?? 'save_document'
-          const res = await collect(runAgentTurn({ key: ctx.key, model: ctx.models.fast, models: ctx.models, custom: ctx.custom, autonomy: 2, instructions: `You must call the tool "${tool}" exactly once with arguments derived from the input, then reply with one line confirming what you did.${d.prompt ? ` Guidance: ${r(d.prompt)}` : ''}`, tools: [tool], libraries: ctx.libraries, history: [{ role: 'user', content: stepInput }], maxRounds: 2 }), ctx.onSaveDocument)
+          const res = await collect(runAgentTurn({ key: ctx.key, model: ctx.models.fast, models: ctx.models, custom: ctx.custom, autonomy: 2, instructions: `You must call the tool "${tool}" exactly once with arguments derived from the input, then reply with one line confirming what you did.${d.prompt ? ` Guidance: ${r(d.prompt)}` : ''}`, tools: [tool], libraries: ctx.libraries, history: [{ role: 'user', content: stepInput }], maxRounds: 2 }), ctx.onSaveDocument, (tName, args) => ctx.onGatedAction?.({ wf, run, stepName: d.label, model: short(ctx.models.fast), tool: tName, args }))
           spend(res.cost); step.cost = res.cost; step.model = short(ctx.models.fast)
-          if (res.error) { step.status = 'failed'; step.output = `Error: ${res.error}` } else { step.output = res.text + (res.gated.length ? `\n\nQueued for approval: ${res.gated.join('; ')}` : ''); st.vars[key] = res.text }
+          if (res.error) { step.status = 'failed'; step.output = `Error: ${res.error}` } else { step.output = res.text + (res.gated.length ? `\n\nQueued for approval: ${res.gated.join('; ')}` : ''); step.vars = { [key]: res.text }; st.vars[key] = res.text }
         }
       } else if (d.brick === 'logic') {
         const rule = d.rule ?? { left: '', op: 'not_empty' as const, right: '' }
@@ -146,7 +166,7 @@ export function makeEngine(run: Run, wf: Workflow, ctx: EngineCtx) {
         const wrapped = `const vars = ${JSON.stringify(st.vars)}; const input = vars.input; const item = vars.item; const context = ${JSON.stringify(st.context.slice(-20000))};\n${d.code ?? ''}`
         const out = await runTool('run_javascript', JSON.stringify({ code: wrapped }), toolCtx)
         if (/^Error:|\nError:/.test(out)) { step.status = 'failed'; step.output = out }
-        else { const m = out.match(/Result: ([\s\S]*)$/); const value = m ? m[1] : out.replace(/^Console:\n/, '').replace(/\nDone \(no output\)\.$/, '').trim(); step.output = out; record(st, d, key, value) }
+        else { const m = out.match(/Result: ([\s\S]*)$/); const value = m ? m[1] : out.replace(/^Console:\n/, '').replace(/\nDone \(no output\)\.$/, '').trim(); step.output = out; record(st, step, d, key, value) }
       } else if (d.brick === 'http') {
         const url = r(d.url).trim()
         let headers: Record<string, string> = {}
@@ -156,7 +176,7 @@ export function makeEngine(run: Run, wf: Workflow, ctx: EngineCtx) {
         const text = await res.text()
         step.output = `${method} ${url}\nHTTP ${res.status}\n\n${text.length > 6000 ? text.slice(0, 6000) + '\n…[truncated]' : text}`
         if (!res.ok) step.status = 'failed'
-        else record(st, d, key, text)
+        else record(st, step, d, key, text)
       } else if (d.brick === 'flow') {
         const child = ctx.workflows.find((w) => w.id === d.workflowId)
         if (!child) throw new Error('The workflow to run no longer exists.')
@@ -166,7 +186,7 @@ export function makeEngine(run: Run, wf: Workflow, ctx: EngineCtx) {
         step.cost = cr.cost; run.cost += 0
         if (cr.status === 'failed') { step.status = 'failed'; step.output = `${child.name} (${cr.id}) failed: ${[...cr.steps].reverse().find((s) => s.status === 'failed')?.output ?? ''}` }
         else if (cr.status === 'waiting') { step.status = 'failed'; step.output = `${child.name} (${cr.id}) paused for an approval. Workflows run as a step cannot wait for a person; move the approval into this workflow.` }
-        else { const text = summarise(cr); step.output = `${child.name} · ${cr.id} · ${cr.steps.length} steps\n\n${text}`; record(st, d, key, text) }
+        else { const text = summarise(cr); step.output = `${child.name} · ${cr.id} · ${cr.steps.length} steps\n\n${text}`; record(st, step, d, key, text) }
       } else if (d.brick === 'notify') {
         ctx.onNotify({ title: `${wf.name}: ${d.label}`, body: (d.input?.trim() ? stepInput : st.last || run.summary || '').slice(0, 300), link: `/runs?open=${run.id}`, kind: 'info' })
         step.output = 'In-app notification sent.'
@@ -185,7 +205,7 @@ export function makeEngine(run: Run, wf: Workflow, ctx: EngineCtx) {
       last = await runStep(node, st, lane)
       if (i > 1) last.step.attempt = i
       if (last.step.status !== 'failed') break
-      if (i < attempts) { last.step.name = `${d.label} (attempt ${i})`; run.steps.push(last.step); touch(); await sleep(600 * i) }
+      if (i < attempts) { last.step.name = `${d.label} (attempt ${i})`; last.step.continued = true; run.steps.push(last.step); touch(); await sleep(600 * i) }
     }
     const { step, branch } = last!
     if (step.status === 'failed' && d.onError === 'continue') { step.continued = true; st.vars[keyOf(d)] = ''; }
@@ -209,17 +229,35 @@ export function makeEngine(run: Run, wf: Workflow, ctx: EngineCtx) {
     const max = Math.min(Math.max(1, d.maxItems ?? 10), 25)
     const truncated = items.length > max; items = items.slice(0, max)
     const each = nextOf(wf.edges, node.id, 'each'); const done = nextOf(wf.edges, node.id, 'done')
+    const doneReachable = new Set<string>()
+    if (done) {
+      const q = [done]
+      while (q.length) {
+        const cur = q.shift()!
+        if (doneReachable.has(cur) || cur === node.id) continue
+        doneReachable.add(cur)
+        for (const e of outEdges(wf.edges, cur)) q.push(e.target)
+      }
+    }
     step.count = items.length; step.output = items.length ? `${items.length} item${items.length === 1 ? '' : 's'}${truncated ? ` (capped at ${max})` : ''}:\n${items.map((it, i) => `${i + 1}. ${it}`).join('\n')}` : 'No items found, so the Each branch was skipped.'
     step.ms = Date.now() - s0; run.steps.push(step); touch()
     const results: string[] = []
+    const perStepVars: Record<string, string[]> = {}
     for (let i = 0; i < items.length; i++) {
       const sub: State = { context: `${st.context}\n\n[${d.label} · item ${i + 1} of ${items.length}]\n${items[i]}`, vars: { ...st.vars, item: items[i], index: String(i + 1), count: String(items.length) }, last: items[i] }
-      const out = await walk(each, sub, { depth: opts.depth + 1, lane: `Item ${i + 1} of ${items.length}`, stopAt: (id) => id === node.id || id === done })
+      const out = await walk(each, sub, { depth: opts.depth + 1, lane: `Item ${i + 1} of ${items.length}`, stopAt: (id) => id === node.id || id === done || doneReachable.has(id) })
       if (out === 'failed') { if (d.onError === 'continue') { results.push('(failed)'); continue } return 'failed' }
       if (out === 'waiting') return 'waiting'
       results.push(sub.last)
+      for (const [k, v] of Object.entries(sub.vars)) {
+        if (k === 'item' || k === 'index' || k === 'count' || st.vars[k] === v) continue
+          ; (perStepVars[k] ??= []).push(`${i + 1}. ${items[i]}\n${v}`)
+      }
     }
     const combined = results.map((r, i) => `${i + 1}. ${items[i]}\n${r}`).join('\n\n')
+    const loopVars: Record<string, string> = { [key]: combined, [`${key}_items`]: JSON.stringify(items) }
+    for (const [k, vals] of Object.entries(perStepVars)) { const joined = vals.join('\n\n'); st.vars[k] = joined; loopVars[k] = joined }
+    step.vars = loopVars
     st.vars[key] = combined; st.vars[`${key}_items`] = JSON.stringify(items); st.last = combined; st.context += `\n\n[${d.label} · results]\n${combined}`
     return 'done'
   }
@@ -231,14 +269,94 @@ export function makeEngine(run: Run, wf: Workflow, ctx: EngineCtx) {
     const names = outs.map((e) => nodes.get(e.target)?.data.label ?? e.target)
     const step: RunStep = { name: d.label, nodeId: node.id, brick: 'parallel', ms: 0, status: 'ok', count: outs.length, lane: opts.lane, output: `${outs.length} branches at once: ${names.join(', ')}.${join ? ` They join at ${nodes.get(join)?.data.label}.` : ''}` }
     run.steps.push(step); touch()
-    const subs: State[] = outs.map(() => ({ context: st.context, vars: { ...st.vars }, last: st.last }))
-    const results = await Promise.all(outs.map((e, i) => walk(e.target, subs[i], { depth: opts.depth + 1, lane: `Branch: ${names[i]}`, stopAt: (id) => id === join })))
+
+    // Identify intermediate convergence nodes where 2+ branches meet before the final join.
+    const branchReach = new Map<string, number>()
+    for (const o of outs) {
+      const seen = new Set<string>(); const q = [o.target]
+      while (q.length) {
+        const id = q.shift()!
+        if (id === join || seen.has(id)) continue
+        seen.add(id); branchReach.set(id, (branchReach.get(id) ?? 0) + 1)
+        for (const e of outEdges(wf.edges, id)) q.push(e.target)
+      }
+    }
+    const merges = new Set([...branchReach.entries()].filter(([id, c]) => c >= 2 && id !== join).map(([id]) => id))
+    const canReach = (from: string, target: string) => {
+      const seen = new Set<string>(); const q = outEdges(wf.edges, from).map((e) => e.target)
+      while (q.length) {
+        const id = q.shift()!
+        if (id === target) return true
+        if (id === join || seen.has(id)) continue
+        seen.add(id)
+        for (const e of outEdges(wf.edges, id)) q.push(e.target)
+      }
+      return false
+    }
+
+    type ActiveLane = { start: string; name: string; sub: State }
+    let active: ActiveLane[] = outs.map((e, i) => ({ start: e.target, name: names[i], sub: { context: st.context, vars: { ...st.vars }, last: st.last } }))
+    const finishedSubs: State[] = []
+    const baseLen = st.context.length
+    let waveGuard = 0
+
+    while (active.length && waveGuard++ < 30) {
+      const byStart = new Map<string, ActiveLane[]>()
+      for (const lane of active) { const arr = byStart.get(lane.start) ?? []; arr.push(lane); byStart.set(lane.start, arr) }
+      const readyStarts: string[] = []
+      const waitingLanes: ActiveLane[] = []
+      for (const [startId, group] of byStart.entries()) {
+        const otherCanReach = [...byStart.keys()].some((otherId) => otherId !== startId && canReach(otherId, startId))
+        if (otherCanReach) waitingLanes.push(...group)
+        else readyStarts.push(startId)
+      }
+      const waveGroups = (readyStarts.length ? readyStarts : [...byStart.keys()]).map((id) => byStart.get(id)!)
+      const nextActive: ActiveLane[] = readyStarts.length ? [...waitingLanes] : []
+
+      const waveResults = await Promise.all(waveGroups.map(async (group) => {
+        const startId = group[0].start
+        let sub: State
+        let laneName: string
+        if (group.length === 1) {
+          sub = group[0].sub; laneName = group[0].name
+        } else {
+          let ctxText = st.context
+          const mergedVars: Record<string, string> = { ...st.vars }
+          for (const g of group) {
+            ctxText += g.sub.context.slice(baseLen)
+            for (const [k, v] of Object.entries(g.sub.vars)) if (!(k in mergedVars) || mergedVars[k] !== v) mergedVars[k] = v
+          }
+          sub = { context: ctxText, vars: mergedVars, last: group.map((g) => g.sub.last).filter(Boolean).join('\n\n') }
+          laneName = nodes.get(startId)?.data.label ?? group.map((g) => g.name).join(' + ')
+        }
+        let stoppedAt: string | undefined
+        const outcome = await walk(startId, sub, {
+          depth: opts.depth + 1,
+          lane: `Branch: ${laneName}`,
+          stopAt: (id) => id === join || (id !== startId && merges.has(id)),
+          onStop: (id) => { stoppedAt = id },
+        })
+        return { outcome, stoppedAt, sub, laneName }
+      }))
+
+      if (waveResults.some((r) => r.outcome === 'waiting')) { step.ms = Date.now() - s0; return { outcome: 'waiting' } }
+      if (waveResults.some((r) => r.outcome === 'failed') && d.onError !== 'continue') { step.ms = Date.now() - s0; step.status = 'failed'; step.output += '\nA branch failed.'; touch(); return { outcome: 'failed' } }
+
+      for (const r of waveResults) {
+        if (r.stoppedAt && r.stoppedAt !== join) nextActive.push({ start: r.stoppedAt, name: r.laneName, sub: r.sub })
+        else finishedSubs.push(r.sub)
+      }
+      active = nextActive
+    }
+
     step.ms = Date.now() - s0
-    if (results.some((o) => o === 'waiting')) return { outcome: 'waiting' }
-    if (results.some((o) => o === 'failed') && d.onError !== 'continue') { step.status = 'failed'; step.output += '\nA branch failed.'; touch(); return { outcome: 'failed' } }
-    const baseLen = subs.length ? st.context.length : 0
-    for (const sub of subs) { st.context += sub.context.slice(baseLen); for (const [k, v] of Object.entries(sub.vars)) if (!(k in st.vars) || st.vars[k] !== v) st.vars[k] = v }
-    st.last = subs.map((s) => s.last).filter(Boolean).join('\n\n')
+    const seenSnippets = new Set<string>()
+    for (const sub of finishedSubs) {
+      const delta = sub.context.slice(baseLen)
+      if (delta && !seenSnippets.has(delta)) { seenSnippets.add(delta); st.context += delta }
+      for (const [k, v] of Object.entries(sub.vars)) if (!(k in st.vars) || st.vars[k] !== v) st.vars[k] = v
+    }
+    st.last = finishedSubs.map((s) => s.last).filter(Boolean).join('\n\n')
     touch()
     return { outcome: 'done', join }
   }
@@ -247,7 +365,7 @@ export function makeEngine(run: Run, wf: Workflow, ctx: EngineCtx) {
   async function walk(startId: string | undefined, st: State, opts: WalkOpts): Promise<Outcome> {
     let cursor: string | undefined = startId; let guardN = 0
     while (cursor && guardN++ < 200) {
-      if (opts.stopAt?.(cursor)) return 'done'
+      if (opts.stopAt?.(cursor)) { opts.onStop?.(cursor); return 'done' }
       const node = nodes.get(cursor); if (!node) break
       const d = node.data
       if (opts.depth === 0) { run.cursor = cursor; touch() }
@@ -272,8 +390,14 @@ export function makeEngine(run: Run, wf: Workflow, ctx: EngineCtx) {
       const { ok, branch } = await runWithRetries(node, st, opts.lane)
       if (!ok) return 'failed'
       cursor = nextOf(wf.edges, node.id, branch)
-      if ((d.brick === 'logic' || d.brick === 'classify') && !cursor) return 'done'
+      if ((d.brick === 'logic' || d.brick === 'classify') && !cursor) { opts.onStop?.(undefined); return 'done' }
     }
+    if (cursor && guardN >= 200) {
+      run.steps.push({ name: 'Loop limit reached', nodeId: cursor, ms: 0, status: 'failed', lane: opts.lane, output: 'Stopped: the workflow ran more than 200 steps in a row. Check for a connection that loops back to an earlier step.' })
+      touch()
+      return 'failed'
+    }
+    opts.onStop?.(undefined)
     return 'done'
   }
 
@@ -292,7 +416,7 @@ export async function execute(run: Run, wf: Workflow, ctx: EngineCtx): Promise<R
   run.duration = `${Math.round((Date.now() - t0) / 1000)}s`; run.finished = now(); run.cursor = null
   if (outcome === 'failed') {
     run.status = 'failed'; ctx.onUpdate({ ...run })
-    const failed = [...run.steps].reverse().find((s) => s.status === 'failed')
+    const failed = [...run.steps].reverse().find((s) => s.status === 'failed' && !s.continued) ?? [...run.steps].reverse().find((s) => s.status === 'failed')
     ctx.onNotify({ title: `Run failed: ${wf.name}`, body: `${failed?.name ?? 'A step'} · ${(failed?.output ?? '').slice(0, 160)}`, link: `/runs?open=${run.id}`, kind: 'run' })
     return run
   }
@@ -305,7 +429,7 @@ export async function execute(run: Run, wf: Workflow, ctx: EngineCtx): Promise<R
 export async function runStepOnce(wf: Workflow, nodeId: string, vars: Record<string, string>, ctx: EngineCtx): Promise<RunStep> {
   const node = wf.nodes.find((n) => n.id === nodeId); if (!node) throw new Error('Step not found')
   const run = newRun(wf, vars.input ?? '', 'Try step', 'builder'); run.id = 'try'
-  const quiet: EngineCtx = { ...ctx, onUpdate: () => {}, onNotify: () => {} }
+  const quiet: EngineCtx = { ...ctx, onUpdate: () => { }, onNotify: () => { }, onGatedAction: undefined }
   const eng = makeEngine(run, wf, quiet)
   const keys = Object.keys(vars).filter((k) => k !== 'input')
   const st: State = { context: `Input:\n${vars.input ?? ''}${keys.map((k) => `\n\n[${k}]\n${vars[k]}`).join('')}`, vars: { ...vars }, last: keys.length ? vars[keys[keys.length - 1]] : vars.input ?? '' }
@@ -321,9 +445,12 @@ export const isDue = (wf: Workflow, at = Date.now()) => {
   const [hh, mm] = wf.schedule.at.split(':').map(Number)
   const d = new Date(at)
   const last = wf.lastRunAt ?? 0
-  if (wf.schedule.every === 'hour') return at - last >= 3600_000 && d.getMinutes() >= (mm || 0)
+  if (wf.schedule.every === 'hour') {
+    const hourFire = new Date(d); hourFire.setMinutes(mm || 0, 0, 0)
+    return at >= hourFire.getTime() && last < hourFire.getTime()
+  }
   const fire = new Date(d); fire.setHours(hh || 0, mm || 0, 0, 0)
-  if (wf.schedule.every === 'week' && d.getDay() !== 1) return false
+  if (wf.schedule.every === 'week' && d.getDay() !== (wf.schedule.day ?? 1)) return false
   return at >= fire.getTime() && last < fire.getTime()
 }
 
@@ -335,7 +462,20 @@ export const textHash = (s: string) => { let h = 7; for (let i = 0; i < s.length
 /** Rebuild the variables a run had after its first n steps, for re-running from a step. */
 export function varsAfter(run: Run, n: number): Record<string, string> {
   const vars: Record<string, string> = { input: run.input ?? '' }
-  for (const s of run.steps.slice(0, n)) if (s.key && s.status === 'ok' && s.output !== undefined && !s.lane) vars[s.key] = s.brick === 'tool' || s.brick === 'http' ? s.output.replace(/^[A-Z]+ \S+\nHTTP \d+\n\n/, '') : s.output
+  for (const s of run.steps.slice(0, n)) {
+    if (s.status !== 'ok') continue
+    if (s.vars) Object.assign(vars, s.vars)
+    if (s.key && s.output !== undefined && (!s.lane || s.lane.startsWith('Branch:'))) {
+      if (s.vars && s.key in s.vars) vars[s.key] = s.vars[s.key]
+      else if (s.brick === 'extract') vars[s.key] = s.output.replace(/^```(?:json)?\s*|\s*```$/g, '')
+      else if (s.brick === 'classify') vars[s.key] = s.output.replace(/^Category → \*\*|\*\*$/g, '')
+      else if (s.brick === 'code') { const m = s.output.match(/Result: ([\s\S]*)$/); vars[s.key] = m ? m[1] : s.output.replace(/^Console:\n/, '').replace(/\nDone \(no output\)\.$/, '').trim() }
+      else if (s.brick === 'council') { const m = s.output.split('\n\n**Council recommendation**\n'); vars[s.key] = m.length > 1 ? m[m.length - 1] : s.output }
+      else if (s.brick === 'flow') vars[s.key] = s.output.replace(/^[^\n]+\n\n/, '')
+      else if (s.brick === 'tool' || s.brick === 'http') vars[s.key] = s.output.replace(/^[A-Z]+ \S+\nHTTP \d+\n\n/, '').replace(/\n\nQueued for approval:[\s\S]*$/, '')
+      else vars[s.key] = s.output.replace(/\n\nQueued for approval:[\s\S]*$/, '')
+    }
+  }
   return vars
 }
 

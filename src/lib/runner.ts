@@ -15,6 +15,17 @@ const ctx = (): EngineCtx => {
     onSaveDocument: (d) => useApp.getState().addDoc('outputs', d),
     onNotify: (n) => useApp.getState().notify(n),
     onUpdate: (run) => useApp.getState().updateRun(run.id, run),
+    onGatedAction: ({ wf, run, stepName, model, tool, args }) => {
+      const st = useApp.getState()
+      const label = tool === 'draft_email' ? `Email draft to ${args.to ?? ''}: ${args.subject ?? ''}` : `Approval requested: ${args.action ?? ''}`
+      st.logAudit('Queued for approval', tool, `${wf.name} · ${label.slice(0, 100)}`)
+      const id = st.addRun({
+        id: 'pending', kind: 'chat', workflowId: wf.id, workflow: `${wf.name} · ${stepName}`, trigger: `Workflow · ${run.id}`, parentRunId: run.id, status: 'waiting', started: new Date().toISOString().slice(0, 16).replace('T', ' '), duration: '0s', cost: 0, summary: label, cursor: null, startedBy: run.startedBy ?? st.currentUserId ?? 'system',
+        steps: [{ name: stepName, model, ms: 0, status: 'ok', output: tool === 'draft_email' ? `**To:** ${args.to ?? ''}\n\n**Subject:** ${args.subject ?? ''}\n\n${args.body ?? ''}` : `**Action:** ${args.action ?? ''}\n\n${args.reason ?? ''}` }, { name: tool === 'draft_email' ? 'Send-off (person)' : 'Approval (person)', ms: 0, status: 'waiting' }],
+      })
+      st.notify({ title: `Approval needed: ${wf.name}`, body: label, link: `/runs?open=${id}`, kind: 'approval' })
+      return id
+    },
     runChild: (wf, input, parent) => startRun(wf, input, `Called by ${parent.id}`, undefined, { parentRunId: parent.id }),
   }
 }
@@ -46,8 +57,10 @@ export async function rerunFrom(runId: string, stepIndex: number, onStart?: (id:
   const nodeId = from?.nodeId && wf.nodes.some((n) => n.id === from.nodeId) ? from.nodeId : undefined
   const kept: RunStep[] = prev.steps.slice(0, stepIndex).map((st) => ({ ...st }))
   const vars = varsAfter(prev, stepIndex)
-  const run: Run = { ...newRun(wf, prev.input ?? '', `Again from step ${stepIndex + 1} of ${prev.id}`, s.currentUserId ?? 'system'), steps: kept, vars, cost: kept.reduce((a, x) => a + (x.cost ?? 0), 0), rerunOf: { runId, step: stepIndex },
-    context: `Input:\n${prev.input ?? ''}` + kept.filter((x) => x.key && x.status === 'ok' && x.output).map((x) => `\n\n[${x.name}]\n${vars[x.key!] ?? ''}`).join(''), cursor: nodeId ?? null }
+  const run: Run = {
+    ...newRun(wf, prev.input ?? '', `Again from step ${stepIndex + 1} of ${prev.id}`, s.currentUserId ?? 'system'), steps: kept, vars, cost: kept.reduce((a, x) => a + (x.cost ?? 0), 0), rerunOf: { runId, step: stepIndex },
+    context: `Input:\n${prev.input ?? ''}` + kept.filter((x) => x.key && x.status === 'ok' && x.output).map((x) => `\n\n[${x.name}]\n${vars[x.key!] ?? ''}`).join(''), cursor: nodeId ?? null
+  }
   run.id = s.addRun(run); onStart?.(run.id)
   running.add(run.id)
   try { return await execute(run, wf, ctx()) } finally { running.delete(run.id) }

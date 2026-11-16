@@ -1,7 +1,7 @@
 // Workflow builder v2: canvas-first with a floating header and toolbar, a searchable palette, a floating inspector,
 // a run drawer and a docked Co-Create Assistant panel that proposes changes before applying them.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent } from 'react'
-import { useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Navigate, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ReactFlow, ReactFlowProvider, Background, BackgroundVariant, Controls, MiniMap, useNodesState, useEdgesState, useReactFlow, type Connection } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -32,11 +32,19 @@ const branchOf = (brick: Brick | undefined, label?: string): string | undefined 
   if (brick === 'classify') return l || undefined
   return undefined
 }
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const uniqueLabel = (baseLabel: string, brick: Brick, existing: { data: StepData }[]): string => {
+  if (!producesVar(brick)) return baseLabel
+  const used = new Set(existing.filter((n) => producesVar(n.data.brick)).map((n) => keyOf(n.data)))
+  let candidate = baseLabel; let n = 2
+  while (used.has(keyOf({ brick, label: candidate }))) candidate = `${baseLabel} ${n++}`
+  return candidate
+}
 /** Distance from a point to the straight segment between two points. */
 const segDist = (p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) => { const dx = b.x - a.x, dy = b.y - a.y; const l2 = dx * dx + dy * dy || 1; const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2)); return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy)) }
 const toFlowNodes = (ns: WfNode[]): FlowNode[] => ns.map((n) => ({ id: n.id, type: 'step', position: n.position, data: { ...n.data, ui: blankUi } }))
 const toFlowEdges = (es: WfEdge[], ns: WfNode[]): BranchEdge[] => es.map((e) => { const src = ns.find((n) => n.id === e.source)?.data.brick; const label = branchOf(src, e.label); return { id: e.id, source: e.source, target: e.target, type: 'branch', sourceHandle: label, data: { label } } })
-const triggerText = (m: Meta) => m.triggerType === 'schedule' ? `Every ${m.schedule.every} at ${m.schedule.at}` : m.triggerType === 'link' ? 'By link' : m.triggerType === 'watch' ? `Page watched every ${m.watch.every >= 60 ? `${m.watch.every / 60}h` : `${m.watch.every}m`}` : m.triggerType === 'event' ? 'When a document is added' : 'By hand'
+const triggerText = (m: Meta) => m.triggerType === 'schedule' ? (m.schedule.every === 'week' ? `Every ${DAYS[m.schedule.day ?? 1]} at ${m.schedule.at}` : `Every ${m.schedule.every} at ${m.schedule.at}`) : m.triggerType === 'link' ? 'By link' : m.triggerType === 'watch' ? `Page watched every ${m.watch.every >= 60 ? `${m.watch.every / 60}h` : `${m.watch.every}m`}` : m.triggerType === 'event' ? 'When a document is added' : 'By hand'
 type Meta = { name: string; description: string; triggerType: TriggerType; schedule: Schedule; watch: NonNullable<Workflow['watch']>; event: NonNullable<Workflow['event']>; autonomy: Workflow['autonomy']; status: Workflow['status']; version: number }
 
 export default function WorkflowEditor() {
@@ -50,17 +58,18 @@ export default function WorkflowEditor() {
   const base = useMemo<Workflow>(() => {
     if (stored) return stored
     const approver = users.find((u) => can(u, 'approve'))?.id
-    const nodes = template.id === 'blank' ? [{ id: 't', type: 'step' as const, position: { x: 60, y: 160 }, data: newStep('trigger', { model: defaultModel }) }] : template.nodes.map((n) => ({ ...n, data: { ...n.data, ...(n.data.brick === 'council' && params.get('council') ? { councilId: params.get('council')!, label: councils.find((c) => c.id === params.get('council'))?.name ?? n.data.label } : {}), ...(n.data.brick === 'human' ? { approver } : {}) } }))
+    const nodes = template.id === 'blank' ? [{ id: 't', type: 'step' as const, position: { x: 60, y: 160 }, data: newStep('trigger', { model: defaultModel }) }] : template.nodes.map((n) => ({ ...n, data: { ...n.data, ...((n.data.brick === 'council' || (template.id === 'standard' && n.id === 'a')) && params.get('council') ? { brick: 'council' as const, councilId: params.get('council')!, label: councils.find((c) => c.id === params.get('council'))?.name ?? 'Council', sub: 'Deliberate on the case' } : {}), ...(n.data.brick === 'human' ? { approver } : {}) } }))
     return { id: `wf-${Date.now().toString(36)}`, name: template.id === 'blank' ? 'Untitled workflow' : template.name, description: template.id === 'blank' ? '' : template.desc, status: 'draft', version: 1, triggerType: template.triggerType, schedule: template.schedule, autonomy: 2, nodes: autoLayout(nodes, template.edges), edges: template.edges, updatedAt: '', createdBy: user.id }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [workflowId]) // eslint-disable-line react-hooks/exhaustive-deps
+  if (isNew && !can(user, 'build')) return <Navigate to="/workflows" replace />
   if (!isNew && !stored) return <div className="h-full grid place-items-center muted text-[13px]">This flow no longer exists.</div>
   return <ReactFlowProvider><Editor key={base.id} base={base} stored={stored} isNew={isNew} buildText={params.get('build') ?? ''} /></ReactFlowProvider>
 }
 
 type Sel = { kind: 'node' | 'edge'; id: string } | null
 type Adding = { after?: string; branch?: string; edge?: string; position?: { x: number; y: number } } | null
-type Snap = { nodes: FlowNode[]; edges: BranchEdge[] }
-type PlanStep = { brick: Brick; label: string; sub?: string; prompt?: string; agentId?: string; tool?: string; after?: string; branch?: string; approver?: string; wait?: number; assign?: { key: string; value: string }[]; fields?: { name: string; description: string }[]; categories?: string[]; items?: string; code?: string; url?: string; method?: string; input?: string; rule?: StepData['rule'] }
+type Snap = { nodes: FlowNode[]; edges: BranchEdge[]; meta: Meta }
+type PlanStep = { brick: Brick; label: string; sub?: string; prompt?: string; agentId?: string; councilId?: string; tool?: string; after?: string; branch?: string; approver?: string; wait?: number; assign?: { key: string; value: string }[]; fields?: { name: string; description: string }[]; categories?: string[]; items?: string; code?: string; url?: string; method?: string; input?: string; rule?: StepData['rule'] }
 type Plan = { name?: string; description?: string; add: PlanStep[]; remove: string[]; set: { label: string; patch: Partial<StepData> }[] }
 type AssistMsg = { role: 'user' | 'assistant'; text: string; plan?: Plan; applied?: boolean }
 
@@ -74,6 +83,7 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
   const { agents, councils, upsertWorkflow, deleteWorkflow, runs, apiKey, defaultModel, users, customTools, profiles, decideRun, workflows, libraries, upsertCustomTool } = store
   const rf = useReactFlow<FlowNode, BranchEdge>()
   const editable = can(user, 'build')
+  const canRun = user.role !== 'auditor'
   const approvers = users.filter((u) => can(u, 'approve'))
 
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>(toFlowNodes(base.nodes))
@@ -110,10 +120,25 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
 
   // ---------- derived ----------
   const plain = useCallback((): { nodes: WfNode[]; edges: WfEdge[] } => ({ nodes: nodes.map((n) => { const { ui: _ui, ...data } = n.data; return { id: n.id, type: 'step', position: { x: Math.round(n.position.x), y: Math.round(n.position.y) }, data } }), edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target, label: e.data?.label })) }), [nodes, edges])
-  const current = useCallback((): Workflow => ({ ...base, ...meta, schedule: meta.triggerType === 'schedule' ? meta.schedule : undefined, watch: meta.triggerType === 'watch' ? { ...(stored?.watch ?? {}), ...meta.watch } : undefined, event: meta.triggerType === 'event' ? meta.event : undefined, ...plain(), updatedAt: new Date().toISOString().slice(0, 10) }), [base, meta, plain, stored])
-  const strip = (w: Workflow) => JSON.stringify({ ...w, updatedAt: '', version: 0, lastRunAt: 0, status: '', watch: w.watch ? { url: w.watch.url, every: w.watch.every, input: w.watch.input } : undefined })
+  const current = useCallback((): Workflow => ({ ...(stored ?? base), ...meta, id: stored?.id ?? base.id, schedule: meta.triggerType === 'schedule' ? meta.schedule : undefined, watch: meta.triggerType === 'watch' ? { ...(stored?.watch ?? {}), ...meta.watch } : undefined, event: meta.triggerType === 'event' ? meta.event : undefined, ...plain(), updatedAt: new Date().toISOString().slice(0, 10) }), [base, meta, plain, stored])
+  const strip = (w: Workflow) => JSON.stringify({
+    id: w.id,
+    name: w.name,
+    description: w.description,
+    triggerType: w.triggerType,
+    autonomy: w.autonomy,
+    schedule: w.triggerType === 'schedule' && w.schedule ? { every: w.schedule.every, at: w.schedule.at, day: w.schedule.day ?? null, input: w.schedule.input } : null,
+    watch: w.triggerType === 'watch' && w.watch ? { url: w.watch.url, every: w.watch.every, input: w.watch.input } : null,
+    event: w.triggerType === 'event' && w.event ? { kind: w.event.kind, libraryId: w.event.libraryId ?? null } : null,
+    nodes: w.nodes.map((n) => {
+      const { ui: _ui, ...raw } = n.data as StepData & { ui?: unknown }
+      const data = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined).sort(([a], [b]) => a.localeCompare(b)))
+      return { id: n.id, x: Math.round(n.position.x), y: Math.round(n.position.y), data }
+    }),
+    edges: w.edges.map((e) => ({ id: e.id, source: e.source, target: e.target, label: branchOf(w.nodes.find((n) => n.id === e.source)?.data.brick, e.label) ?? null })),
+  })
   const dirty = strip(current()) !== strip(stored ?? base) || (isNew && !stored)
-  const problems = useMemo<Problem[]>(() => { const p = plain(); return checkFlow(p.nodes, p.edges, { hasAgent: (id) => !!id && agents.some((a) => a.id === id), hasCouncil: (id) => !!id && councils.some((c) => c.id === id), hasUser: (id) => !!id && users.some((u) => u.id === id), hasWorkflow: (id) => !!id && workflows.some((w) => w.id === id), selfId: base.id, triggerType: meta.triggerType, watchUrl: meta.watch.url }) }, [plain, agents, councils, users, workflows, base.id, meta.triggerType, meta.watch.url])
+  const problems = useMemo<Problem[]>(() => { const p = plain(); return checkFlow(p.nodes, p.edges, { hasAgent: (id) => !!id && agents.some((a) => a.id === id), hasCouncil: (id) => !!id && councils.some((c) => c.id === id), hasUser: (id) => !!id && users.some((u) => u.id === id), hasWorkflow: (id) => !!id && workflows.some((w) => w.id === id), hasTool: (name) => !!name && (TOOLS.some((t) => t.name === name) || customTools.some((t) => t.name === name)), selfId: base.id, triggerType: meta.triggerType, watchUrl: meta.watch.url }) }, [plain, agents, councils, users, workflows, customTools, base.id, meta.triggerType, meta.watch.url])
   const wfRuns = useMemo(() => runs.filter((r) => r.workflowId === base.id), [runs, base.id])
   const liveRun = useMemo(() => (testRunId ? runs.find((r) => r.id === testRunId) : wfRuns.find((r) => r.status === 'running' || r.status === 'waiting')) ?? null, [runs, testRunId, wfRuns])
   const statusOf = useMemo(() => {
@@ -136,14 +161,15 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
   }, [meta, lookup])
 
   // ---------- graph ops ----------
-  const select = (s: Sel) => { setSel(s); setAdding(null); setPalette(false) }
+  const select = (s: Sel) => { history.current.lastPatch = 0; setSel(s); setAdding(null); setPalette(false) }
   // ---------- history (undo / redo) ----------
-  const latest = useRef<Snap>({ nodes, edges }); latest.current = { nodes, edges }
+  const latest = useRef<Snap>({ nodes, edges, meta }); latest.current = { nodes, edges, meta }
   const history = useRef<{ past: Snap[]; future: Snap[]; lastPatch: number }>({ past: [], future: [], lastPatch: 0 })
   const commit = useCallback(() => { const h = history.current; h.past = [...h.past.slice(-49), latest.current]; h.future = [] }, [])
-  const restore = (snap: Snap) => { setNodes(snap.nodes); setEdges(snap.edges); setSel(null) }
+  const restore = (snap: Snap) => { setNodes(snap.nodes); setEdges(snap.edges); setMeta(snap.meta); setSel(null); history.current.lastPatch = 0 }
   const undo = useCallback(() => { const h = history.current; const prev = h.past.pop(); if (!prev) return; h.future.push(latest.current); restore(prev) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const redo = useCallback(() => { const h = history.current; const next = h.future.pop(); if (!next) return; h.past.push(latest.current); restore(next) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const updateMeta = (next: Meta | ((m: Meta) => Meta)) => { if (Date.now() - history.current.lastPatch > 800) { commit(); history.current.lastPatch = Date.now() } setMeta(next) }
 
   const addStep = useCallback((brick: Brick, opts: { after?: string; branch?: string; edge?: string; position?: { x: number; y: number }; extra?: Partial<StepData> } = {}) => {
     if (brick === 'trigger' && nodes.some((n) => n.data.brick !== undefined && n.data.brick === 'trigger')) return
@@ -155,7 +181,8 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
     const siblings = after ? edges.filter((e) => e.source === after.id).length : 0
     const tgt = edge ? nodes.find((n) => n.id === edge.target) : undefined
     const position = opts.position ?? (edge && after && tgt ? { x: (after.position.x + tgt.position.x) / 2, y: (after.position.y + tgt.position.y) / 2 + 60 } : after ? { x: after.position.x + NODE_W + 92, y: after.position.y + (opts.branch === 'no' || opts.branch === 'done' ? 150 : opts.branch === 'yes' || opts.branch === 'each' ? -40 : after.data.brick === 'parallel' ? siblings * 140 - 70 : 0) } : { x: 60 + nodes.length * 40, y: 160 + nodes.length * 30 })
-    const data: StepData = { ...newStep(brick, { model: defaultModel, approver: approvers[0]?.id }, opts.extra), ...(opts.extra?.agentId ? { label: agents.find((a) => a.id === opts.extra!.agentId)?.name ?? brickOf(brick).label } : {}) }
+    const rawData: StepData = { ...newStep(brick, { model: defaultModel, approver: approvers[0]?.id }, opts.extra), ...(opts.extra?.agentId ? { label: agents.find((a) => a.id === opts.extra!.agentId)?.name ?? brickOf(brick).label } : {}) }
+    const data: StepData = { ...rawData, label: uniqueLabel(rawData.label, brick, nodes) }
     setNodes((ns) => [...ns, { id, type: 'step', position, data: { ...data, ui: blankUi } }])
     if (after) setEdges((es) => wire(es, after, id, brick, branchWanted))
     setSel({ kind: 'node', id }); setAdding(null); setPalette(false)
@@ -166,7 +193,8 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
   const duplicateNode = useCallback((id: string) => {
     const n = nodes.find((x) => x.id === id); if (!n || n.data.brick === 'trigger') return
     commit(); const nid = uid()
-    setNodes((ns) => [...ns, { ...n, id: nid, selected: false, position: { x: n.position.x + 48, y: n.position.y + 72 }, data: { ...n.data, label: `${n.data.label} copy`, key: undefined } }])
+    const label = uniqueLabel(`${n.data.label} copy`, n.data.brick, nodes)
+    setNodes((ns) => [...ns, { ...n, id: nid, selected: false, position: { x: n.position.x + 48, y: n.position.y + 72 }, data: { ...n.data, label, key: undefined } }])
     setSel({ kind: 'node', id: nid })
   }, [nodes, setNodes, commit])
   /** Dragging a connection out and dropping it on empty canvas opens the palette to add the next step there. */
@@ -194,8 +222,37 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
   }
   const removeNode = (id: string) => { commit(); setNodes((ns) => ns.filter((n) => n.id !== id)); setEdges((es) => es.filter((e) => e.source !== id && e.target !== id)); setSel(null) }
   const removeEdge = (id: string) => { commit(); setEdges((es) => es.filter((e) => e.id !== id)); setSel(null) }
-  const flipEdge = (id: string) => { commit(); setEdges((es) => es.map((e) => { if (e.id !== id || !e.data?.label) return e; const l = e.data.label; const nl = l === 'yes' ? 'no' : l === 'no' ? 'yes' : l === 'each' ? 'done' : 'each'; return { ...e, sourceHandle: nl, data: { label: nl } } })) }
-  const patch = (id: string, p: Partial<StepData>) => { if (Date.now() - history.current.lastPatch > 1200) { commit(); history.current.lastPatch = Date.now() } setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...p } } : n))) }
+  const setEdgeBranch = (id: string, nl: string) => { commit(); setEdges((es) => es.map((e) => (e.id === id ? { ...e, sourceHandle: nl, data: { ...e.data, label: nl } } : e))) }
+  const flipEdge = (id: string) => {
+    commit()
+    setEdges((es) => es.map((e) => {
+      if (e.id !== id || !e.data?.label) return e
+      const l = e.data.label.toLowerCase()
+      const src = nodes.find((n) => n.id === e.source)
+      if (src?.data.brick === 'classify') {
+        const cats = branchesOf(src.data).map((b) => b.id)
+        if (!cats.length) return e
+        const nl = cats[(cats.indexOf(l) + 1) % cats.length]
+        return { ...e, sourceHandle: nl, data: { ...e.data, label: nl } }
+      }
+      const nl = l === 'yes' ? 'no' : l === 'no' ? 'yes' : l === 'each' ? 'done' : 'each'
+      return { ...e, sourceHandle: nl, data: { ...e.data, label: nl } }
+    }))
+  }
+  const patch = (id: string, p: Partial<StepData>) => {
+    if (Date.now() - history.current.lastPatch > 800) { commit(); history.current.lastPatch = Date.now() }
+    if (p.categories) {
+      const oldNode = nodes.find((n) => n.id === id)
+      const oldCats = (oldNode?.data.categories ?? []).map((c) => c.trim().toLowerCase()).filter(Boolean)
+      const newCats = p.categories.map((c) => c.trim().toLowerCase()).filter(Boolean)
+      if (oldCats.length === newCats.length) {
+        const renames = new Map<string, string>()
+        for (let i = 0; i < oldCats.length; i++) if (oldCats[i] !== newCats[i] && !newCats.includes(oldCats[i])) renames.set(oldCats[i], newCats[i])
+        if (renames.size) setEdges((es) => es.map((e) => { const cur = (e.data?.label ?? '').toLowerCase(); const next = e.source === id ? renames.get(cur) : undefined; return next ? { ...e, sourceHandle: next, data: { ...e.data, label: next } } : e }))
+      }
+    }
+    setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...p } } : n)))
+  }
   const ensureVisible = (p: { x: number; y: number }) => {
     const vp = rf.getViewport(); const cw = (canvasRef.current?.clientWidth ?? 800) - RIGHT_W - 24; const ch = canvasRef.current?.clientHeight ?? 600
     let { x, y } = vp
@@ -233,15 +290,24 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
   }, [nodes, edges, setNodes, focus, commit])
 
   // ---------- persistence ----------
+  const navBypassRef = useRef(false)
   const persist = (status?: Workflow['status']) => {
     const w: Workflow = { ...current(), status: status ?? meta.status, version: stored ? meta.version + 1 : 1 }
+    navBypassRef.current = true
     upsertWorkflow(w); setMeta((m) => ({ ...m, status: w.status, version: w.version }))
     if (isNew) nav(`/workflows/${w.id}`, { replace: true })
+    setTimeout(() => { navBypassRef.current = false }, 0)
     return w
   }
-  const duplicate = () => { const w: Workflow = { ...current(), id: `wf-${Date.now().toString(36)}`, name: `${meta.name} copy`, status: 'draft', version: 1, lastRunAt: undefined }; upsertWorkflow(w); nav(`/workflows/${w.id}`) }
+  const duplicate = () => {
+    const w: Workflow = { ...current(), id: `wf-${Date.now().toString(36)}`, name: `${meta.name} copy`, status: 'draft', version: 1, lastRunAt: undefined }
+    navBypassRef.current = true
+    upsertWorkflow(w)
+    nav(`/workflows/${w.id}`)
+    setTimeout(() => { navBypassRef.current = false }, 0)
+  }
   const exportJson = () => { const blob = new Blob([JSON.stringify(current(), null, 2)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${meta.name.replace(/\s+/g, '-').toLowerCase()}.workflow.json`; a.click(); URL.revokeObjectURL(a.href) }
-  const blocker = useBlocker(({ currentLocation, nextLocation }) => editable && currentLocation.pathname !== nextLocation.pathname && (isNew && !stored ? nodes.length > 1 && !nextLocation.pathname.startsWith('/workflows/wf-') : dirty))
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => !navBypassRef.current && editable && currentLocation.pathname !== nextLocation.pathname && (isNew && !stored ? nodes.length > 1 && !nextLocation.pathname.startsWith('/workflows/wf-') : dirty))
   const blocked = blocker.state === 'blocked' ? blocker : null
 
   useEffect(() => {
@@ -282,9 +348,12 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
     for (const s of plan.add ?? []) {
       const id = uid()
       const agent = s.agentId ? agents.find((a) => a.id === s.agentId) : undefined
+      const council = s.councilId ? councils.find((c) => c.id === s.councilId) : councils[0]
       const tool = s.tool && [...TOOLS, ...customTools].some((t) => t.name === s.tool) ? s.tool : undefined
       const approver = s.approver ? approvers.find((u) => u.name.toLowerCase() === String(s.approver).toLowerCase() || u.email.toLowerCase() === String(s.approver).toLowerCase() || u.id === s.approver || u.name.toLowerCase().includes(String(s.approver).toLowerCase()))?.id : undefined
-      const data: StepData = { ...newStep(s.brick, { model: defaultModel, approver: approver ?? approvers[0]?.id }), label: String(s.label || brickOf(s.brick).label).slice(0, 40), sub: s.brick === 'logic' && !s.rule ? String(s.sub ?? s.prompt ?? '') : s.brick === 'human' ? String(s.sub ?? '') : '', prompt: s.brick === 'agent' || s.brick === 'tool' ? (s.prompt ? String(s.prompt) : undefined) : undefined, ...(agent ? { agentId: agent.id, model: agent.model } : {}), ...(s.brick === 'tool' ? { tool: tool ?? 'save_document' } : {}), ...(s.brick === 'logic' && s.rule ? { mode: 'rule' as const, rule: s.rule } : {}), ...(s.items ? { items: s.items } : {}), ...(s.code ? { code: s.code } : {}), ...(s.url ? { url: s.url, method: (s.method as StepData['method']) ?? 'GET' } : {}), ...(s.input ? { input: s.input } : {}), ...(s.wait ? { wait: Number(s.wait) || 30 } : {}), ...(Array.isArray(s.assign) ? { assign: s.assign.filter((a: any) => a && typeof a.key === 'string').map((a: any) => ({ key: a.key, value: String(a.value ?? '') })) } : {}), ...(Array.isArray(s.fields) ? { fields: s.fields.filter((f: any) => f && typeof f.name === 'string').map((f: any) => ({ name: f.name, description: String(f.description ?? '') })) } : {}), ...(Array.isArray(s.categories) ? { categories: s.categories.filter((c: unknown) => typeof c === 'string') } : {}) }
+      const baseLbl = String(s.label || brickOf(s.brick).label).slice(0, 40)
+      const label = uniqueLabel(baseLbl, s.brick, ns)
+      const data: StepData = { ...newStep(s.brick, { model: defaultModel, approver: approver ?? approvers[0]?.id }), label, sub: s.brick === 'logic' && !s.rule ? String(s.sub ?? s.prompt ?? '') : s.brick === 'human' ? String(s.sub ?? '') : '', prompt: s.brick === 'agent' || s.brick === 'tool' ? (s.prompt ? String(s.prompt) : undefined) : undefined, ...(agent ? { agentId: agent.id, model: agent.model } : {}), ...(s.brick === 'council' && council ? { councilId: council.id } : {}), ...(s.brick === 'tool' ? { tool: tool ?? 'save_document' } : {}), ...(s.brick === 'logic' && s.rule ? { mode: 'rule' as const, rule: s.rule } : {}), ...(s.items ? { items: s.items } : {}), ...(s.code ? { code: s.code } : {}), ...(s.url ? { url: s.url, method: (s.method as StepData['method']) ?? 'GET' } : {}), ...(s.input ? { input: s.input } : {}), ...(s.wait ? { wait: Number(s.wait) || 30 } : {}), ...(Array.isArray(s.assign) ? { assign: s.assign.filter((a: any) => a && typeof a.key === 'string').map((a: any) => ({ key: a.key, value: String(a.value ?? '') })) } : {}), ...(Array.isArray(s.fields) ? { fields: s.fields.filter((f: any) => f && typeof f.name === 'string').map((f: any) => ({ name: f.name, description: String(f.description ?? '') })) } : {}), ...(Array.isArray(s.categories) ? { categories: s.categories.filter((c: unknown) => typeof c === 'string') } : {}) }
       const from = s.after === 'end' || !s.after ? prev : find(s.after) ?? prev
       const node: FlowNode = { id, type: 'step', position: { x: 0, y: 0 }, data: { ...data, ui: blankUi } }
       ns = [...ns, node]
@@ -296,29 +365,32 @@ function Editor({ base, stored, isNew, buildText }: { base: Workflow; stored?: W
     setTimeout(() => arrange(ns, es), 20)
     setAssist((a) => ({ ...a, log: a.log.map((m, i) => (i === msgIndex ? { ...m, applied: true } : m)) }))
     setSel(null); setFlowTab('checks')
-  }, [nodes, edges, agents, customTools, defaultModel, approvers, setNodes, setEdges, arrange, commit])
+  }, [nodes, edges, agents, councils, customTools, defaultModel, approvers, setNodes, setEdges, arrange, commit])
   const runAssistant = useCallback(async (text: string) => {
     const q = text.trim(); if (!q || !apiKey) return
     setAssist((a) => ({ input: '', busy: true, log: [...a.log, { role: 'user', text: q }] }))
     const last = wfRuns[0]
     const lastRun = last ? `Last run ${last.id}: ${last.status}. Steps: ${last.steps.map((s) => `${s.name}=${s.status}${s.status === 'failed' ? ` (${(s.output ?? '').slice(0, 200)})` : ''}`).join('; ')}` : 'No runs yet.'
     const sys = `You are the Co-Create Assistant inside a workflow builder. Be brief and concrete; the person is a colleague. You can answer questions about the flow or propose changes.
-Steps available: agent (AI does work; "prompt" = instructions; optional "agentId"), logic (condition; either "sub" plain-language check judged by a model, or "rule": {"left":"{{var}}","op":"contains|not_contains|equals|not_equals|empty|not_empty|gt|lt|matches","right":"text"}; the step after it on "yes" runs when true; add a step with "branch":"no" for the other path), human (a person approves; the run pauses; "approver" = the person's name from: ${approvers.map((u) => u.name).join(', ')}; "sub" = note), tool (call one ability: ${TOOLS.filter((t) => t.category !== 'Reasoning').map((t) => t.name).join(', ')}${customTools.length ? ', ' + customTools.map((t) => t.name).join(', ') : ''}; "prompt" = guidance), notify (in-app notification), loop (repeat for each item; "items" = template like "{{input}}" or empty to extract from the last result; the step after it on "each" handles one item and may use {{item}}; the step on "done" runs after all items; the loop's results are {{<loop key>}}), parallel (every outgoing step runs at once; they join at the first step they all connect to), code (JavaScript, "code" with vars.* available, return a value), http ("url", "method"), flow (run another workflow), wait ("wait" seconds), set ("assign": [{"key":"name","value":"template"}], no model), extract ("fields": [{"name","description"}]; result is JSON at {{key.field}}), classify ("categories": ["A","B"]; a model picks one; the step after it with "branch":"A" runs for that category).
+Steps available: agent (AI does work; "prompt" = instructions; optional "agentId"), council (multiple agents deliberate; optional "councilId"), logic (condition; either "sub" plain-language check judged by a model, or "rule": {"left":"{{var}}","op":"contains|not_contains|equals|not_equals|empty|not_empty|gt|lt|matches","right":"text"}; the step after it on "yes" runs when true; add a step with "branch":"no" for the other path), human (a person approves; the run pauses; "approver" = the person's name from: ${approvers.map((u) => u.name).join(', ')}; "sub" = note), tool (call one ability: ${TOOLS.filter((t) => t.category !== 'Reasoning').map((t) => t.name).join(', ')}${customTools.length ? ', ' + customTools.map((t) => t.name).join(', ') : ''}; "prompt" = guidance), notify (in-app notification), loop (repeat for each item; "items" = template like "{{input}}" or empty to extract from the last result; the step after it on "each" handles one item and may use {{item}}; the step on "done" runs after all items; the loop's results are {{<loop key>}}), parallel (every outgoing step runs at once; they join at the first step they all connect to), code (JavaScript, "code" with vars.* available, return a value), http ("url", "method"), flow (run another workflow), wait ("wait" seconds), set ("assign": [{"key":"name","value":"template"}], no model), extract ("fields": [{"name","description"}]; result is JSON at {{key.field}}), classify ("categories": ["A","B"]; a model picks one; the step after it with "branch":"A" runs for that category).
 Every producing step stores its result as {{key}} where key is the label in snake_case; a step may set "input" to a template such as "Topic: {{input}}\\n\\n{{research}}" to receive only that instead of everything so far. Labels are 1-3 words and unique.
-Available agents: ${agents.map((a) => `${a.id} = ${a.name} (${a.description})`).join('; ') || 'none, so leave agentId out and write prompts'}. Other workflows: ${workflows.filter((w) => w.id !== base.id).map((w) => w.name).join(', ') || 'none'}. Knowledge libraries: ${libraries.map((l) => l.name).join(', ')}.
+Available agents: ${agents.map((a) => `${a.id} = ${a.name} (${a.description})`).join('; ') || 'none, so leave agentId out and write prompts'}. Available councils: ${councils.map((c) => `${c.id} = ${c.name}`).join('; ') || 'none'}. Other workflows: ${workflows.filter((w) => w.id !== base.id).map((w) => w.name).join(', ') || 'none'}. Knowledge libraries: ${libraries.map((l) => l.name).join(', ')}.
 Current flow "${meta.name}":\n${flowSummary()}\n${lastRun}
-Reply with ONE JSON object and nothing else, no prose before or after: {"reply":"one to three short sentences for the person","changes":{"name":"only when the flow is untitled","description":"optional","add":[{"brick":"agent|logic|human|tool|notify|loop|parallel|code|http|flow|wait|set|extract|classify","label":"...","after":"label of the step it follows or \\"end\\"","branch":"yes|no|each|done (only after logic or loop)","prompt":"...","sub":"...","agentId":"...","tool":"...","approver":"...","items":"...","code":"...","url":"...","input":"..."}],"remove":["labels to delete"],"set":[{"label":"existing label","patch":{"prompt":"...","sub":"...","label":"..."}}]}}. Leave "changes" out when only answering. Added steps chain in order: the first follows "after", each next one follows the previous added step unless it names its own "after". A step added after X is inserted between X and whatever X led to, so "before Y" means after the step that precedes Y.`
+Reply with ONE JSON object and nothing else, no prose before or after: {"reply":"one to three short sentences for the person","changes":{"name":"only when the flow is untitled","description":"optional","add":[{"brick":"agent|council|logic|human|tool|notify|loop|parallel|code|http|flow|wait|set|extract|classify","label":"...","after":"label of the step it follows or \\"end\\"","branch":"yes|no|each|done (only after logic or loop)","prompt":"...","sub":"...","agentId":"...","councilId":"...","tool":"...","approver":"...","items":"...","code":"...","url":"...","input":"..."}],"remove":["labels to delete"],"set":[{"label":"existing label","patch":{"prompt":"...","sub":"...","label":"..."}}]}}. Leave "changes" out when only answering. Added steps chain in order: the first follows "after", each next one follows the previous added step unless it names its own "after". A step added after X is inserted between X and whatever X led to, so "before Y" means after the step that precedes Y.`
     let acc = ''
     try {
       for await (const ev of streamChat({ key: apiKey, model: defaultModel, messages: [{ role: 'system', content: sys }, ...assist.log.slice(-6).map((m) => ({ role: m.role, content: m.text })), { role: 'user' as const, content: q }], temperature: 0 })) { if (ev.type === 'delta') acc += ev.text; if (ev.type === 'usage') store.recordSpend(ev.usage.cost ?? 0) }
       const j = parseJsonLoose(acc)
       const c = j.changes
-      const add: PlanStep[] = Array.isArray(c?.add) ? c.add.filter((s: any) => ['agent', 'logic', 'human', 'tool', 'notify', 'loop', 'parallel', 'code', 'http', 'flow', 'wait', 'set', 'extract', 'classify'].includes(s.brick)) : []
+      const add: PlanStep[] = Array.isArray(c?.add) ? c.add.filter((s: any) => ['agent', 'council', 'logic', 'human', 'tool', 'notify', 'loop', 'parallel', 'code', 'http', 'flow', 'wait', 'set', 'extract', 'classify'].includes(s.brick)) : []
       const plan: Plan | undefined = c && (add.length || c.remove?.length || c.set?.length) ? { name: typeof c.name === 'string' ? c.name : undefined, description: typeof c.description === 'string' ? c.description : undefined, add, remove: Array.isArray(c.remove) ? c.remove.filter((x: unknown) => typeof x === 'string') : [], set: Array.isArray(c.set) ? c.set.filter((x: any) => x && typeof x.label === 'string' && x.patch && typeof x.patch === 'object') : [] } : undefined
+      const msgIndex = assist.log.length + 1 // the user's question is appended first, then this reply
       setAssist((a) => ({ ...a, busy: false, log: [...a.log, { role: 'assistant', text: String(j.reply ?? (plan ? 'Here is what I would change.' : 'Done.')), plan }] }))
-      if (plan && nodes.filter((n) => n.data.brick !== 'trigger').length === 0 && buildText && !builtRef.current) { builtRef.current = true; setTimeout(() => setAssist((a) => { const i = a.log.length - 1; applyPlan(plan, i); return a }), 10) }
+      // Auto-apply the first plan when the page was opened with ?build=. This must not run inside a setState updater:
+      // updaters can run twice and drop nested updates, which left the message un-applied so a later click on Apply added every step again.
+      if (plan && nodes.filter((n) => n.data.brick !== 'trigger').length === 0 && buildText && !builtRef.current) { builtRef.current = true; setTimeout(() => applyPlan(plan, msgIndex), 10) }
     } catch { setAssist((a) => ({ ...a, busy: false, log: [...a.log, { role: 'assistant', text: acc.slice(0, 400) || 'I could not turn that into steps. Try describing it as a sequence: research X, then check Y, then ask Z to approve.' }] })) }
-  }, [apiKey, assist.log, agents, customTools, workflows, libraries, base.id, meta.name, flowSummary, wfRuns, defaultModel, store, nodes, buildText, applyPlan])
+  }, [apiKey, assist.log, agents, councils, customTools, workflows, libraries, base.id, meta.name, flowSummary, wfRuns, defaultModel, store, nodes, buildText, applyPlan])
   const seeded = useRef(false)
   useEffect(() => { if (buildText && !seeded.current && apiKey) { seeded.current = true; runAssistant(buildText) } }, [buildText, apiKey, runAssistant])
 
@@ -332,10 +404,12 @@ Reply with ONE JSON object and nothing else, no prose before or after: {"reply":
   // ---------- render data ----------
   const rfNodes = useMemo<FlowNode[]>(() => nodes.map((n) => {
     const a = n.data.brick === 'agent' && n.data.agentId ? agents.find((x) => x.id === n.data.agentId) : undefined
-    const ui: FlowUi = { line: lineFor(n.data), status: statusOf.get(n.id), problem: problems.some((p) => p.nodeId === n.id), editable, nested: nested.get(n.id), onAdd: editable ? (id, branch) => { setAdding({ after: id, branch }); setSel({ kind: 'node', id }); setPalette(true) } : undefined,
+    const ui: FlowUi = {
+      line: lineFor(n.data), status: statusOf.get(n.id), problem: problems.some((p) => p.nodeId === n.id), editable, nested: nested.get(n.id), onAdd: editable ? (id, branch) => { setAdding({ after: id, branch }); setSel({ kind: 'node', id }); setPalette(true) } : undefined,
       agent: a ? { name: a.name, icon: a.icon, color: a.color, thinking: thinkingOf({ model: a.model }, profiles, defaultModel)?.label } : undefined,
       approver: n.data.brick === 'human' ? users.find((u) => u.id === n.data.approver)?.name : undefined,
-      trigger: n.data.brick === 'trigger' ? { kind: meta.triggerType, text: triggerText(meta) } : undefined }
+      trigger: n.data.brick === 'trigger' ? { kind: meta.triggerType, text: triggerText(meta) } : undefined
+    }
     return { ...n, selected: sel?.kind === 'node' && sel.id === n.id, data: { ...n.data, ui } }
   }), [nodes, agents, lineFor, statusOf, problems, editable, profiles, defaultModel, users, meta, sel, nested])
   const rfEdges = useMemo<BranchEdge[]>(() => edges.map((e) => ({ ...e, selected: sel?.kind === 'edge' && sel.id === e.id, data: { ...e.data, active: statusOf.get(e.source) === 'ok' && (statusOf.get(e.target) === 'running'), editable, onDelete: removeEdge, onFlip: flipEdge, onInsert: (id) => { const e = edges.find((x) => x.id === id); if (!e) return; setAdding({ after: e.source, branch: e.data?.label, edge: id }); setSel({ kind: 'edge', id }); setPalette(true) } } })), [edges, sel, statusOf, editable]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -372,7 +446,7 @@ Reply with ONE JSON object and nothing else, no prose before or after: {"reply":
         {/* ---------- floating header ---------- */}
         <header className="absolute top-3 left-3 right-3 h-12 glass rounded-[16px] px-2.5 flex items-center gap-2 z-30">
           <button onClick={() => nav('/workflows')} className="btn btn-ghost btn-sm btn-icon" title="Back to workflows"><ArrowLeft size={16} /></button>
-          <input value={meta.name} onChange={(e) => setMeta({ ...meta, name: e.target.value })} disabled={!editable} placeholder="Name this workflow" aria-label="Workflow name" className="display font-bold text-[14.5px] bg-transparent outline-0 w-[140px] lg:w-[220px] truncate rounded-md px-1.5 hover:bg-[var(--clay-dark)] focus:bg-[var(--clay-dark)] transition-colors" />
+          <input value={meta.name} onChange={(e) => updateMeta({ ...meta, name: e.target.value })} disabled={!editable} placeholder="Name this workflow" aria-label="Workflow name" className="display font-bold text-[14.5px] bg-transparent outline-0 w-[140px] lg:w-[220px] truncate rounded-md px-1.5 hover:bg-[var(--clay-dark)] focus:bg-[var(--clay-dark)] transition-colors" />
           <Chip tone={statusTone as any} className="whitespace-nowrap shrink-0">{meta.status === 'live' ? 'Live' : meta.status === 'paused' ? 'Paused' : 'Draft'} · v{meta.version}</Chip>
           {dirty && <span className="text-[11.5px] muted whitespace-nowrap hidden lg:inline">Unsaved</span>}
           <div className="flex-1" />
@@ -380,12 +454,12 @@ Reply with ONE JSON object and nothing else, no prose before or after: {"reply":
           <button onClick={() => arrange()} className="btn btn-ghost btn-sm btn-icon" title="Tidy up the layout"><LayoutGrid size={15} /></button>
           <button onClick={() => { setSel(null); setPanelOpen(!panelOpen) }} className={cx('btn btn-ghost btn-sm btn-icon', panelOpen && !sel && 'text-[var(--text)]')} title={panelOpen ? 'Hide the workflow panel' : 'Show the workflow panel'} aria-label={panelOpen ? 'Hide the workflow panel' : 'Show the workflow panel'}>{panelOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}</button>
           {editable && <Button size="sm" onClick={() => persist()} disabled={!dirty}><Check size={13} /> Save</Button>}
-          <Button size="sm" variant="primary" onClick={() => { setSel(null); setDrawer(!drawer) }} disabled={problems.length > 0 && !drawer} title={problems[0]?.text}><Play size={13} /> {drawer ? 'Hide run' : 'Test run'}</Button>
+          {canRun && <Button size="sm" variant="primary" onClick={() => { setSel(null); setDrawer(!drawer) }} disabled={problems.length > 0 && !drawer} title={problems[0]?.text}><Play size={13} /> {drawer ? 'Hide run' : 'Test run'}</Button>}
           {editable && (meta.status === 'live' ? <Button size="sm" onClick={() => persist('paused')}><Pause size={13} /> Pause</Button> : <Button size="sm" onClick={() => persist('live')} disabled={problems.length > 0} title={problems[0]?.text}>Publish</Button>)}
           <div className="relative">
             <button onClick={() => setMenu(!menu)} className="btn btn-ghost btn-sm btn-icon" aria-label="More actions" aria-expanded={menu}><MoreHorizontal size={16} /></button>
             <AnimatePresence>{menu && (
-              <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="absolute right-0 top-full mt-2 w-[220px] pop rounded-[14px] p-1.5 z-40" onMouseLeave={() => setMenu(false)}>
+              <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="absolute end-0 top-full mt-2 w-[220px] pop rounded-[14px] p-1.5 z-40" onMouseLeave={() => setMenu(false)}>
                 {editable && <button onClick={() => { setMenu(false); duplicate() }} className="w-full flex items-center gap-2 px-2.5 h-9 rounded-[10px] text-[13px] hover:bg-[var(--clay-dark)]"><Copy size={14} /> Duplicate</button>}
                 <button onClick={() => { setMenu(false); exportJson() }} className="w-full flex items-center gap-2 px-2.5 h-9 rounded-[10px] text-[13px] hover:bg-[var(--clay-dark)]"><Download size={14} /> Export JSON</button>
                 {stored && editable && <><div className="h-px bg-[var(--line)] my-1" /><button onClick={() => { setMenu(false); setConfirmDelete(true) }} className="w-full flex items-center gap-2 px-2.5 h-9 rounded-[10px] text-[13px] text-[var(--danger)] hover:bg-[var(--clay-dark)]"><Trash2 size={14} /> Delete workflow</button></>}
@@ -396,7 +470,7 @@ Reply with ONE JSON object and nothing else, no prose before or after: {"reply":
 
         {/* ---------- left toolbar ---------- */}
         {editable && (
-          <div className="absolute left-3 top-[68px] w-11 glass rounded-[14px] p-1 flex flex-col gap-1 z-30">
+          <div className="absolute start-3 top-[68px] w-11 glass rounded-[14px] p-1 flex flex-col gap-1 z-30">
             <button onClick={() => { setPalette(!palette); if (!palette) setAdding(null) }} className={cx('btn btn-ghost btn-icon !w-9 !h-9', palette && 'bg-[var(--surface-2)] text-[var(--text)]')} title="Add a step" aria-label="Add a step" aria-expanded={palette}><Plus size={18} /></button>
             <button onClick={() => setAssistantOpen(!assistantOpen)} className={cx('btn btn-ghost btn-icon !w-9 !h-9', assistantOpen && 'bg-[var(--surface-2)] text-[var(--accent-ink)]')} title="Co-Create Assistant" aria-label="Co-Create Assistant" aria-expanded={assistantOpen}><Sparkles size={17} /></button>
             <button onClick={() => { setSel(null); setDrawer(!drawer) }} className={cx('btn btn-ghost btn-icon !w-9 !h-9 relative', drawer && 'bg-[var(--surface-2)] text-[var(--text)]')} title="Runs" aria-label="Runs"><History size={17} />{liveRun?.status === 'running' && <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse" />}</button>
@@ -411,27 +485,37 @@ Reply with ONE JSON object and nothing else, no prose before or after: {"reply":
         )}</AnimatePresence>
 
         {/* ---------- right panel ---------- */}
-        {showRight && <aside className="absolute right-3 top-[68px] bottom-3 glass rounded-[18px] flex flex-col min-h-0 overflow-hidden z-20" style={{ width: RIGHT_W }}>
+        {showRight && <aside className="absolute end-3 top-[68px] bottom-3 glass rounded-[18px] flex flex-col min-h-0 overflow-hidden z-20" style={{ width: RIGHT_W }}>
           {selectedNode ? (
-            <StepInspector key={selectedNode.id} node={selectedNode} editable={editable} onClose={() => setSel(null)} onRemove={() => removeNode(selectedNode.id)} patch={(p) => patch(selectedNode.id, p)} meta={meta} setMeta={setMeta} edges={edges} nodes={nodes} onAdd={(branch) => { setAdding({ after: selectedNode.id, branch }); setPalette(true) }} onSelect={(id) => select({ kind: 'node', id })} store={{ agents, councils, users, approvers, customTools, profiles, defaultModel, workflows: workflows.filter((w) => w.id !== base.id), libraries }} stored={stored} wfForTry={current} sampleVars={sampleVars} nested={nested.get(selectedNode.id)} onSaveFirst={() => persist()} />
-          ) : selectedEdge ? (
-            <div className="flex flex-col">
-              <div className="px-4 h-12 flex items-center gap-2 border-b hairline"><span className="text-[13px] font-semibold flex-1">Connection</span><button className="btn btn-ghost btn-sm btn-icon" onClick={() => setSel(null)} aria-label="Close"><X size={14} /></button></div>
-              <div className="p-4 flex flex-col gap-3 text-[13px]">
-                <div><b>{nameOf(selectedEdge.source)}</b> <span className="muted">→</span> <b>{nameOf(selectedEdge.target)}</b></div>
-                {selectedEdge.data?.label && <Field label="Branch" hint="Which outcome of the step before follows this connection."><Segmented value={selectedEdge.data.label} onChange={() => flipEdge(selectedEdge.id)} items={selectedEdge.data.label === 'yes' || selectedEdge.data.label === 'no' ? [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }] : [{ id: 'each', label: 'Each item' }, { id: 'done', label: 'When done' }]} /></Field>}
-                {editable && <Button onClick={() => removeEdge(selectedEdge.id)}><Trash2 size={13} /> Remove connection</Button>}
+            <StepInspector key={selectedNode.id} node={selectedNode} editable={editable} canRun={canRun} onClose={() => setSel(null)} onRemove={() => removeNode(selectedNode.id)} patch={(p) => patch(selectedNode.id, p)} meta={meta} setMeta={updateMeta} edges={edges} nodes={nodes} onAdd={(branch) => { setAdding({ after: selectedNode.id, branch }); setPalette(true) }} onSelect={(id) => select({ kind: 'node', id })} store={{ agents, councils, users, approvers, customTools, profiles, defaultModel, workflows: workflows.filter((w) => w.id !== base.id), libraries }} stored={stored} wfForTry={current} sampleVars={sampleVars} nested={nested.get(selectedNode.id)} onSaveFirst={() => persist()} />
+          ) : selectedEdge ? (() => {
+            const srcNode = nodes.find((n) => n.id === selectedEdge.source)
+            const branchItems = srcNode?.data.brick === 'classify'
+              ? branchesOf(srcNode.data).map((b) => ({ id: b.id, label: b.label }))
+              : srcNode?.data.brick === 'logic'
+                ? [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }]
+                : srcNode?.data.brick === 'loop'
+                  ? [{ id: 'each', label: 'Each item' }, { id: 'done', label: 'When done' }]
+                  : []
+            return (
+              <div className="flex flex-col">
+                <div className="px-4 h-12 flex items-center gap-2 border-b hairline"><span className="text-[13px] font-semibold flex-1">Connection</span><button className="btn btn-ghost btn-sm btn-icon" onClick={() => setSel(null)} aria-label="Close"><X size={14} /></button></div>
+                <div className="p-4 flex flex-col gap-3 text-[13px]">
+                  <div><b>{nameOf(selectedEdge.source)}</b> <span className="muted">→</span> <b>{nameOf(selectedEdge.target)}</b></div>
+                  {selectedEdge.data?.label && branchItems.length > 0 && <Field label="Branch" hint="Which outcome of the step before follows this connection."><Segmented value={selectedEdge.data.label} onChange={(b) => editable && setEdgeBranch(selectedEdge.id, b)} items={branchItems} /></Field>}
+                  {editable && <Button onClick={() => removeEdge(selectedEdge.id)}><Trash2 size={13} /> Remove connection</Button>}
+                </div>
               </div>
-            </div>
-          ) : (
-            <FlowPanel tab={flowTab} setTab={setFlowTab} meta={meta} setMeta={setMeta} editable={editable} problems={problems} onProblem={(p) => p.nodeId && select({ kind: 'node', id: p.nodeId })} runs={wfRuns} onPickRun={(id) => { setTestRunId(id); setDrawer(true) }} onStart={() => { const t = nodes.find((n) => n.data.brick === 'trigger'); if (t) select({ kind: 'node', id: t.id }) }} />
+            )
+          })() : (
+            <FlowPanel tab={flowTab} setTab={setFlowTab} meta={meta} setMeta={updateMeta} editable={editable} problems={problems} onProblem={(p) => p.nodeId && select({ kind: 'node', id: p.nodeId })} runs={wfRuns} onPickRun={(id) => { setTestRunId(id); setDrawer(true) }} onStart={() => { const t = nodes.find((n) => n.data.brick === 'trigger'); if (t) select({ kind: 'node', id: t.id }) }} />
           )}
         </aside>}
 
         {/* ---------- run drawer ---------- */}
         <AnimatePresence>{drawer && (
-          <motion.div key="drawer" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }} transition={{ duration: 0.2 }} className="absolute left-[64px] bottom-3 glass rounded-[18px] z-20 flex flex-col overflow-hidden" style={{ right: showRight ? RIGHT_W + 24 : 12, height: 288 }}>
-            <RunDrawer run={liveRun} runs={wfRuns} input={runInput} setInput={setRunInput} onStart={startTest} starting={starting} problems={problems} apiKey={!!apiKey} dirty={dirty || isNew} canApprove={can(user, 'approve')} onDecide={decide} onPick={(id) => setTestRunId(id)} onReset={() => setTestRunId(null)} onClose={() => setDrawer(false)} nodes={nodes} onAgain={again} onSelectNode={(id) => select({ kind: 'node', id })} />
+          <motion.div key="drawer" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }} transition={{ duration: 0.2 }} className="absolute start-[64px] bottom-3 glass rounded-[18px] z-20 flex flex-col overflow-hidden" style={{ insetInlineEnd: showRight ? RIGHT_W + 24 : 12, height: 288 }}>
+            <RunDrawer run={liveRun} runs={wfRuns} input={runInput} setInput={setRunInput} onStart={startTest} starting={starting} problems={problems} apiKey={!!apiKey} dirty={dirty || isNew} canRun={canRun} canApprove={can(user, 'approve') && (!liveRun?.approver || liveRun.approver === user.id || can(user, 'admin'))} onDecide={decide} onPick={(id) => setTestRunId(id)} onReset={() => setTestRunId(null)} onClose={() => setDrawer(false)} nodes={nodes} onAgain={again} onSelectNode={(id) => select({ kind: 'node', id })} />
           </motion.div>
         )}</AnimatePresence>
         <AnimatePresence>{liveRun && liveRun.status === 'running' && !drawer && (
@@ -462,42 +546,52 @@ function Palette({ onClose, adding, nameOf, hasTrigger, customTools, workflows, 
   const all = q.trim().length > 0
   const branchWord = (b?: string) => (b === 'yes' ? 'Yes' : b === 'no' ? 'No' : b === 'each' ? 'Each item' : b === 'done' ? 'When done' : b ? b.charAt(0).toUpperCase() + b.slice(1) : '')
   return (
-    <motion.div initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -6 }} transition={{ duration: 0.15 }} className="absolute left-[62px] top-[68px] bottom-3 w-[330px] glass rounded-[18px] z-30 flex flex-col overflow-hidden">
+    <motion.div initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -6 }} transition={{ duration: 0.15 }} className="absolute start-[62px] top-[68px] bottom-3 w-[330px] glass rounded-[18px] z-30 flex flex-col overflow-hidden">
       <div className="p-3 pb-2 flex flex-col gap-2 border-b hairline">
         <div className="flex items-center gap-2">
-          <div className="relative flex-1"><Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 muted" /><input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search steps, abilities, connectors" aria-label="Search" className="input !h-9 !pl-8 !text-[12.5px]" /></div>
+          <div className="relative flex-1"><Search size={13} className="absolute start-2.5 top-1/2 -translate-y-1/2 muted" /><input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search steps, abilities, connectors" aria-label="Search" className="input !h-9 !ps-8 !text-[12.5px]" /></div>
           <button onClick={onClose} className="btn btn-ghost btn-sm btn-icon" aria-label="Close"><X size={14} /></button>
         </div>
         {adding?.edge ? <div className="text-[11.5px] leading-snug px-0.5">Inserting into the connection after <b>{nameOf(adding.after!)}</b>{adding.branch && <> on <b>{branchWord(adding.branch)}</b></>}.</div> : adding?.after ? <div className="text-[11.5px] leading-snug px-0.5">Adding after <b>{nameOf(adding.after)}</b>{adding.branch && <> on <b>{branchWord(adding.branch)}</b></>}.</div> : adding?.position ? <div className="text-[11.5px] leading-snug px-0.5">Adding at the spot you chose. Connect it afterwards.</div> : <div className="text-[11.5px] muted leading-snug px-0.5">Click to add after the selected step, or drag onto the canvas.</div>}
         {!all && <Segmented value={tab} onChange={setTab} items={[{ id: 'steps', label: 'Steps' }, { id: 'abilities', label: 'Abilities' }, { id: 'connectors', label: 'Connectors' }, { id: 'workflows', label: 'Flows' }]} />}
       </div>
       <div className="flex-1 min-h-0 scroll p-2 flex flex-col gap-1">
-        {(all || tab === 'steps') && (['Core', 'Flow', 'Data'] as const).map((g) => { const list = BRICKS.filter((b) => b.group === g && (match(b.label) || match(b.desc))); if (!list.length) return null; return (
-          <div key={g} className="mb-1"><div className="text-[10.5px] font-semibold uppercase tracking-wider muted px-2 py-1.5">{g === 'Core' ? 'Steps' : g === 'Flow' ? 'Flow control' : 'Data'}</div>
-            {list.map((b) => { const disabled = b.soon || (b.id === 'trigger' && hasTrigger); return (
-              <button key={b.id} disabled={disabled} draggable={!disabled} onDragStart={(e) => drag(e, b.id)} onClick={() => onPick(b.id)} aria-label={b.soon ? `${b.label} (coming soon)` : `Add ${b.label} step`} className={cx('brick-card w-full flex items-center gap-2.5 px-2 h-11 rounded-[11px] text-left hover:bg-[var(--clay-dark)]', disabled && 'opacity-50 cursor-not-allowed')}>
-                <Tile color={b.color} size={28} radius={8}><b.icon size={13} /></Tile>
-                <span className="min-w-0 flex-1"><span className="flex items-center gap-1.5 text-[12.5px] font-semibold">{b.label}{b.soon && <span className="chip !h-[18px] !text-[10px] !px-1.5">Soon</span>}{b.id === 'trigger' && hasTrigger && <span className="chip !h-[18px] !text-[10px] !px-1.5">Added</span>}</span><span className="block text-[11px] muted leading-snug truncate">{b.desc}</span></span>
-              </button>
-            ) })}
-          </div>
-        ) })}
-        {(all || tab === 'abilities') && (() => { const list = abilities.filter((a) => match(a.label) || match(a.desc)); if (!list.length) return null; return (
-          <div className="mb-1"><div className="text-[10.5px] font-semibold uppercase tracking-wider muted px-2 py-1.5">Abilities · one call as an Action step</div>
-            {list.map((a) => <button key={a.name} draggable onDragStart={(e) => drag(e, 'tool', { tool: a.name, label: a.label })} onClick={() => onPick('tool', { tool: a.name, label: a.label })} className="brick-card w-full flex items-center gap-2.5 px-2 h-11 rounded-[11px] text-left hover:bg-[var(--clay-dark)]"><Tile color={a.gated ? '#f59e0b' : '#10b981'} size={28} radius={8}><Wrench size={13} /></Tile><span className="min-w-0 flex-1"><span className="block text-[12.5px] font-semibold truncate">{a.label}{a.gated ? <span className="muted font-normal"> · asks a person</span> : ''}</span><span className="block text-[11px] muted leading-snug truncate">{a.desc}</span></span></button>)}
-          </div>
-        ) })()}
-        {(all || tab === 'connectors') && (() => { const list = CONNECTORS.filter((c) => match(c.label) || match(c.description) || match(c.category)); if (!list.length) return null; return (
-          <div className="mb-1"><div className="text-[10.5px] font-semibold uppercase tracking-wider muted px-2 py-1.5">Connectors · public APIs, added as an ability</div>
-            {list.map((c) => <button key={c.id} onClick={() => onConnector(c)} className="w-full flex items-center gap-2.5 px-2 h-11 rounded-[11px] text-left hover:bg-[var(--clay-dark)]"><Tile color="#2563eb" size={28} radius={8}><Globe size={13} /></Tile><span className="min-w-0 flex-1"><span className="block text-[12.5px] font-semibold truncate">{c.label} <span className="muted font-normal">· {c.category}</span></span><span className="block text-[11px] muted leading-snug truncate">{c.description}</span></span>{customTools.some((t) => t.name === c.name) && <Check size={13} className="accent-ink shrink-0" />}</button>)}
-          </div>
-        ) })()}
-        {(all || tab === 'workflows') && (() => { const list = workflows.filter((w) => match(w.name) || match(w.description)); return (
-          <div className="mb-1"><div className="text-[10.5px] font-semibold uppercase tracking-wider muted px-2 py-1.5">Workflows · run as one step</div>
-            {list.length === 0 && <div className="text-[12px] muted px-2 py-3">{q ? 'No workflow matches.' : 'No other workflows yet.'}</div>}
-            {list.map((w) => <button key={w.id} draggable onDragStart={(e) => drag(e, 'flow', { workflowId: w.id, label: w.name })} onClick={() => onPick('flow', { workflowId: w.id, label: w.name })} className="brick-card w-full flex items-center gap-2.5 px-2 h-11 rounded-[11px] text-left hover:bg-[var(--clay-dark)]"><Tile color="#6366f1" size={28} radius={8}><WorkflowIcon size={13} /></Tile><span className="min-w-0 flex-1"><span className="block text-[12.5px] font-semibold truncate">{w.name}</span><span className="block text-[11px] muted leading-snug truncate">{w.description || `${w.nodes.length} steps`} · {w.status}</span></span></button>)}
-          </div>
-        ) })()}
+        {(all || tab === 'steps') && (['Core', 'Flow', 'Data'] as const).map((g) => {
+          const list = BRICKS.filter((b) => b.group === g && (match(b.label) || match(b.desc))); if (!list.length) return null; return (
+            <div key={g} className="mb-1"><div className="text-[10.5px] font-semibold uppercase tracking-wider muted px-2 py-1.5">{g === 'Core' ? 'Steps' : g === 'Flow' ? 'Flow control' : 'Data'}</div>
+              {list.map((b) => {
+                const disabled = b.soon || (b.id === 'trigger' && hasTrigger); return (
+                  <button key={b.id} disabled={disabled} draggable={!disabled} onDragStart={(e) => drag(e, b.id)} onClick={() => onPick(b.id)} aria-label={b.soon ? `${b.label} (coming soon)` : `Add ${b.label} step`} className={cx('brick-card w-full flex items-center gap-2.5 px-2 h-11 rounded-[11px] text-left hover:bg-[var(--clay-dark)]', disabled && 'opacity-50 cursor-not-allowed')}>
+                    <Tile color={b.color} size={28} radius={8}><b.icon size={13} /></Tile>
+                    <span className="min-w-0 flex-1"><span className="flex items-center gap-1.5 text-[12.5px] font-semibold">{b.label}{b.soon && <span className="chip !h-[18px] !text-[10px] !px-1.5">Soon</span>}{b.id === 'trigger' && hasTrigger && <span className="chip !h-[18px] !text-[10px] !px-1.5">Added</span>}</span><span className="block text-[11px] muted leading-snug truncate">{b.desc}</span></span>
+                  </button>
+                )
+              })}
+            </div>
+          )
+        })}
+        {(all || tab === 'abilities') && (() => {
+          const list = abilities.filter((a) => match(a.label) || match(a.desc)); if (!list.length) return null; return (
+            <div className="mb-1"><div className="text-[10.5px] font-semibold uppercase tracking-wider muted px-2 py-1.5">Abilities · one call as an Action step</div>
+              {list.map((a) => <button key={a.name} draggable onDragStart={(e) => drag(e, 'tool', { tool: a.name, label: a.label })} onClick={() => onPick('tool', { tool: a.name, label: a.label })} className="brick-card w-full flex items-center gap-2.5 px-2 h-11 rounded-[11px] text-left hover:bg-[var(--clay-dark)]"><Tile color={a.gated ? '#f59e0b' : '#10b981'} size={28} radius={8}><Wrench size={13} /></Tile><span className="min-w-0 flex-1"><span className="block text-[12.5px] font-semibold truncate">{a.label}{a.gated ? <span className="muted font-normal"> · asks a person</span> : ''}</span><span className="block text-[11px] muted leading-snug truncate">{a.desc}</span></span></button>)}
+            </div>
+          )
+        })()}
+        {(all || tab === 'connectors') && (() => {
+          const list = CONNECTORS.filter((c) => match(c.label) || match(c.description) || match(c.category)); if (!list.length) return null; return (
+            <div className="mb-1"><div className="text-[10.5px] font-semibold uppercase tracking-wider muted px-2 py-1.5">Connectors · public APIs, added as an ability</div>
+              {list.map((c) => <button key={c.id} onClick={() => onConnector(c)} className="w-full flex items-center gap-2.5 px-2 h-11 rounded-[11px] text-left hover:bg-[var(--clay-dark)]"><Tile color="#2563eb" size={28} radius={8}><Globe size={13} /></Tile><span className="min-w-0 flex-1"><span className="block text-[12.5px] font-semibold truncate">{c.label} <span className="muted font-normal">· {c.category}</span></span><span className="block text-[11px] muted leading-snug truncate">{c.description}</span></span>{customTools.some((t) => t.name === c.name) && <Check size={13} className="accent-ink shrink-0" />}</button>)}
+            </div>
+          )
+        })()}
+        {(all || tab === 'workflows') && (() => {
+          const list = workflows.filter((w) => match(w.name) || match(w.description)); return (
+            <div className="mb-1"><div className="text-[10.5px] font-semibold uppercase tracking-wider muted px-2 py-1.5">Workflows · run as one step</div>
+              {list.length === 0 && <div className="text-[12px] muted px-2 py-3">{q ? 'No workflow matches.' : 'No other workflows yet.'}</div>}
+              {list.map((w) => <button key={w.id} draggable onDragStart={(e) => drag(e, 'flow', { workflowId: w.id, label: w.name })} onClick={() => onPick('flow', { workflowId: w.id, label: w.name })} className="brick-card w-full flex items-center gap-2.5 px-2 h-11 rounded-[11px] text-left hover:bg-[var(--clay-dark)]"><Tile color="#6366f1" size={28} radius={8}><WorkflowIcon size={13} /></Tile><span className="min-w-0 flex-1"><span className="block text-[12.5px] font-semibold truncate">{w.name}</span><span className="block text-[11px] muted leading-snug truncate">{w.description || `${w.nodes.length} steps`} · {w.status}</span></span></button>)}
+            </div>
+          )
+        })()}
       </div>
     </motion.div>
   )
@@ -597,7 +691,7 @@ function RunRow({ r, onClick }: { r: Run; onClick: () => void }) {
 }
 
 /* ================= run drawer ================= */
-function RunDrawer({ run, runs, input, setInput, onStart, starting, problems, apiKey, dirty, canApprove, onDecide, onPick, onReset, onClose, nodes, onAgain, onSelectNode }: { run: Run | null; runs: Run[]; input: string; setInput: (v: string) => void; onStart: () => void; starting: boolean; problems: Problem[]; apiKey: boolean; dirty: boolean; canApprove: boolean; onDecide: (r: Run, d: 'approved' | 'rejected') => void; onPick: (id: string) => void; onReset: () => void; onClose: () => void; nodes: FlowNode[]; onAgain: (r: Run, step: number) => void; onSelectNode: (id: string) => void }) {
+function RunDrawer({ run, runs, input, setInput, onStart, starting, problems, apiKey, dirty, canRun, canApprove, onDecide, onPick, onReset, onClose, nodes, onAgain, onSelectNode }: { run: Run | null; runs: Run[]; input: string; setInput: (v: string) => void; onStart: () => void; starting: boolean; problems: Problem[]; apiKey: boolean; dirty: boolean; canRun: boolean; canApprove: boolean; onDecide: (r: Run, d: 'approved' | 'rejected') => void; onPick: (id: string) => void; onReset: () => void; onClose: () => void; nodes: FlowNode[]; onAgain: (r: Run, step: number) => void; onSelectNode: (id: string) => void }) {
   const nav = useNavigate()
   const [open, setOpen] = useState<number | null>(null)
   const [tab, setTab] = useState<'steps' | 'vars' | 'history'>('steps')
@@ -618,7 +712,7 @@ function RunDrawer({ run, runs, input, setInput, onStart, starting, problems, ap
         <div className="flex-1" />
         {run && <Segmented value={tab} onChange={setTab} items={[{ id: 'steps', label: 'Steps' }, { id: 'vars', label: <span className="inline-flex items-center gap-1"><Braces size={11} /> Variables</span> }, { id: 'history', label: `Runs · ${runs.length}` }]} />}
         {!run && runs.length > 0 && <button onClick={() => setTab(tab === 'history' ? 'steps' : 'history')} className="chip hover:text-[var(--text)] !h-7"><History size={11} /> {runs.length} run{runs.length === 1 ? '' : 's'}</button>}
-        {run && finished && <Button size="sm" onClick={onReset}><Play size={12} /> New run</Button>}
+        {run && finished && canRun && <Button size="sm" onClick={onReset}><Play size={12} /> New run</Button>}
         {run && <button onClick={() => nav(`/runs?open=${run.id}`)} className="btn btn-ghost btn-sm" title="Open in Runs"><ExternalLink size={13} /></button>}
         <button className="btn btn-ghost btn-sm btn-icon" onClick={onClose} aria-label="Close"><X size={14} /></button>
       </div>
@@ -626,11 +720,11 @@ function RunDrawer({ run, runs, input, setInput, onStart, starting, problems, ap
         <div className="p-3 grid grid-cols-2 lg:grid-cols-3 gap-1.5 scroll">{runs.length === 0 ? <div className="py-8 text-center text-[12.5px] muted col-span-3">No runs yet.</div> : runs.slice(0, 30).map((r) => <RunRow key={r.id} r={r} onClick={() => { onPick(r.id); setTab('steps') }} />)}</div>
       ) : !run ? (
         <div className="p-4 flex gap-4 min-h-0">
-          <div className="flex-1 flex flex-col gap-2"><Field label="Input" hint="Becomes {{input}}. Every step can see it."><Textarea rows={4} value={input} onChange={(e) => setInput(e.target.value)} placeholder="e.g. Research the latest changes to UAE corporate tax" autoFocus /></Field></div>
+          <div className="flex-1 flex flex-col gap-2"><Field label="Input" hint="Becomes {{input}}. Every step can see it."><Textarea rows={4} value={input} onChange={(e) => setInput(e.target.value)} placeholder="e.g. Research the latest changes to UAE corporate tax" autoFocus disabled={!canRun} /></Field></div>
           <div className="w-[260px] flex flex-col gap-2 pt-6">
             {!apiKey && <div className="text-[12px] text-[var(--warn)]">Models are not available right now. Agent, condition and action steps will fail.</div>}
             {problems.length > 0 && <div className="text-[12px] text-[var(--warn)]">Fix the checks first: {problems[0].text}</div>}
-            <Button variant="primary" onClick={onStart} disabled={!input.trim() || starting || problems.length > 0}>{starting ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />} {starting ? 'Starting…' : 'Run now'}</Button>
+            {canRun && <Button variant="primary" onClick={onStart} disabled={!input.trim() || starting || problems.length > 0}>{starting ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />} {starting ? 'Starting…' : 'Run now'}</Button>}
             <div className="text-[11.5px] muted leading-relaxed">{dirty ? 'The workflow is saved first. ' : ''}Steps light up on the canvas as they run. Approval steps pause the run until the person decides.</div>
           </div>
         </div>
@@ -643,14 +737,16 @@ function RunDrawer({ run, runs, input, setInput, onStart, starting, problems, ap
         <div className="flex min-h-0 flex-1">
           <div className="w-[300px] shrink-0 border-r hairline scroll p-2 flex flex-col gap-1">
             <div className="flat px-2.5 py-2 text-[12px]"><span className="text-[10.5px] font-semibold uppercase tracking-wider muted">Input</span><div className="line-clamp-2 mt-0.5">{run.input}</div></div>
-            {run.steps.map((s, i) => { const b = brickOf(s.brick ?? 'agent'); const I = b.icon; const on = open === i; return (
-              <button key={i} onClick={() => { setOpen(i); if (s.nodeId) onSelectNode(s.nodeId) }} className={cx('w-full flex items-center gap-2 px-2 h-9 rounded-[10px] text-left hover:bg-[var(--clay-dark)]', on && 'bg-[var(--surface-2)] shadow-[0_1px_2px_rgba(16,24,40,.06)]')}>
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: tone(s) }} />
-                <Tile color={b.color} size={20} radius={6}><I size={10} /></Tile>
-                <span className="flex-1 min-w-0"><span className="block text-[12px] font-medium truncate">{s.name}{s.attempt ? <span className="muted font-normal"> · attempt {s.attempt}</span> : ''}</span>{s.lane && <span className="block text-[10.5px] muted truncate">{s.lane}</span>}</span>
-                <span className="text-[10.5px] muted tabular-nums">{s.branch ? s.branch : s.count !== undefined ? `×${s.count}` : s.ms ? `${(s.ms / 1000).toFixed(1)}s` : ''}</span>
-              </button>
-            ) })}
+            {run.steps.map((s, i) => {
+              const b = brickOf(s.brick ?? 'agent'); const I = b.icon; const on = open === i; return (
+                <button key={i} onClick={() => { setOpen(i); if (s.nodeId) onSelectNode(s.nodeId) }} className={cx('w-full flex items-center gap-2 px-2 h-9 rounded-[10px] text-left hover:bg-[var(--clay-dark)]', on && 'bg-[var(--surface-2)] shadow-[0_1px_2px_rgba(16,24,40,.06)]')}>
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: tone(s) }} />
+                  <Tile color={b.color} size={20} radius={6}><I size={10} /></Tile>
+                  <span className="flex-1 min-w-0"><span className="block text-[12px] font-medium truncate">{s.name}{s.attempt ? <span className="muted font-normal"> · attempt {s.attempt}</span> : ''}</span>{s.lane && <span className="block text-[10.5px] muted truncate">{s.lane}</span>}</span>
+                  <span className="text-[10.5px] muted tabular-nums">{s.branch ? s.branch : s.count !== undefined ? `×${s.count}` : s.ms ? `${(s.ms / 1000).toFixed(1)}s` : ''}</span>
+                </button>
+              )
+            })}
             {cursorNode && <div className="flex items-center gap-2 px-2 h-9 text-[12px]"><Loader2 size={13} className="animate-spin accent-ink" /><span className="truncate">Working on <b>{cursorNode.data.label}</b>…</span></div>}
           </div>
           <div className="flex-1 min-w-0 scroll p-3 flex flex-col gap-2">
@@ -661,14 +757,14 @@ function RunDrawer({ run, runs, input, setInput, onStart, starting, problems, ap
                 {canApprove && <div className="flex gap-2"><Button variant="primary" size="sm" onClick={() => onDecide(run, 'approved')}><ThumbsUp size={12} /> Approve</Button><Button size="sm" onClick={() => onDecide(run, 'rejected')}><ThumbsDown size={12} /> Reject</Button></div>}
               </div>
             )}
-            {run.status === 'approved' && run.cursor && !isRunning(run.id) && <Button size="sm" className="self-start" onClick={() => resumeRun(run.id)}><Play size={12} /> Resume remaining steps</Button>}
+            {canRun && run.status === 'approved' && run.cursor && !isRunning(run.id) && <Button size="sm" className="self-start" onClick={() => resumeRun(run.id)}><Play size={12} /> Resume remaining steps</Button>}
             {sel ? (
               <div className="flex flex-col gap-2 min-h-0">
                 <div className="flex items-center gap-2 text-[12px]">
                   <span className="font-semibold">{sel.name}</span><span className="muted">{sel.status === 'ok' ? 'Done' : sel.status === 'failed' ? (sel.continued ? 'Failed, continued' : 'Failed') : sel.status === 'waiting' ? 'Waiting' : 'Skipped'}{sel.ms ? ` · ${(sel.ms / 1000).toFixed(1)}s` : ''}{sel.model ? ` · ${sel.model}` : ''}{sel.cost ? ` · $${sel.cost.toFixed(4)}` : ''}</span>
                   {sel.key && sel.status === 'ok' && <code className="text-[11px] accent-ink">{`{{${sel.key}}}`}</code>}
                   <div className="flex-1" />
-                  {finished && sel.nodeId && nodes.some((n) => n.id === sel.nodeId) && !sel.lane && <Button size="sm" onClick={() => onAgain(run, open!)} title="Start a new run that keeps the earlier results and runs again from this step"><RotateCw size={12} /> Run again from here</Button>}
+                  {canRun && finished && sel.nodeId && nodes.some((n) => n.id === sel.nodeId) && !sel.lane && <Button size="sm" onClick={() => onAgain(run, open!)} title="Start a new run that keeps the earlier results and runs again from this step"><RotateCw size={12} /> Run again from here</Button>}
                 </div>
                 <div className={cx('flat p-3 flex-1 min-h-0 overflow-auto', sel.status === 'failed' && !sel.continued && 'border-[color-mix(in_srgb,var(--danger)_45%,var(--line))]')}><Md className="prose-chat text-[12px] leading-relaxed">{sel.output ?? ''}</Md></div>
               </div>
@@ -684,8 +780,9 @@ function RunDrawer({ run, runs, input, setInput, onStart, starting, problems, ap
 type Store = { agents: ReturnType<typeof useApp.getState>['agents']; councils: ReturnType<typeof useApp.getState>['councils']; users: ReturnType<typeof useApp.getState>['users']; approvers: ReturnType<typeof useApp.getState>['users']; customTools: ReturnType<typeof useApp.getState>['customTools']; profiles: ReturnType<typeof useApp.getState>['profiles']; defaultModel: string; workflows: Workflow[]; libraries: ReturnType<typeof useApp.getState>['libraries'] }
 
 function VarChips({ vars, onInsert }: { vars: { key: string; label: string }[]; onInsert: (k: string) => void }) {
-  if (!vars.length) return null
-  return <div className="flex flex-wrap gap-1 mt-1.5">{vars.map((v) => <button type="button" key={v.key} onClick={() => onInsert(v.key)} title={v.label} className="h-5 px-1.5 rounded-[6px] font-mono text-[10.5px] text-[var(--accent-ink)] bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] hover:bg-[color-mix(in_srgb,var(--accent)_22%,transparent)]">{`{{${v.key}}}`}</button>)}</div>
+  const unique = vars.filter((v, i, a) => a.findIndex((x) => x.key === v.key) === i)
+  if (!unique.length) return null
+  return <div className="flex flex-wrap gap-1 mt-1.5">{unique.map((v) => <button type="button" key={v.key} onClick={() => onInsert(v.key)} title={v.label} className="h-5 px-1.5 rounded-[6px] font-mono text-[10.5px] text-[var(--accent-ink)] bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] hover:bg-[color-mix(in_srgb,var(--accent)_22%,transparent)]">{`{{${v.key}}}`}</button>)}</div>
 }
 function TemplateField({ label, hint, value, onChange, vars, rows = 3, placeholder, mono }: { label: string; hint?: string; value: string; onChange: (v: string) => void; vars: { key: string; label: string }[]; rows?: number; placeholder?: string; mono?: boolean }) {
   const ref = useRef<HTMLTextAreaElement>(null)
@@ -698,7 +795,7 @@ function TemplateField({ label, hint, value, onChange, vars, rows = 3, placehold
   )
 }
 
-function StepInspector({ node, editable, onClose, onRemove, patch, meta, setMeta, edges, nodes, onAdd, onSelect, store, stored, wfForTry, sampleVars, nested, onSaveFirst }: { node: FlowNode; editable: boolean; onClose: () => void; onRemove: () => void; patch: (p: Partial<StepData>) => void; meta: Meta; setMeta: (m: Meta) => void; edges: BranchEdge[]; nodes: FlowNode[]; onAdd: (branch?: string) => void; onSelect: (id: string) => void; store: Store; stored?: Workflow; wfForTry: () => Workflow; sampleVars: Record<string, string>; nested?: 'loop' | 'parallel'; onSaveFirst: () => void }) {
+function StepInspector({ node, editable, canRun, onClose, onRemove, patch, meta, setMeta, edges, nodes, onAdd, onSelect, store, stored, wfForTry, sampleVars, nested, onSaveFirst }: { node: FlowNode; editable: boolean; canRun: boolean; onClose: () => void; onRemove: () => void; patch: (p: Partial<StepData>) => void; meta: Meta; setMeta: (m: Meta) => void; edges: BranchEdge[]; nodes: FlowNode[]; onAdd: (branch?: string) => void; onSelect: (id: string) => void; store: Store; stored?: Workflow; wfForTry: () => Workflow; sampleVars: Record<string, string>; nested?: 'loop' | 'parallel'; onSaveFirst: () => void }) {
   const nav = useNavigate()
   const d = node.data; const b = brickOf(d.brick); const I = b.icon
   const { agents, councils, approvers, customTools, profiles, defaultModel, workflows, libraries } = store
@@ -711,7 +808,9 @@ function StepInspector({ node, editable, onClose, onRemove, patch, meta, setMeta
   const [advanced, setAdvanced] = useState(false)
   const [tryState, setTry] = useState<{ open: boolean; input: string; busy: boolean; result?: RunStep }>({ open: false, input: sampleVars.input ?? '', busy: false })
   const [checking, setChecking] = useState<string>('')
-  const canTry = ['agent', 'tool', 'code', 'http', 'logic', 'flow', 'notify', 'set', 'extract', 'classify'].includes(d.brick)
+  const codeRef = useRef<HTMLTextAreaElement>(null)
+  const setFocusRef = useRef<{ row: number; start: number; end: number }>({ row: 0, start: 0, end: 0 })
+  const canTry = canRun && ['agent', 'council', 'tool', 'code', 'http', 'logic', 'flow', 'notify', 'set', 'extract', 'classify'].includes(d.brick)
   const runTry = async () => {
     setTry((t) => ({ ...t, busy: true, result: undefined }))
     try { const r = await tryStep(wfForTry(), node.id, { ...sampleVars, input: tryState.input }); setTry((t) => ({ ...t, busy: false, result: r })) }
@@ -739,9 +838,19 @@ function StepInspector({ node, editable, onClose, onRemove, patch, meta, setMeta
             {meta.triggerType === 'manual' && <div className="text-[12px] muted -mt-2 leading-relaxed">Each run starts with an input you type. It becomes <code className="text-[11px]">{'{{input}}'}</code>, which every step can see.</div>}
             {meta.triggerType === 'schedule' && (
               <>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Every"><Select value={meta.schedule.every} onChange={(e) => setMeta({ ...meta, schedule: { ...meta.schedule, every: e.target.value as Schedule['every'] } })}><option value="hour">Hour</option><option value="day">Day</option><option value="week">Week (Mondays)</option></Select></Field>
-                  <Field label="At"><div className="grid grid-cols-2 gap-1.5"><Select value={meta.schedule.at.split(':')[0] ?? '08'} onChange={(e) => setMeta({ ...meta, schedule: { ...meta.schedule, at: `${e.target.value}:${meta.schedule.at.split(':')[1] ?? '00'}` } })} aria-label="Hour">{Array.from({ length: 24 }, (_, h) => <option key={h} value={String(h).padStart(2, '0')}>{String(h).padStart(2, '0')}</option>)}</Select><Select value={meta.schedule.at.split(':')[1] ?? '00'} onChange={(e) => setMeta({ ...meta, schedule: { ...meta.schedule, at: `${meta.schedule.at.split(':')[0] ?? '08'}:${e.target.value}` } })} aria-label="Minute">{['00', '15', '30', '45'].map((m) => <option key={m} value={m}>{m}</option>)}</Select></div></Field>
+                <div className="grid grid-cols-1 gap-3">
+                  <div className={cx('grid gap-3', meta.schedule.every === 'week' ? 'grid-cols-2' : 'grid-cols-[minmax(0,1fr)_minmax(0,2fr)]')}>
+                    <Field label="Every"><Select value={meta.schedule.every} onChange={(e) => setMeta({ ...meta, schedule: { ...meta.schedule, every: e.target.value as Schedule['every'], ...(e.target.value === 'week' ? { day: meta.schedule.day ?? 1 } : {}) } })}><option value="hour">Hour</option><option value="day">Day</option><option value="week">Week</option></Select></Field>
+                    {meta.schedule.every === 'week' && (
+                      <Field label="On"><Select value={String(meta.schedule.day ?? 1)} onChange={(e) => setMeta({ ...meta, schedule: { ...meta.schedule, day: Number(e.target.value) } })} aria-label="Day of week">{[1, 2, 3, 4, 5, 6, 0].map((dIdx) => <option key={dIdx} value={dIdx}>{DAYS[dIdx]}</option>)}</Select></Field>
+                    )}
+                    {meta.schedule.every !== 'week' && (
+                      <Field label="At"><div className="grid grid-cols-2 gap-1.5"><Select value={meta.schedule.at.split(':')[0] ?? '08'} onChange={(e) => setMeta({ ...meta, schedule: { ...meta.schedule, at: `${e.target.value}:${meta.schedule.at.split(':')[1] ?? '00'}` } })} aria-label="Hour">{Array.from({ length: 24 }, (_, h) => <option key={h} value={String(h).padStart(2, '0')}>{String(h).padStart(2, '0')}</option>)}</Select><Select value={meta.schedule.at.split(':')[1] ?? '00'} onChange={(e) => setMeta({ ...meta, schedule: { ...meta.schedule, at: `${meta.schedule.at.split(':')[0] ?? '08'}:${e.target.value}` } })} aria-label="Minute">{['00', '15', '30', '45'].map((m) => <option key={m} value={m}>{m}</option>)}</Select></div></Field>
+                    )}
+                  </div>
+                  {meta.schedule.every === 'week' && (
+                    <Field label="At"><div className="grid grid-cols-2 gap-1.5"><Select value={meta.schedule.at.split(':')[0] ?? '08'} onChange={(e) => setMeta({ ...meta, schedule: { ...meta.schedule, at: `${e.target.value}:${meta.schedule.at.split(':')[1] ?? '00'}` } })} aria-label="Hour">{Array.from({ length: 24 }, (_, h) => <option key={h} value={String(h).padStart(2, '0')}>{String(h).padStart(2, '0')}</option>)}</Select><Select value={meta.schedule.at.split(':')[1] ?? '00'} onChange={(e) => setMeta({ ...meta, schedule: { ...meta.schedule, at: `${meta.schedule.at.split(':')[0] ?? '08'}:${e.target.value}` } })} aria-label="Minute">{['00', '15', '30', '45'].map((m) => <option key={m} value={m}>{m}</option>)}</Select></div></Field>
+                  )}
                 </div>
                 <Field label="Input for each run"><Textarea rows={3} value={meta.schedule.input} onChange={(e) => setMeta({ ...meta, schedule: { ...meta.schedule, input: e.target.value } })} placeholder="e.g. Check for news about our top 3 competitors" /></Field>
                 <div className="text-[12px] muted leading-relaxed">Fires while Co-Create is open and the workflow is published. Last run: {stored?.lastRunAt ? new Date(stored.lastRunAt).toLocaleString() : 'never'}.</div>
@@ -763,7 +872,7 @@ function StepInspector({ node, editable, onClose, onRemove, patch, meta, setMeta
                   <Field label="Last checked"><div className="text-[12px] muted h-[38px] flex items-center">{stored?.watch?.lastCheckedAt ? new Date(stored.watch.lastCheckedAt).toLocaleTimeString() : 'never'}</div></Field>
                 </div>
                 <Field label="What to do with the change"><Textarea rows={2} value={meta.watch.input} onChange={(e) => setMeta({ ...meta, watch: { ...meta.watch, input: e.target.value } })} placeholder="e.g. Tell me which prices moved and by how much" /></Field>
-                <div className="flex items-center gap-2"><Button size="sm" disabled={!stored || !/^https?:\/\//.test(meta.watch.url) || checking === 'busy'} onClick={async () => { setChecking('busy'); const r = await checkWatch(stored!); setChecking(r === 'first' ? 'Baseline saved. The next change starts a run.' : r === 'same' ? 'No change since the last check.' : r === 'changed' ? 'Changed. A run was started.' : 'The page could not be read.') }}>{checking === 'busy' ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />} Check now</Button><span className="text-[11.5px] muted">{checking !== 'busy' ? checking || (!stored ? 'Save first.' : '') : ''}</span></div>
+                {canRun && <div className="flex items-center gap-2"><Button size="sm" disabled={!stored || !/^https?:\/\//.test(meta.watch.url) || checking === 'busy'} onClick={async () => { setChecking('busy'); const r = await checkWatch(stored!); setChecking(r === 'first' ? 'Baseline saved. The next change starts a run.' : r === 'same' ? 'No change since the last check.' : r === 'changed' ? 'Changed. A run was started.' : 'The page could not be read.') }}>{checking === 'busy' ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />} Check now</Button><span className="text-[11.5px] muted">{checking !== 'busy' ? checking || (!stored ? 'Save first.' : '') : ''}</span></div>}
               </>
             )}
             {meta.triggerType === 'event' && (
@@ -861,8 +970,8 @@ function StepInspector({ node, editable, onClose, onRemove, patch, meta, setMeta
         {d.brick === 'code' && (
           <>
             <Field label="JavaScript" hint="vars.<name> holds every variable so far; return a value to store it. No network, 5 second limit.">
-              <textarea rows={8} value={d.code ?? ''} onChange={(e) => patch({ code: e.target.value })} spellCheck={false} className="input font-mono !text-[12px] !leading-relaxed" />
-              <VarChips vars={vars} onInsert={(k) => patch({ code: (d.code ?? '') + `vars.${k}` })} />
+              <textarea ref={codeRef} rows={8} value={d.code ?? ''} onChange={(e) => patch({ code: e.target.value })} spellCheck={false} className="input font-mono !text-[12px] !leading-relaxed" />
+              <VarChips vars={vars} onInsert={(k) => { const el = codeRef.current; const tok = `vars.${k}`; const val = d.code ?? ''; if (!el) { patch({ code: val + tok }); return } const s = el.selectionStart ?? val.length; const e = el.selectionEnd ?? s; const nv = val.slice(0, s) + tok + val.slice(e); patch({ code: nv }); setTimeout(() => { el.focus(); el.setSelectionRange(s + tok.length, s + tok.length) }, 0) }} />
             </Field>
             <div className="text-[12px] muted -mt-2 leading-relaxed">Example: <code className="text-[11px]">return JSON.parse(vars.rates).rates.EUR</code></div>
           </>
@@ -892,9 +1001,9 @@ function StepInspector({ node, editable, onClose, onRemove, patch, meta, setMeta
         {d.brick === 'set' && (
           <Field label="Variables" hint="Each value is a template. Later steps use {{name}}.">
             <div className="flex flex-col gap-2">
-              {(d.assign ?? []).map((a, i) => <div key={i} className="flex items-start gap-2"><Input value={a.key} onChange={(e) => patch({ assign: (d.assign ?? []).map((x, j) => (j === i ? { ...x, key: e.target.value } : x)) })} placeholder="name" className="!w-[120px] font-mono !text-[12px]" /><textarea rows={1} value={a.value} onChange={(e) => patch({ assign: (d.assign ?? []).map((x, j) => (j === i ? { ...x, value: e.target.value } : x)) })} placeholder="{{input}}" className="input font-mono !text-[12px] flex-1" /><button type="button" onClick={() => patch({ assign: (d.assign ?? []).filter((_, j) => j !== i) })} className="btn btn-ghost btn-sm btn-icon shrink-0" aria-label="Remove variable"><Minus size={13} /></button></div>)}
-              <button type="button" onClick={() => patch({ assign: [...(d.assign ?? []), { key: '', value: '' }] })} className="text-[12px] accent-ink font-medium text-left hover:underline inline-flex items-center gap-1"><Plus size={12} /> Add a variable</button>
-              <VarChips vars={vars} onInsert={(k) => { const a = d.assign ?? []; if (!a.length) return; patch({ assign: a.map((x, j) => (j === a.length - 1 ? { ...x, value: x.value + `{{${k}}}` } : x)) }) }} />
+              {(d.assign ?? []).map((a, i) => <div key={i} className="flex items-start gap-2"><Input value={a.key} onChange={(e) => patch({ assign: (d.assign ?? []).map((x, j) => (j === i ? { ...x, key: e.target.value } : x)) })} placeholder="name" className="!w-[120px] font-mono !text-[12px]" /><textarea rows={1} value={a.value} onFocus={(e) => { setFocusRef.current = { row: i, start: e.currentTarget.selectionStart ?? a.value.length, end: e.currentTarget.selectionEnd ?? a.value.length } }} onClick={(e) => { setFocusRef.current = { row: i, start: e.currentTarget.selectionStart ?? a.value.length, end: e.currentTarget.selectionEnd ?? a.value.length } }} onKeyUp={(e) => { setFocusRef.current = { row: i, start: e.currentTarget.selectionStart ?? a.value.length, end: e.currentTarget.selectionEnd ?? a.value.length } }} onBlur={(e) => { setFocusRef.current = { row: i, start: e.currentTarget.selectionStart ?? a.value.length, end: e.currentTarget.selectionEnd ?? a.value.length } }} onChange={(e) => { const s = e.currentTarget.selectionStart ?? e.target.value.length; setFocusRef.current = { row: i, start: s, end: s }; patch({ assign: (d.assign ?? []).map((x, j) => (j === i ? { ...x, value: e.target.value } : x)) }) }} placeholder="{{input}}" className="input font-mono !text-[12px] flex-1" /><button type="button" onClick={() => patch({ assign: (d.assign ?? []).filter((_, j) => j !== i) })} className="btn btn-ghost btn-sm btn-icon shrink-0" aria-label="Remove variable"><Minus size={13} /></button></div>)}
+              <button type="button" onClick={() => { const nextIdx = (d.assign ?? []).length; setFocusRef.current = { row: nextIdx, start: 0, end: 0 }; patch({ assign: [...(d.assign ?? []), { key: '', value: '' }] }) }} className="text-[12px] accent-ink font-medium text-left hover:underline inline-flex items-center gap-1"><Plus size={12} /> Add a variable</button>
+              <VarChips vars={vars} onInsert={(k) => { const a = d.assign ?? []; if (!a.length) return; const tok = `{{${k}}}`; const row = Math.min(Math.max(0, setFocusRef.current.row), a.length - 1); const cur = a[row].value; const s = Math.min(setFocusRef.current.start, cur.length); const e = Math.min(setFocusRef.current.end, cur.length); const nv = cur.slice(0, s) + tok + cur.slice(e); setFocusRef.current = { row, start: s + tok.length, end: s + tok.length }; patch({ assign: a.map((x, j) => (j === row ? { ...x, value: nv } : x)) }) }} />
             </div>
           </Field>
         )}
@@ -913,7 +1022,7 @@ function StepInspector({ node, editable, onClose, onRemove, patch, meta, setMeta
 
         {d.brick === 'classify' && (
           <>
-            <Field label="Categories" hint="One per line. A model picks exactly one and the run continues on that branch; the pick is stored as the step's variable."><Textarea rows={4} value={(d.categories ?? []).join('\n')} onChange={(e) => patch({ categories: e.target.value.split('\n').map((c) => c.replace(/\s+/g, ' ').trim()).filter((c, i, a) => c && a.indexOf(c) === i).slice(0, 8) })} placeholder={'Question\nRequest\nComplaint\nOther'} /></Field>
+            <Field label="Categories" hint="One per line. A model picks exactly one and the run continues on that branch; the pick is stored as the step's variable."><Textarea rows={4} value={(d.categories ?? []).join('\n')} onChange={(e) => patch({ categories: e.target.value.split('\n').map((c) => c.replace(/[ \t]+/g, ' ').trimStart()).slice(0, 8) })} onBlur={() => patch({ categories: (d.categories ?? []).map((c) => c.trim()).filter((c, i, a) => c && a.indexOf(c) === i).slice(0, 8) })} placeholder={'Question\nRequest\nComplaint\nOther'} /></Field>
             <TemplateField label="What it reads" hint="Leave empty to read the latest result." value={d.input ?? ''} onChange={(v) => patch({ input: v })} vars={vars} rows={2} placeholder="{{input}}" />
             <Branches pairs={branchesOf(d).map((b) => [b.id, b.label, branchTone(b.id)] as [string, string, string])} branchTarget={branchTarget} editable={editable} onSelect={onSelect} onAdd={onAdd} emptyNo="Ends the run" />
           </>
@@ -923,8 +1032,13 @@ function StepInspector({ node, editable, onClose, onRemove, patch, meta, setMeta
 
         {d.brick === 'council' && (
           <>
-            <div className="flat p-3 text-[12px] leading-relaxed"><span className="chip chip-accent !h-5 !text-[10.5px] mr-1.5">Coming soon</span>Councils, where several agents deliberate on one case, are being finished. Existing council steps still run.</div>
-            {councils.length > 0 && <Field label="Council"><Select value={d.councilId ?? ''} onChange={(e) => patch({ councilId: e.target.value || undefined })}><option value="">Choose a council</option>{councils.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select></Field>}
+            <Field label="Council" hint="Every member agent examines what this step receives; the chair synthesises one recommendation.">
+              <Select value={d.councilId ?? ''} onChange={(e) => { const c = councils.find((x) => x.id === e.target.value); patch({ councilId: e.target.value || undefined, label: c && (d.label === 'Council' || !d.label) ? c.name : d.label }) }}>
+                <option value="">Choose a council</option>
+                {councils.map((c) => <option key={c.id} value={c.id}>{c.name} · {c.members.length} members · {c.mode}</option>)}
+              </Select>
+            </Field>
+            <TemplateField label="What it receives" hint="Leave empty to pass everything earlier steps produced." value={d.input ?? ''} onChange={(v) => patch({ input: v })} vars={vars} rows={3} placeholder="Everything so far, or e.g. {{input}}" />
           </>
         )}
 
@@ -976,13 +1090,15 @@ function StepInspector({ node, editable, onClose, onRemove, patch, meta, setMeta
 function Branches({ pairs, branchTarget, editable, onSelect, onAdd, emptyNo }: { pairs: [string, string, string][]; branchTarget: (br: string) => FlowNode | undefined; editable: boolean; onSelect: (id: string) => void; onAdd: (b: string) => void; emptyNo: string }) {
   return (
     <div className="flex flex-col gap-1.5">
-      {pairs.map(([br, label, color], i) => { const t = branchTarget(br); return (
-        <div key={br} className="flat p-2.5 flex items-center gap-2 text-[12.5px]">
-          <span className="h-5 px-2 rounded-full text-[10.5px] font-semibold text-white" style={{ background: color }}>{label}</span>
-          {t ? <button type="button" onClick={() => onSelect(t.id)} className="flex-1 text-left truncate font-medium hover:underline">→ {t.data.label}</button> : <span className="flex-1 muted">{i === 0 ? 'Nothing yet' : emptyNo}</span>}
-          {editable && !t && <button type="button" onClick={() => onAdd(br)} className="text-[11.5px] accent-ink font-medium hover:underline">Add step</button>}
-        </div>
-      ) })}
+      {pairs.map(([br, label, color], i) => {
+        const t = branchTarget(br); return (
+          <div key={br} className="flat p-2.5 flex items-center gap-2 text-[12.5px]">
+            <span className="h-5 px-2 rounded-full text-[10.5px] font-semibold text-white" style={{ background: color }}>{label}</span>
+            {t ? <button type="button" onClick={() => onSelect(t.id)} className="flex-1 text-left truncate font-medium hover:underline">→ {t.data.label}</button> : <span className="flex-1 muted">{i === 0 ? 'Nothing yet' : emptyNo}</span>}
+            {editable && !t && <button type="button" onClick={() => onAdd(br)} className="text-[11.5px] accent-ink font-medium hover:underline">Add step</button>}
+          </div>
+        )
+      })}
     </div>
   )
 }

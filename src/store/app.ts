@@ -5,7 +5,7 @@ import { usingProxy, PROXY_KEY, type ORModel } from '@/lib/openrouter'
 import { hashPassword, verifyPassword, isHashed, SESSION_HOURS } from '@/lib/auth'
 
 export type Theme = 'light' | 'dark'
-export type ChatMsg = { id: string; role: 'user' | 'assistant'; content: string; tools?: { name: string; args: string; result?: string }[]; error?: boolean; at: number; /** what to show instead of content (content carries attached file text) */ display?: string; files?: string[] }
+export type ChatMsg = { id: string; role: 'user' | 'assistant'; content: string; tools?: { id?: string; name: string; args: string; result?: string; runId?: string }[]; error?: boolean; at: number; /** what to show instead of content (content carries attached file text) */ display?: string; files?: string[] }
 
 const now = () => new Date().toISOString().slice(0, 16).replace('T', ' ')
 const today = () => new Date().toISOString().slice(0, 10)
@@ -171,7 +171,7 @@ export const useApp = create<State>()(
           const a = get().agents.find((x) => x.id === id); const snap = a?.history?.find((h) => h.version === version); if (!a || !snap) return
           get().upsertAgent({ ...snap.data, id, version: a.version + 1, updatedAt: today(), history: a.history }, `Rolled back agent to v${version}`)
         },
-        deleteAgent: (id) => { log('Deleted agent', get().agents.find((a) => a.id === id)?.name ?? id); set({ agents: get().agents.filter((a) => a.id !== id) }) },
+        deleteAgent: (id) => { log('Deleted agent', get().agents.find((a) => a.id === id)?.name ?? id); set({ agents: get().agents.filter((a) => a.id !== id), councils: get().councils.map((c) => (c.members.includes(id) ? { ...c, members: c.members.filter((m) => m !== id) } : c)) }) },
         upsertCouncil: (c) => { const exists = get().councils.some((x) => x.id === c.id); set({ councils: exists ? get().councils.map((x) => (x.id === c.id ? c : x)) : [c, ...get().councils] }); log(exists ? 'Saved council' : 'Created council', c.name) },
         deleteCouncil: (id) => { log('Deleted council', get().councils.find((c) => c.id === id)?.name ?? id); set({ councils: get().councils.filter((c) => c.id !== id) }) },
         upsertWorkflow: (w) => { const exists = get().workflows.some((x) => x.id === w.id); set({ workflows: exists ? get().workflows.map((x) => (x.id === w.id ? w : x)) : [w, ...get().workflows] }); log(exists ? 'Saved workflow' : 'Created workflow', `${w.name} v${w.version}`) },
@@ -183,14 +183,25 @@ export const useApp = create<State>()(
         addRun: (r) => { const max = get().runs.reduce((m, x) => Math.max(m, parseInt(x.id.replace(/\D/g, ''), 10) || 0), 1000); const id = `R-${max + 1}`; set({ runs: [{ ...r, id }, ...get().runs].slice(0, 300) }); return id },
         updateRun: (id, p) => set({ runs: get().runs.map((r) => (r.id === id ? { ...r, ...p } : r)) }),
         decideRun: (id, decision) => {
-          set({ runs: get().runs.map((r) => (r.id === id ? { ...r, status: decision, decidedBy: actor(), steps: r.steps.map((s) => (s.status === 'waiting' ? { ...s, status: decision === 'approved' ? 'ok' : 'skipped', output: `${decision === 'approved' ? 'Approved' : 'Rejected'} by ${actor()}` } : s)), ...(decision === 'rejected' ? { cursor: null, finished: now() } : {}) } : r)) })
+          set({ runs: get().runs.map((r) => (r.id === id ? { ...r, status: decision, decidedBy: actor(), duration: r.duration === '—' ? '0s' : r.duration, steps: r.steps.map((s) => (s.status === 'waiting' ? { ...s, status: decision === 'approved' ? 'ok' : 'skipped', output: `${decision === 'approved' ? 'Approved' : 'Rejected'} by ${actor()}` } : s)), ...(decision === 'rejected' || !r.cursor ? { cursor: null, finished: now() } : {}) } : r)) })
           log(decision === 'approved' ? 'Approved' : 'Rejected', id)
         },
         addDoc: (libraryId, d) => { set({ libraries: get().libraries.map((l) => (l.id === libraryId ? { ...l, docs: [{ ...d, id: `d${Date.now()}${uid()}`, updatedAt: today(), addedBy: actor() }, ...l.docs] } : l)) }); log('Added document', d.title) },
         removeDoc: (libraryId, docId) => set({ libraries: get().libraries.map((l) => (l.id === libraryId ? { ...l, docs: l.docs.filter((d) => d.id !== docId) } : l)) }),
         addLibrary: (name, desc) => { set({ libraries: [...get().libraries, { id: `lib-${uid()}`, name, desc, docs: [] }] }); log('Created library', name) },
         removeLibrary: (id) => { log('Deleted library', get().libraries.find((l) => l.id === id)?.name ?? id); set({ libraries: get().libraries.filter((l) => l.id !== id) }) },
-        upsertCustomTool: (t) => { const exists = get().customTools.some((x) => x.id === t.id); set({ customTools: exists ? get().customTools.map((x) => (x.id === t.id ? t : x)) : [...get().customTools, t] }); log(exists ? 'Saved tool' : 'Created tool', t.name) },
+        upsertCustomTool: (t) => {
+          const prev = get().customTools.find((x) => x.id === t.id)
+          const oldName = prev && prev.name !== t.name ? prev.name : undefined
+          set({
+            customTools: prev ? get().customTools.map((x) => (x.id === t.id ? t : x)) : [...get().customTools, t],
+            ...(oldName ? {
+              agents: get().agents.map((a) => (a.tools.includes(oldName) ? { ...a, tools: a.tools.map((n) => (n === oldName ? t.name : n)) } : a)),
+              workflows: get().workflows.map((w) => (w.nodes.some((n) => n.data.brick === 'tool' && n.data.tool === oldName) ? { ...w, nodes: w.nodes.map((n) => (n.data.brick === 'tool' && n.data.tool === oldName ? { ...n, data: { ...n.data, tool: t.name } } : n)) } : w)),
+            } : {}),
+          })
+          log(prev ? 'Saved tool' : 'Created tool', t.name)
+        },
         removeCustomTool: (id) => { const name = get().customTools.find((t) => t.id === id)?.name; log('Deleted tool', name ?? id); set({ customTools: get().customTools.filter((t) => t.id !== id), agents: get().agents.map((a) => ({ ...a, tools: a.tools.filter((n) => n !== name) })) }) },
         notify: (n) => set({ notifications: [{ ...n, id: `n${Date.now()}${uid()}`, at: now(), read: false }, ...get().notifications].slice(0, 100) }),
         markRead: (id) => set({ notifications: get().notifications.map((n) => (!id || n.id === id ? { ...n, read: true } : n)) }),
@@ -211,7 +222,11 @@ export const useApp = create<State>()(
             const d = JSON.parse(json)
             if (!d || typeof d !== 'object') return 'Not a workspace file.'
             const pick = (k: string) => (Array.isArray(d[k]) ? d[k] : undefined)
-            set({ agents: pick('agents') ?? get().agents, councils: pick('councils') ?? get().councils, workflows: pick('workflows') ?? get().workflows, libraries: pick('libraries') ?? get().libraries, customTools: pick('customTools') ?? get().customTools })
+            const importedLibs = pick('libraries') as Library[] | undefined
+            const libraries = importedLibs
+              ? [...importedLibs, ...seedLibraries.filter((sl) => !importedLibs.some((il) => il.id === sl.id))]
+              : get().libraries
+            set({ agents: pick('agents') ?? get().agents, councils: pick('councils') ?? get().councils, workflows: pick('workflows') ?? get().workflows, libraries, customTools: pick('customTools') ?? get().customTools })
             log('Imported workspace', `${(pick('agents') ?? []).length} agents, ${(pick('workflows') ?? []).length} workflows`); return null
           } catch { return 'Could not parse the file.' }
         },

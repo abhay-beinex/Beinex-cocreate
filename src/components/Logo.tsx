@@ -1,4 +1,4 @@
-// Beinex mark (the "B" with stacked squares) and full wordmark from public/beinex-logo.svg
+// Beinex mark (the "B" with stacked squares) and full wordmark from Assets/beinex-logo.svg
 export function BeinexMark({ size = 24, ink = '#fff' }: { size?: number; ink?: string }) {
   return (
     <svg viewBox="1.5 13 22 21" width={size} height={size} xmlns="http://www.w3.org/2000/svg">

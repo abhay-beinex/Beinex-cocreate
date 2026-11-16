@@ -10,8 +10,9 @@ import { brickOf } from '@/lib/flow'
 import { Button, Chip, Confirm, Field, Modal, PageHeader, SearchBox, Segmented, Textarea, Tile, cx } from '@/components/ui'
 import { Page, Stagger, Item } from '@/components/motion'
 
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const statusLabel: Record<Workflow['status'], string> = { live: 'Live', draft: 'Draft', paused: 'Paused' }
-const triggerMeta = (w: Pick<Workflow, 'triggerType' | 'schedule' | 'watch'>) => w.triggerType === 'schedule' ? { icon: Clock, text: `Every ${w.schedule?.every} at ${w.schedule?.at}` } : w.triggerType === 'link' ? { icon: Link2, text: 'By link' } : w.triggerType === 'watch' ? { icon: Eye, text: `Watches ${(() => { try { return new URL(w.watch?.url ?? '').hostname } catch { return 'a page' } })()}` } : w.triggerType === 'event' ? { icon: FileInput, text: 'When a document is added' } : { icon: Zap, text: 'By hand' }
+const triggerMeta = (w: Pick<Workflow, 'triggerType' | 'schedule' | 'watch'>) => w.triggerType === 'schedule' ? { icon: Clock, text: w.schedule?.every === 'week' ? `Every ${DAYS[w.schedule.day ?? 1]} at ${w.schedule.at}` : `Every ${w.schedule?.every} at ${w.schedule?.at}` } : w.triggerType === 'link' ? { icon: Link2, text: 'By link' } : w.triggerType === 'watch' ? { icon: Eye, text: `Watches ${(() => { try { return new URL(w.watch?.url ?? '').hostname } catch { return 'a page' } })()}` } : w.triggerType === 'event' ? { icon: FileInput, text: 'When a document is added' } : { icon: Zap, text: 'By hand' }
 const runTone = (s: Run['status']) => (s === 'waiting' ? 'warn' : s === 'failed' || s === 'rejected' ? 'danger' : s === 'running' ? 'accent' : 'ok') as 'warn' | 'danger' | 'accent' | 'ok'
 const runWord: Record<Run['status'], string> = { running: 'Running', waiting: 'Waiting for approval', approved: 'Approved', rejected: 'Rejected', failed: 'Failed', completed: 'Done' }
 
@@ -30,7 +31,7 @@ export default function Workflows() {
   const user = useUser()!
   const { workflows, runs, apiKey, upsertWorkflow, deleteWorkflow } = useApp()
   const [q, setQ] = useState('')
-  const [tab, setTab] = useState<'all' | 'live' | 'draft' | 'attention'>('all')
+  const [tab, setTab] = useState<'all' | 'live' | 'paused' | 'draft' | 'attention'>('all')
   const [pick, setPick] = useState(false)
   const [runFor, setRunFor] = useState<Workflow | null>(null)
   const [input, setInput] = useState('')
@@ -39,10 +40,13 @@ export default function Workflows() {
   const [menu, setMenu] = useState<string | null>(null)
   const [toDelete, setToDelete] = useState<Workflow | null>(null)
   const editable = can(user, 'build')
+  const canRun = user.role !== 'auditor'
   const byWf = useMemo(() => { const m = new Map<string, Run[]>(); for (const r of runs) { if (r.kind === 'chat') continue; m.set(r.workflowId, [...(m.get(r.workflowId) ?? []), r]) } return m }, [runs])
   const attention = (w: Workflow) => (byWf.get(w.id) ?? []).filter((r) => r.status === 'waiting' || r.status === 'failed').length
-  const list = useMemo(() => workflows.filter((w) => (tab === 'all' || (tab === 'live' ? w.status === 'live' : tab === 'draft' ? w.status !== 'live' : attention(w) > 0)) && (w.name + ' ' + w.description).toLowerCase().includes(q.toLowerCase())), [workflows, tab, q, byWf]) // eslint-disable-line react-hooks/exhaustive-deps
+  const list = useMemo(() => workflows.filter((w) => (tab === 'all' || (tab === 'live' ? w.status === 'live' : tab === 'paused' ? w.status === 'paused' : tab === 'draft' ? w.status === 'draft' : attention(w) > 0)) && (w.name + ' ' + w.description).toLowerCase().includes(q.toLowerCase())), [workflows, tab, q, byWf]) // eslint-disable-line react-hooks/exhaustive-deps
   const live = workflows.filter((w) => w.status === 'live').length
+  const paused = workflows.filter((w) => w.status === 'paused').length
+  const drafts = workflows.filter((w) => w.status === 'draft').length
   const needs = workflows.filter((w) => attention(w) > 0).length
 
   const run = async () => { if (!runFor || !input.trim()) return; setStarting(true); const r = await startRun(runFor, input.trim(), 'Manual', () => { setStarting(false); setRunFor(null); setInput('') }); nav(`/runs?open=${r.id}`) }
@@ -67,11 +71,13 @@ export default function Workflows() {
             </div>
             <div className={cx('flex items-center gap-2 flex-wrap', empty ? 'mt-5' : 'mt-3')}>
               <span className="text-[11.5px] font-semibold muted shrink-0 inline-flex items-center gap-1 mr-1"><LayoutTemplate size={12} /> Start from</span>
-              {templates.map((t) => { const tm = triggerMeta(t); return (
-                <button key={t.id} onClick={() => nav(`/workflows/new?template=${t.id}`)} title={t.desc} className="flat shrink-0 h-10 pl-2 pr-3 flex items-center gap-2.5 hover:border-[color-mix(in_srgb,var(--accent)_45%,var(--line))] hover:-translate-y-px transition-all">
-                  <StepChain w={t} size={18} /><span className="text-[12.5px] font-semibold whitespace-nowrap">{t.name}</span><tm.icon size={12} className="muted" />
-                </button>
-              ) })}
+              {templates.map((t) => {
+                const tm = triggerMeta(t); return (
+                  <button key={t.id} onClick={() => nav(`/workflows/new?template=${t.id}`)} title={t.desc} className="flat shrink-0 h-10 pl-2 pr-3 flex items-center gap-2.5 hover:border-[color-mix(in_srgb,var(--accent)_45%,var(--line))] hover:-translate-y-px transition-all">
+                    <StepChain w={t} size={18} /><span className="text-[12.5px] font-semibold whitespace-nowrap">{t.name}</span><tm.icon size={12} className="muted" />
+                  </button>
+                )
+              })}
               <button onClick={() => nav('/workflows/new?template=blank')} className="flat shrink-0 h-10 px-3 flex items-center gap-2 text-[12.5px] font-semibold muted hover:text-[var(--text)] hover:border-[color-mix(in_srgb,var(--accent)_45%,var(--line))] transition-all"><Plus size={13} /> Blank canvas</button>
             </div>
           </motion.div>
@@ -80,7 +86,7 @@ export default function Workflows() {
         {!empty && (
           <>
             <div className="flex items-center gap-3 mb-4 flex-wrap">
-              <Segmented value={tab} onChange={setTab} items={[{ id: 'all', label: <>All <span className="muted">{workflows.length}</span></> }, { id: 'live', label: <>Live <span className="muted">{live}</span></> }, { id: 'draft', label: <>Drafts <span className="muted">{workflows.length - live}</span></> }, { id: 'attention', label: <>Needs you{needs > 0 && <span className="ml-1.5 inline-grid place-items-center min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--warn)] text-white text-[10.5px]">{needs}</span>}</> }]} />
+              <Segmented value={tab} onChange={setTab} items={[{ id: 'all', label: <>All <span className="muted">{workflows.length}</span></> }, { id: 'live', label: <>Live <span className="muted">{live}</span></> }, ...(paused > 0 || tab === 'paused' ? [{ id: 'paused' as const, label: <>Paused <span className="muted">{paused}</span></> }] : []), { id: 'draft', label: <>Drafts <span className="muted">{drafts}</span></> }, { id: 'attention', label: <>Needs you{needs > 0 && <span className="ml-1.5 inline-grid place-items-center min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--warn)] text-white text-[10.5px]">{needs}</span>}</> }]} />
               <SearchBox value={q} onChange={setQ} placeholder="Search" className="w-[220px]" />
             </div>
             <Stagger className="flex flex-col gap-2.5" delay={0.04}>
@@ -92,7 +98,7 @@ export default function Workflows() {
                 const last = wr[0]
                 const tm = triggerMeta(w)
                 return (
-                  <Item key={w.id}>
+                  <Item key={w.id} className={cx('relative', menu === w.id && 'z-30')}>
                     <div className="clay-sm px-4 py-3.5 flex items-center gap-4 hover:-translate-y-px transition-transform relative">
                       <Tile color={w.status === 'live' ? '#10b981' : w.status === 'paused' ? '#f59e0b' : '#64748b'} size={40} radius={12}><tm.icon size={17} /></Tile>
                       <button onClick={() => nav(`/workflows/${w.id}`)} className="flex-1 min-w-0 text-left">
@@ -105,7 +111,7 @@ export default function Workflows() {
                           {last && <><span>·</span><span className="inline-flex items-center gap-1">Last {last.started.slice(5)} <span className={cx('inline-flex items-center gap-1 font-medium', last.status === 'failed' || last.status === 'rejected' ? 'text-[var(--danger)]' : last.status === 'waiting' ? 'text-[var(--warn)]' : last.status === 'running' ? 'accent-ink' : 'text-[var(--ok)]')}>{last.status === 'running' ? <Loader2 size={11} className="animate-spin" /> : last.status === 'failed' ? <AlertTriangle size={11} /> : last.status === 'waiting' ? <Hourglass size={11} /> : <CheckCircle2 size={11} />} {runWord[last.status]}</span></span></>}
                         </div>
                       </button>
-                      <Button size="sm" onClick={() => { setRunFor(w); setInput(w.schedule?.input ?? w.watch?.input ?? '') }} disabled={!apiKey && w.nodes.some((n) => n.data.brick !== 'trigger')} title="Run with an input"><Play size={12} /> Run</Button>
+                      {canRun && <Button size="sm" onClick={() => { setRunFor(w); setInput(w.schedule?.input ?? w.watch?.input ?? '') }} disabled={!apiKey && w.nodes.some((n) => n.data.brick !== 'trigger')} title="Run with an input"><Play size={12} /> Run</Button>}
                       <div className="relative" onClick={(e) => e.stopPropagation()}>
                         <button aria-label="More actions" aria-expanded={menu === w.id} onClick={() => setMenu(menu === w.id ? null : w.id)} className="btn btn-ghost btn-sm btn-icon"><MoreHorizontal size={15} /></button>
                         <AnimatePresence>{menu === w.id && (
@@ -130,13 +136,15 @@ export default function Workflows() {
 
       <Modal open={pick} onClose={() => setPick(false)} title="New workflow" width={640}>
         <div className="grid sm:grid-cols-2 gap-2.5">
-          {workflowTemplates.map((t) => { const tm = triggerMeta(t); return (
-            <button key={t.id} onClick={() => nav(`/workflows/new?template=${t.id}`)} className="flat p-4 text-left hover:border-[color-mix(in_srgb,var(--accent)_45%,var(--line))] flex flex-col gap-2.5">
-              <div className="flex items-center justify-between gap-2"><span className="text-[13.5px] font-semibold">{t.name}</span><span className="chip"><tm.icon size={11} /> {tm.text}</span></div>
-              {t.nodes.length ? <StepChain w={t} size={20} /> : <span className="text-[11.5px] muted">Empty canvas</span>}
-              <span className="text-[12px] muted leading-snug">{t.desc}</span>
-            </button>
-          ) })}
+          {workflowTemplates.map((t) => {
+            const tm = triggerMeta(t); return (
+              <button key={t.id} onClick={() => nav(`/workflows/new?template=${t.id}`)} className="flat p-4 text-left hover:border-[color-mix(in_srgb,var(--accent)_45%,var(--line))] flex flex-col gap-2.5">
+                <div className="flex items-center justify-between gap-2"><span className="text-[13.5px] font-semibold">{t.name}</span><span className="chip"><tm.icon size={11} /> {tm.text}</span></div>
+                {t.nodes.length ? <StepChain w={t} size={20} /> : <span className="text-[11.5px] muted">Empty canvas</span>}
+                <span className="text-[12px] muted leading-snug">{t.desc}</span>
+              </button>
+            )
+          })}
         </div>
         <div className="text-[12px] muted mt-4 flex items-center gap-1.5"><Sparkles size={12} className="accent-ink" /> Or describe the workflow in the box on the Workflows page and let the assistant build it.</div>
       </Modal>

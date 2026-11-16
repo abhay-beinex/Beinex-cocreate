@@ -11,7 +11,17 @@ import { Md } from '@/components/Md'
 
 const tone: Record<Run['status'], 'ok' | 'warn' | 'danger' | 'accent' | undefined> = { waiting: 'warn', approved: 'ok', completed: 'ok', rejected: 'danger', failed: 'danger', running: 'accent' }
 const done = (r: Run) => r.status === 'completed' || r.status === 'failed' || r.status === 'rejected' || (r.status === 'approved' && !r.cursor)
-const seal = (s: string) => Array.from(s).reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 7).toString(16).padStart(8, '0').repeat(8).slice(0, 64)
+const syncSeal = (s: string) => {
+  const seeds = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]
+  return seeds.map((seed, lane) => {
+    let h = seed ^ (lane * 0x9e3779b9)
+    for (let i = 0; i < s.length; i++) {
+      h = Math.imul(h ^ (s.charCodeAt(i) + lane + i), 0x85ebca6b)
+      h ^= h >>> 13
+    }
+    return ((h ^ (h >>> 16)) >>> 0).toString(16).padStart(8, '0')
+  }).join('')
+}
 
 export default function Runs() {
   const user = useUser()!
@@ -23,8 +33,21 @@ export default function Runs() {
   const [q, setQ] = useState('')
   const [openId, setOpenId] = useState<string | null>(null)
   const [gate, setGate] = useState<Run | null>(null)
+  const [shaSeal, setShaSeal] = useState('')
   const approver = can(user, 'approve')
+  const canRun = user.role !== 'auditor'
   const open = runs.find((r) => r.id === openId) ?? null
+  const sealPayload = open ? `${open.id}|${open.workflowId}|${open.started}|${open.status}|${open.decidedBy ?? ''}|${open.steps.map((s) => `${s.name}:${s.status}:${s.output ?? ''}`).join('|')}` : ''
+
+  useEffect(() => {
+    if (!sealPayload) { setShaSeal(''); return }
+    setShaSeal(syncSeal(sealPayload))
+    if (typeof crypto !== 'undefined' && crypto.subtle) {
+      crypto.subtle.digest('SHA-256', new TextEncoder().encode(sealPayload)).then((buf) => {
+        setShaSeal(Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join(''))
+      }).catch(() => { })
+    }
+  }, [sealPayload])
 
   useEffect(() => { const id = params.get('open'); if (id) { setOpenId(id); setParams({}, { replace: true }) } }, [params]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -80,14 +103,14 @@ export default function Runs() {
             <div className="flex items-center gap-2 flex-wrap"><Chip tone={tone[open.status]} className="capitalize">{open.status}</Chip><span className="text-[12.5px] muted">{open.trigger} · {open.started} · {open.duration} · ${open.cost.toFixed(3)}</span>{open.workflowId !== 'chat' && <button onClick={() => nav(`/workflows/${open.workflowId}`)} className="text-[12px] accent-ink inline-flex items-center gap-1 hover:underline"><WorkflowIcon size={12} /> {open.workflow}</button>}</div>
             {open.input && <div className="flat p-3 text-[12.5px]"><div className="text-[11px] font-semibold muted uppercase tracking-wider mb-1">Input</div><div className="whitespace-pre-wrap">{open.input}</div></div>}
             {open.status === 'waiting' && (approver && mine(open) ? <Button variant="primary" onClick={() => setGate(open)}><ShieldCheck size={14} /> Review and decide</Button> : <div className="flat p-3 text-[12.5px] muted">Waiting for {users.find((u) => u.id === open.approver)?.name ?? 'an approver'}. {approver ? 'This run is assigned to someone else.' : 'Your role cannot sign off.'}</div>)}
-            {open.status === 'approved' && open.cursor && !isRunning(open.id) && <Button onClick={() => resumeRun(open.id)}><RotateCw size={14} /> Resume remaining steps</Button>}
+            {canRun && open.status === 'approved' && open.cursor && !isRunning(open.id) && <Button onClick={() => resumeRun(open.id)}><RotateCw size={14} /> Resume remaining steps</Button>}
             <div>
               <div className="text-[12px] font-semibold mb-2">Steps</div>
               <ol className="flat divide-y divide-[var(--line)]">
                 {open.steps.map((s, i) => (
                   <li key={i} className={cx('px-3 py-2.5', s.lane && 'pl-7 bg-[color-mix(in_srgb,var(--clay-dark)_50%,transparent)]')}>
                     <div className="flex items-center gap-3"><span className={cx('w-2 h-2 rounded-full shrink-0', s.status === 'ok' ? 'bg-[var(--ok)]' : s.status === 'failed' ? (s.continued ? 'bg-[var(--warn)]' : 'bg-[var(--danger)]') : s.status === 'skipped' ? 'bg-[var(--muted)]' : 'bg-[var(--warn)]')} /><span className="flex-1 min-w-0 text-[13px] font-medium truncate">{s.name}{s.branch && <span className="muted font-normal"> → {s.branch}</span>}{s.lane && <span className="muted font-normal"> · {s.lane}</span>}{s.attempt && <span className="muted font-normal"> · attempt {s.attempt}</span>}{s.continued && <span className="text-[var(--warn)] font-normal"> · continued</span>}{s.key && s.status === 'ok' && <code className="text-[10.5px] accent-ink ml-1.5">{`{{${s.key}}}`}</code>}</span><span className="text-[11.5px] muted shrink-0">{s.model ? `${s.model} · ` : ''}{s.ms ? `${(s.ms / 1000).toFixed(1)}s` : s.status === 'waiting' ? 'pending' : ''}{s.cost ? ` · $${s.cost.toFixed(4)}` : ''}</span>
-                      {done(open) && s.nodeId && !s.lane && open.kind !== 'chat' && <button onClick={() => rerunFrom(open.id, i, (id) => setOpenId(id))} className="text-[11px] accent-ink font-medium inline-flex items-center gap-1 hover:underline shrink-0" title="Start a new run that keeps the earlier results and runs again from this step"><Repeat size={11} /> Again from here</button>}</div>
+                      {canRun && done(open) && s.nodeId && !s.lane && open.kind !== 'chat' && <button onClick={() => rerunFrom(open.id, i, (id) => setOpenId(id))} className="text-[11px] accent-ink font-medium inline-flex items-center gap-1 hover:underline shrink-0" title="Start a new run that keeps the earlier results and runs again from this step"><Repeat size={11} /> Again from here</button>}</div>
                     {s.output && <Md className="prose-chat text-[12px] muted mt-1.5 pl-5">{s.output}</Md>}
                   </li>
                 ))}
@@ -98,7 +121,7 @@ export default function Runs() {
             {open.rerunOf && <div className="text-[12px] muted">Started again from step {open.rerunOf.step + 1} of <button onClick={() => setOpenId(open.rerunOf!.runId)} className="accent-ink hover:underline">{open.rerunOf.runId}</button>.</div>}
             {open.parentRunId && <div className="text-[12px] muted">Called by run <button onClick={() => setOpenId(open.parentRunId!)} className="accent-ink hover:underline">{open.parentRunId}</button>.</div>}
             {open.decidedBy && <div className="text-[12.5px]">Decided by <b>{open.decidedBy}</b></div>}
-            <div><div className="text-[12px] font-semibold mb-1 flex items-center gap-1.5"><Fingerprint size={13} /> Audit seal</div><code className="text-[11px] break-all muted">{seal(open.id + open.status + (open.decidedBy ?? '') + open.steps.length)}</code></div>
+            <div><div className="text-[12px] font-semibold mb-1 flex items-center gap-1.5"><Fingerprint size={13} /> Audit seal</div><code className="text-[11px] break-all muted">{shaSeal || syncSeal(sealPayload)}</code></div>
           </div>
         )}
       </Drawer>

@@ -18,9 +18,9 @@ const blank = (by: string): CustomTool => ({ id: `ct-${Date.now().toString(36)}`
 
 export default function Tools() {
   const user = useUser()!
-  const { agents, customTools, upsertCustomTool, removeCustomTool, apiKey, profiles, defaultModel } = useApp()
+  const { agents, workflows, customTools, upsertCustomTool, removeCustomTool, apiKey, profiles, defaultModel } = useApp()
   const [edit, setEdit] = useState<CustomTool | null>(null)
-  const [confirmTool, setConfirmTool] = useState<{ id: string; label: string; used: number } | null>(null)
+  const [confirmTool, setConfirmTool] = useState<{ id: string; label: string; used: number; wfUsed: number } | null>(null)
   const [testArgs, setTestArgs] = useState('')
   const [testOut, setTestOut] = useState('')
   const [tryOut, setTryOut] = useState<Record<string, string>>({})
@@ -44,49 +44,55 @@ export default function Tools() {
           <Item key={c.id}>
             <div className="flex items-center gap-2 mb-2 px-1"><c.icon size={14} className="muted" /><span className="text-[12px] font-semibold">{c.id}</span><span className="text-[12px] muted">· {c.desc}</span></div>
             <div className="clay px-3 py-1">
-              {TOOLS.filter((t) => t.category === c.id).map((t) => { const used = agents.filter((a) => a.tools.includes(t.name)).length; return (
-                <div key={t.name} className="row">
-                  <Tile color={t.write ? '#f59e0b' : c.color} size={34}>{t.write ? <Lock size={15} /> : <c.icon size={15} />}</Tile>
-                  <div className="flex-1 min-w-0"><div className="text-[13.5px] font-medium">{t.label} <code className="text-[11px] muted font-normal ml-1">{t.name}</code></div><div className="text-[12px] muted">{t.desc}</div></div>
-                  {t.write && <Chip tone="warn">Gated</Chip>}
-                  <span className="text-[12.5px] muted w-[90px] text-right">{used} agent{used === 1 ? '' : 's'}</span>
-                </div>
-              ) })}
+              {TOOLS.filter((t) => t.category === c.id).map((t) => {
+                const used = agents.filter((a) => a.tools.includes(t.name)).length; return (
+                  <div key={t.name} className="row">
+                    <Tile color={t.write ? '#f59e0b' : c.color} size={34}>{t.write ? <Lock size={15} /> : <c.icon size={15} />}</Tile>
+                    <div className="flex-1 min-w-0"><div className="text-[13.5px] font-medium">{t.label} <code className="text-[11px] muted font-normal ml-1">{t.name}</code></div><div className="text-[12px] muted">{t.desc}</div></div>
+                    {t.write && <Chip tone="warn">Gated</Chip>}
+                    <span className="text-[12.5px] muted w-[90px] text-right">{used} agent{used === 1 ? '' : 's'}</span>
+                  </div>
+                )
+              })}
             </div>
           </Item>
         ))}
         <Item>
           <div className="flex items-center gap-2 mb-2 px-1"><Plug size={14} className="muted" /><span className="text-[12px] font-semibold">Connectors</span><span className="text-[12px] muted">· Ready-made public APIs. Add one and any agent or workflow step can call it.</span></div>
           <div className="clay px-3 py-1">
-            {CONNECTORS.map((c) => { const added = customTools.find((t) => t.name === c.name); const out = tryOut[c.id]; return (
-              <div key={c.id} className="row flex-wrap">
-                <Tile color="#2563eb" size={34}><Globe size={15} /></Tile>
-                <div className="flex-1 min-w-0"><div className="text-[13.5px] font-medium">{c.label} <span className="text-[11px] muted font-normal ml-1">{c.category}</span></div><div className="text-[12px] muted truncate">{c.description}</div></div>
-                <Button size="sm" variant="ghost" onClick={() => tryConnector(c)} disabled={trying === c.id} title={`Try with ${Object.entries(c.sample).map(([k, v]) => `${k}=${v}`).join(', ')}`}>{trying === c.id ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />} Try</Button>
-                {added ? <span className="chip chip-ok !h-7"><Check size={12} /> Added</span> : editable ? <Button size="sm" onClick={() => upsertCustomTool(connectorTool(c, user.id))}><Plus size={12} /> Add</Button> : null}
-                {out && <pre className="basis-full text-[11px] muted whitespace-pre-wrap max-h-32 overflow-auto flat p-2 mt-1">{out.slice(0, 1500)}</pre>}
-              </div>
-            ) })}
+            {CONNECTORS.map((c) => {
+              const added = customTools.find((t) => t.name === c.name); const out = tryOut[c.id]; return (
+                <div key={c.id} className="row flex-wrap">
+                  <Tile color="#2563eb" size={34}><Globe size={15} /></Tile>
+                  <div className="flex-1 min-w-0"><div className="text-[13.5px] font-medium">{c.label} <span className="text-[11px] muted font-normal ml-1">{c.category}</span></div><div className="text-[12px] muted truncate">{c.description}</div></div>
+                  <Button size="sm" variant="ghost" onClick={() => tryConnector(c)} disabled={trying === c.id} title={`Try with ${Object.entries(c.sample).map(([k, v]) => `${k}=${v}`).join(', ')}`}>{trying === c.id ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />} Try</Button>
+                  {added ? <span className="chip chip-ok !h-7"><Check size={12} /> Added</span> : editable ? <Button size="sm" onClick={() => upsertCustomTool(connectorTool(c, user.id))}><Plus size={12} /> Add</Button> : null}
+                  {out && <pre className="basis-full text-[11px] muted whitespace-pre-wrap max-h-32 overflow-auto flat p-2 mt-1">{out.slice(0, 1500)}</pre>}
+                </div>
+              )
+            })}
           </div>
         </Item>
         <Item>
           <div className="flex items-center gap-2 mb-2 px-1"><Code2 size={14} className="muted" /><span className="text-[12px] font-semibold">Your API</span><span className="text-[12px] muted">· HTTP endpoints you define. The agent fills the parameters; the response comes back to it.</span></div>
           <div className="clay px-3 py-1">
             {customTools.length === 0 && <div className="py-8 text-center text-[12.5px] muted">Nothing added yet. Connect any HTTP API that allows browser requests, such as a public data API or your own service.</div>}
-            {customTools.map((t) => { const used = agents.filter((a) => a.tools.includes(t.name)).length; return (
-              <div key={t.id} className="row">
-                <Tile color={t.connector ? '#2563eb' : '#64748b'} size={34}>{t.connector ? <Globe size={15} /> : <Code2 size={15} />}</Tile>
-                <div className="flex-1 min-w-0"><div className="text-[13.5px] font-medium">{t.label} <code className="text-[11px] muted font-normal ml-1">{t.name}</code></div><div className="text-[12px] muted truncate">{t.method} {t.url}</div></div>
-                <span className="text-[12.5px] muted w-[90px] text-right">{used} agent{used === 1 ? '' : 's'}</span>
-                {editable && <button className="btn btn-ghost btn-sm btn-icon" onClick={() => { setEdit(t); setTestOut(''); setTestArgs(t.params.map((p) => `${p.name}=`).join('\n')) }}><Pencil size={13} /></button>}
-                {editable && <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setConfirmTool({ id: t.id, label: t.label, used })} aria-label={`Delete ${t.label}`}><Trash2 size={13} /></button>}
-              </div>
-            ) })}
+            {customTools.map((t) => {
+              const used = agents.filter((a) => a.tools.includes(t.name)).length; const wfUsed = workflows.filter((w) => w.nodes.some((n) => n.data.brick === 'tool' && n.data.tool === t.name)).length; return (
+                <div key={t.id} className="row">
+                  <Tile color={t.connector ? '#2563eb' : '#64748b'} size={34}>{t.connector ? <Globe size={15} /> : <Code2 size={15} />}</Tile>
+                  <div className="flex-1 min-w-0"><div className="text-[13.5px] font-medium">{t.label} <code className="text-[11px] muted font-normal ml-1">{t.name}</code></div><div className="text-[12px] muted truncate">{t.method} {t.url}</div></div>
+                  <span className="text-[12.5px] muted w-[150px] text-right">{used} agent{used === 1 ? '' : 's'}{wfUsed > 0 ? ` · ${wfUsed} workflow${wfUsed === 1 ? '' : 's'}` : ''}</span>
+                  {editable && <button className="btn btn-ghost btn-sm btn-icon" onClick={() => { setEdit(t); setTestOut(''); setTestArgs(t.params.map((p) => `${p.name}=`).join('\n')) }}><Pencil size={13} /></button>}
+                  {editable && <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setConfirmTool({ id: t.id, label: t.label, used, wfUsed })} aria-label={`Delete ${t.label}`}><Trash2 size={13} /></button>}
+                </div>
+              )
+            })}
           </div>
         </Item>
       </Stagger>
 
-      <Confirm open={!!confirmTool} onClose={() => setConfirmTool(null)} title={`Delete ${confirmTool?.label}?`} danger confirmLabel="Delete" body={confirmTool?.used ? `It is removed from ${confirmTool.used} agent${confirmTool.used === 1 ? '' : 's'}.` : 'No agent uses it.'} onConfirm={() => confirmTool && removeCustomTool(confirmTool.id)} />
+      <Confirm open={!!confirmTool} onClose={() => setConfirmTool(null)} title={`Delete ${confirmTool?.label}?`} danger confirmLabel="Delete" body={confirmTool && (confirmTool.used > 0 || confirmTool.wfUsed > 0) ? `Used by ${[confirmTool.used ? `${confirmTool.used} agent${confirmTool.used === 1 ? '' : 's'}` : '', confirmTool.wfUsed ? `${confirmTool.wfUsed} workflow${confirmTool.wfUsed === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ')}. Workflows using this ability will show a check warning until updated.` : 'No agent or workflow uses it.'} onConfirm={() => confirmTool && removeCustomTool(confirmTool.id)} />
       <Modal open={!!edit} onClose={() => setEdit(null)} title={edit && customTools.some((t) => t.id === edit.id) ? 'Edit custom tool' : 'New custom tool'} width={680}>
         {edit && (
           <div className="flex flex-col gap-4">

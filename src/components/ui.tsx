@@ -95,8 +95,8 @@ export function PageHeader({ title, subtitle, actions }: { title: ReactNode; sub
 export function SearchBox({ value, onChange, placeholder, className }: { value: string; onChange: (v: string) => void; placeholder?: string; className?: string }) {
   return (
     <div className={cx('relative', className)}>
-      <svg className="absolute left-3 top-1/2 -translate-y-1/2 muted" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
-      <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder ?? 'Search'} className="input !pl-8 !h-9" />
+      <svg className="absolute start-3 top-1/2 -translate-y-1/2 muted" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
+      <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder ?? 'Search'} className="input !ps-8 !h-9" />
     </div>
   )
 }

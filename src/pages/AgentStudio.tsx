@@ -1,13 +1,13 @@
 // Studio v2: brief first. Describe the agent, the Co-Create Assistant drafts everything, review on one page, create.
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useSearchParams, useBlocker } from 'react-router-dom'
+import { Navigate, useNavigate, useSearchParams, useBlocker } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowLeft, ArrowRight, Check, Lock, Sparkles, FileText, CornerDownRight, Upload, Loader2, FlaskConical, Pencil, Play, ChevronDown, ChevronRight } from 'lucide-react'
-import { useApp, useUser } from '@/store/app'
+import { useApp, useUser, can } from '@/store/app'
 import { agentTemplates, GOVERNED, type Agent, type Autonomy, type AgentTest } from '@/lib/data'
 import { streamChat } from '@/lib/openrouter'
 import { parseJsonLoose } from '@/lib/json'
-import { abilities, THINKING, INDEPENDENCE, TONES, toneLine, readiness, type ThinkingId } from '@/lib/agentVocab'
+import { abilities, THINKING, INDEPENDENCE, TONES, toneLine, applyTonesToInstructions, readiness, type ThinkingId } from '@/lib/agentVocab'
 import { Button, Confirm, Input, Textarea, cx } from '@/components/ui'
 import { Page } from '@/components/motion'
 import { AgentAvatar, AGENT_ICONS, AGENT_COLORS, type AgentIcon } from '@/components/AgentAvatar'
@@ -46,7 +46,7 @@ export default function AgentStudio() {
   const [showInstr, setShowInstr] = useState(false)
   const [created, setCreated] = useState(false)
   const set = (p: Partial<Draft>) => setD((x) => ({ ...x, ...p }))
-  const toggle = (k: 'tools' | 'knowledge' | 'tones', v: string) => setD((x) => { const n = new Set(x[k]); n.has(v) ? n.delete(v) : n.add(v); if (k === 'knowledge' && n.size && !x.tools.has('search_knowledge')) { const t = new Set(x.tools); t.add('search_knowledge'); return { ...x, [k]: n, tools: t } } return { ...x, [k]: n } })
+  const toggle = (k: 'tools' | 'knowledge' | 'tones', v: string) => setD((x) => { const n = new Set(x[k]); n.has(v) ? n.delete(v) : n.add(v); if (k === 'knowledge' && n.size && !x.tools.has('search_knowledge')) { const t = new Set(x.tools); t.add('search_knowledge'); return { ...x, [k]: n, tools: t } } if (k === 'tones' && x.instructions) return { ...x, tones: n, instructions: applyTonesToInstructions(x.instructions, [...n]) }; return { ...x, [k]: n } })
   const touched = !created && (purpose.trim().length > 0 || d.name.trim().length > 0 || d.tools.size > 0)
   const blocker = useBlocker(touched)
   useEffect(() => { const h = (e: BeforeUnloadEvent) => { if (touched) { e.preventDefault(); e.returnValue = '' } }; window.addEventListener('beforeunload', h); return () => window.removeEventListener('beforeunload', h) }, [touched])
@@ -56,6 +56,7 @@ export default function AgentStudio() {
   useEffect(() => { if (hasGated && d.autonomy === 3) set({ autonomy: 2 }) }, [hasGated]) // eslint-disable-line react-hooks/exhaustive-deps
   const preview: Agent = useMemo(() => ({ id: 'new', name: d.name || 'New agent', description: d.description || purpose, instructions, model: modelFor(d.thinking), tools: [...d.tools], knowledge: [...d.knowledge], autonomy: d.autonomy, status: 'draft', version: 1, samplePrompts: d.samplePrompts, updatedAt: '', createdBy: user.id, icon: d.icon, color: d.color, tones: [...d.tones], tests: d.tests.map((t, i) => ({ id: String(i), ...t })) }), [d, purpose, instructions]) // eslint-disable-line react-hooks/exhaustive-deps
   const ready = readiness(preview)
+  if (!can(user, 'build')) return <Navigate to="/agents" replace />
 
   const applyTemplate = (t: typeof agentTemplates[number]) => { setPurpose(t.description); set({ description: t.description, name: t.name, icon: (t.icon as AgentIcon) ?? 'sparkles', color: t.color ?? AGENT_COLORS[0], tools: new Set(t.tools), knowledge: new Set(t.tools.includes('search_knowledge') ? ['company'] : []), thinking: thinkingFor(t.model), instructions: t.instructions, samplePrompts: t.samplePrompts, tests: [] }); setEdited(true); setStage('review') }
   const importFile = (f: File) => { f.text().then((t) => { try { const j = JSON.parse(t); setPurpose(j.description ?? ''); set({ name: j.name ?? '', description: j.description ?? '', instructions: j.instructions ?? '', tools: new Set(Array.isArray(j.tools) ? j.tools : []), knowledge: new Set(Array.isArray(j.knowledge) ? j.knowledge : []), samplePrompts: Array.isArray(j.samplePrompts) ? j.samplePrompts : [], icon: j.icon ?? 'sparkles', color: j.color ?? AGENT_COLORS[0], autonomy: j.autonomy ?? 2, thinking: thinkingFor(j.model), tests: Array.isArray(j.tests) ? j.tests : [] }); setEdited(true); setStage('review') } catch { store.flashMsg('That file is not a valid agent export.', 'danger') } }) }
@@ -157,13 +158,15 @@ Reply ONLY with JSON: {"name":"2-4 words","description":"one line","icon":"one o
                 <Section title="Abilities" sub="Tap to switch abilities on. A lock means it always asks a person first.">
                   {cats.filter((c) => abil.some((a) => a.category === c)).map((c) => (
                     <div key={c}><div className="text-[11px] font-semibold uppercase tracking-wider muted mb-2">{c === 'Custom' ? 'Your APIs and connectors' : c}</div>
-                      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">{abil.filter((a) => a.category === c).map((a) => { const on = d.tools.has(a.id); const I = a.icon; return (
-                        <button key={a.id} aria-pressed={on} aria-label={`${a.label}: ${on ? 'on' : 'off'}`} onClick={() => toggle('tools', a.id)} className={cx('flat p-2.5 text-left flex items-center gap-2.5 relative transition-all', on && 'border-[var(--accent)] shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_16%,transparent)]')}>
-                          <span className={cx('w-8 h-8 rounded-[9px] grid place-items-center shrink-0', on ? 'bg-[var(--accent)] text-white' : 'pressed muted')}><I size={15} /></span>
-                          <span className="min-w-0"><span className="block text-[12.5px] font-semibold truncate">{a.label}</span><span className="block text-[11px] muted">{a.sub}</span></span>
-                          {a.gated && <Lock size={11} className="absolute top-2 right-2 text-[var(--warn)]" />}
-                        </button>
-                      ) })}</div></div>
+                      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">{abil.filter((a) => a.category === c).map((a) => {
+                        const on = d.tools.has(a.id); const I = a.icon; return (
+                          <button key={a.id} aria-pressed={on} aria-label={`${a.label}: ${on ? 'on' : 'off'}`} onClick={() => toggle('tools', a.id)} className={cx('flat p-2.5 text-left flex items-center gap-2.5 relative transition-all', on && 'border-[var(--accent)] shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_16%,transparent)]')}>
+                            <span className={cx('w-8 h-8 rounded-[9px] grid place-items-center shrink-0', on ? 'bg-[var(--accent)] text-white' : 'pressed muted')}><I size={15} /></span>
+                            <span className="min-w-0"><span className="block text-[12.5px] font-semibold truncate">{a.label}</span><span className="block text-[11px] muted">{a.sub}</span></span>
+                            {a.gated && <Lock size={11} className="absolute top-2 right-2 text-[var(--warn)]" />}
+                          </button>
+                        )
+                      })}</div></div>
                   ))}
                   <div><div className="text-[11px] font-semibold uppercase tracking-wider muted mb-2">Knowledge</div><div className="flex flex-wrap gap-2">{libraries.map((l) => <button key={l.id} onClick={() => toggle('knowledge', l.id)} className={cx('chip !h-9 !px-3 hover:text-[var(--text)]', d.knowledge.has(l.id) && 'chip-accent')}>{d.knowledge.has(l.id) && <Check size={12} />}{l.name} · {l.docs.length}</button>)}</div></div>
                 </Section>

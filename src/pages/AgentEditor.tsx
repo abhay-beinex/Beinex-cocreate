@@ -9,7 +9,7 @@ import { runTest, draftTests } from '@/lib/evals'
 import { parseJsonLoose } from '@/lib/json'
 import { streamChat, listModels } from '@/lib/openrouter'
 import { TOOLS } from '@/lib/tools'
-import { abilities, THINKING, INDEPENDENCE, TONES, toneLine, readiness, thinkingOf } from '@/lib/agentVocab'
+import { abilities, THINKING, INDEPENDENCE, TONES, applyTonesToInstructions, readiness, thinkingOf } from '@/lib/agentVocab'
 import { Button, Chip, Confirm, Input, Textarea, Select, cx } from '@/components/ui'
 import { Page } from '@/components/motion'
 import { Thread, Composer, useAgentChat } from '@/components/ChatThread'
@@ -43,19 +43,21 @@ export default function AgentEditor() {
   const editable = can(user, 'build')
   const abil = useMemo(() => abilities(customTools), [customTools])
 
-  useEffect(() => { if (stored && (!draft || stored.version > (draft?.version ?? 0))) setDraft(stored) }, [stored]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (!models.length && apiKey) listModels(apiKey).then(setModels).catch(() => {}) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const navBypassRef = useRef(false)
+  useEffect(() => { if (stored && (!draft || draft.id !== stored.id || stored.version > (draft?.version ?? 0))) setDraft(stored) }, [stored]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!models.length && apiKey) listModels(apiKey).then(setModels).catch(() => { }) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(''), 2600); return () => clearTimeout(t) }, [toast])
   const autoRan = useRef(false)
   useEffect(() => { if (params.get('run') === '1' && stored && apiKey && !autoRan.current) { autoRan.current = true; setParams({ tab: 'tests' }, { replace: true }); setTimeout(() => { (stored.tests ?? []).filter((x) => x.prompt.trim() && x.expect.trim()).reduce((p, t) => p.then(() => runOneRef.current(t)), Promise.resolve()) }, 50) } }, [params, stored, apiKey]) // eslint-disable-line react-hooks/exhaustive-deps
-  const runOneRef = useRef<(t: AgentTest) => Promise<void>>(async () => {})
+  const runOneRef = useRef<(t: AgentTest) => Promise<void>>(async () => { })
   const chat = useAgentChat(draft ?? { id: '', name: '', description: '', instructions: '', model: '', tools: [], knowledge: [], samplePrompts: [] })
   useEffect(() => { if (draft && chat.msgs.length > 0 && !draft.testedAt) { touchAgentTested(draft.id); setDraft({ ...draft, testedAt: new Date().toISOString() }) } }, [chat.msgs.length]) // eslint-disable-line react-hooks/exhaustive-deps
   const hasGated = !!draft && draft.tools.some((t) => TOOLS.find((x) => x.name === t)?.write)
   useEffect(() => { if (draft && hasGated && draft.autonomy === 3) setDraft({ ...draft, autonomy: 2 }) }, [hasGated]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const dirty = !!draft && !!stored && JSON.stringify({ ...draft, history: undefined, testedAt: undefined }) !== JSON.stringify({ ...stored, history: undefined, testedAt: undefined })
-  const blocker = useBlocker(dirty)
+  const stripAgent = (a: Agent) => JSON.stringify({ id: a.id, name: a.name, description: a.description, instructions: a.instructions, model: a.model, tools: a.tools, knowledge: a.knowledge, samplePrompts: a.samplePrompts, autonomy: a.autonomy, status: a.status, icon: a.icon ?? null, color: a.color ?? null, tones: a.tones ?? [], tests: a.tests ?? [] })
+  const dirty = !!draft && !!stored && stripAgent(draft) !== stripAgent(stored)
+  const blocker = useBlocker(() => !navBypassRef.current && dirty)
   useEffect(() => { const h = (e: BeforeUnloadEvent) => { if (dirty) { e.preventDefault(); e.returnValue = '' } }; window.addEventListener('beforeunload', h); return () => window.removeEventListener('beforeunload', h) }, [dirty])
   useEffect(() => { const h = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') { e.preventDefault(); if (dirty && editable) save() } }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h) })
 
@@ -110,8 +112,14 @@ export default function AgentEditor() {
   }
   const fixForMe = () => { const missing = ready.items.filter((i) => !i.ok && i.fixable).map((i) => i.label); setTab('instructions'); runAssist(`Fix these readiness items without changing the agent's purpose: ${missing.join('; ')}. Keep everything else as it is.`) }
   const importJson = (f: File) => { const r = new FileReader(); r.onload = () => { try { const j = JSON.parse(String(r.result)); set({ name: j.name ?? draft.name, description: j.description ?? draft.description, instructions: j.instructions ?? draft.instructions, model: j.model ?? draft.model, tools: Array.isArray(j.tools) ? j.tools : draft.tools, knowledge: Array.isArray(j.knowledge) ? j.knowledge : draft.knowledge, autonomy: j.autonomy ?? draft.autonomy, samplePrompts: Array.isArray(j.samplePrompts) ? j.samplePrompts : draft.samplePrompts, icon: j.icon ?? draft.icon, color: j.color ?? draft.color }); setToast('Imported. Review and save.') } catch { setToast('That file is not a valid agent export.') } }; r.readAsText(f) }
-  const duplicate = () => { const id = `agent-${Date.now().toString(36)}`; upsertAgent({ ...draft, id, name: `${draft.name} (copy)`, status: 'draft', version: 1, history: undefined, testedAt: undefined, createdBy: user.id, updatedAt: new Date().toISOString().slice(0, 10) }); nav(`/agents/${id}`) }
-  const toggleTone = (t: string) => { const tones = new Set(draft.tones ?? []); tones.has(t) ? tones.delete(t) : tones.add(t); const tl = toneLine([...tones]); const instr = draft.instructions.replace(/\nHow you answer:[^\n]*\n?/, '\n'); set({ tones: [...tones], instructions: tl ? instr.replace(/\n\n(When unsure|Use your abilities)/, `\n\nHow you answer: ${tl}.\n\n$1`) : instr }) }
+  const duplicate = () => {
+    const id = `agent-${Date.now().toString(36)}`
+    navBypassRef.current = true
+    upsertAgent({ ...draft, id, name: `${draft.name} (copy)`, status: 'draft', version: 1, history: undefined, testedAt: undefined, createdBy: user.id, updatedAt: new Date().toISOString().slice(0, 10) })
+    nav(`/agents/${id}`)
+    setTimeout(() => { navBypassRef.current = false }, 0)
+  }
+  const toggleTone = (t: string) => { const tones = new Set(draft.tones ?? []); tones.has(t) ? tones.delete(t) : tones.add(t); set({ tones: [...tones], instructions: applyTonesToInstructions(draft.instructions, [...tones]) }) }
   const cats = ['Web', 'Reasoning', 'Knowledge', 'Actions', 'Custom'] as const
   const previewPrompts = draft.samplePrompts.length ? draft.samplePrompts : ['Introduce yourself in two lines', 'What can you help me with?', 'What would you not do?']
 
@@ -165,14 +173,16 @@ export default function AgentEditor() {
               <div><h2 className="display text-[18px] font-bold">What can it do?</h2><div className="text-[12.5px] muted">Tap to switch abilities on. A lock means it always asks a person first.</div></div>
               {cats.filter((c) => abil.some((a) => a.category === c)).map((c) => (
                 <div key={c}><div className="text-[11px] font-semibold uppercase tracking-wider muted mb-2">{c === 'Custom' ? 'Your APIs' : c}</div>
-                  <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-2">{abil.filter((a) => a.category === c).map((a) => { const on = draft.tools.includes(a.id); const I = a.icon; return (
-                    <button type="button" key={a.id} aria-pressed={on} aria-label={`${a.label}: ${on ? 'on' : 'off'}`} onClick={() => set({ tools: on ? draft.tools.filter((t) => t !== a.id) : [...draft.tools, a.id] })} className={cx('flat p-3 text-left flex items-center gap-3 relative transition-all', on && 'border-[var(--accent)] shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_16%,transparent)]')}>
-                      <span className={cx('w-9 h-9 rounded-[10px] grid place-items-center shrink-0', on ? 'bg-[var(--accent)] text-white' : 'pressed muted')}><I size={16} /></span>
-                      <span className="min-w-0"><span className="block text-[13px] font-semibold">{a.label}</span><span className="block text-[11px] muted">{a.sub}</span></span>
-                      {a.gated && <Lock size={11} className="absolute top-2.5 right-2.5 text-[var(--warn)]" />}
-                      {on && <Check size={14} className="ml-auto accent-ink shrink-0" />}
-                    </button>
-                  ) })}</div></div>
+                  <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-2">{abil.filter((a) => a.category === c).map((a) => {
+                    const on = draft.tools.includes(a.id); const I = a.icon; return (
+                      <button type="button" key={a.id} aria-pressed={on} aria-label={`${a.label}: ${on ? 'on' : 'off'}`} onClick={() => set({ tools: on ? draft.tools.filter((t) => t !== a.id) : [...draft.tools, a.id] })} className={cx('flat p-3 text-left flex items-center gap-3 relative transition-all', on && 'border-[var(--accent)] shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_16%,transparent)]')}>
+                        <span className={cx('w-9 h-9 rounded-[10px] grid place-items-center shrink-0', on ? 'bg-[var(--accent)] text-white' : 'pressed muted')}><I size={16} /></span>
+                        <span className="min-w-0"><span className="block text-[13px] font-semibold">{a.label}</span><span className="block text-[11px] muted">{a.sub}</span></span>
+                        {a.gated && <Lock size={11} className="absolute top-2.5 right-2.5 text-[var(--warn)]" />}
+                        {on && <Check size={14} className="ml-auto accent-ink shrink-0" />}
+                      </button>
+                    )
+                  })}</div></div>
               ))}
               <div className="text-[12px] muted">Need an ability that is not here? Add your own API under <button type="button" onClick={() => nav('/tools')} className="accent-ink font-medium hover:underline">Tools</button>.</div>
             </>}
@@ -224,21 +234,23 @@ export default function AgentEditor() {
                 <div className="flex gap-2 shrink-0">{apiKey && <Button size="sm" onClick={writeTests} disabled={writingTests}>{writingTests ? <Loader2 size={13} className="animate-spin" /> : <SparklesIcon size={13} />} Write tests for me</Button>}<Button size="sm" variant="primary" onClick={runAll} disabled={!apiKey || testing.size > 0 || !tests.some((t) => t.prompt.trim() && t.expect.trim())}>{testing.size > 0 ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />} Run all</Button></div></div>
               {tests.length > 0 && (() => { const ran = tests.filter((t) => t.last); const passed = ran.filter((t) => t.last!.pass).length; return <div className="flat p-3 flex items-center gap-3 text-[12.5px]"><span className={cx('w-2.5 h-2.5 rounded-full', ran.length === 0 ? 'bg-[var(--muted)]' : passed === ran.length ? 'bg-[var(--ok)]' : 'bg-[var(--danger)]')} /><span className="font-semibold">{ran.length === 0 ? 'Not run yet' : `${passed} of ${ran.length} passed`}</span><span className="muted">{ran.length ? `· last run ${ran[ran.length - 1].last!.at} · $${ran.reduce((a, t) => a + (t.last?.cost ?? 0), 0).toFixed(3)}` : `· ${tests.length} test${tests.length === 1 ? '' : 's'}`}</span></div> })()}
               <div className="flex flex-col gap-2">
-                {tests.map((t) => { const busy = testing.has(t.id); const r = t.last; return (
-                  <div key={t.id} className={cx('flat p-3 flex flex-col gap-2', r && !busy && (r.pass ? 'border-[color-mix(in_srgb,var(--ok)_40%,var(--line))]' : 'border-[color-mix(in_srgb,var(--danger)_40%,var(--line))]'))}>
-                    <div className="grid sm:grid-cols-2 gap-2">
-                      <div><div className="text-[11px] font-semibold muted mb-1">Prompt</div><Textarea rows={2} value={t.prompt} onChange={(e) => set({ tests: tests.map((x) => (x.id === t.id ? { ...x, prompt: e.target.value } : x)) })} placeholder="What a user would ask" /></div>
-                      <div><div className="text-[11px] font-semibold muted mb-1">A good answer must…</div><Textarea rows={2} value={t.expect} onChange={(e) => set({ tests: tests.map((x) => (x.id === t.id ? { ...x, expect: e.target.value } : x)) })} placeholder="e.g. cite the handbook and offer to escalate" /></div>
+                {tests.map((t) => {
+                  const busy = testing.has(t.id); const r = t.last; return (
+                    <div key={t.id} className={cx('flat p-3 flex flex-col gap-2', r && !busy && (r.pass ? 'border-[color-mix(in_srgb,var(--ok)_40%,var(--line))]' : 'border-[color-mix(in_srgb,var(--danger)_40%,var(--line))]'))}>
+                      <div className="grid sm:grid-cols-2 gap-2">
+                        <div><div className="text-[11px] font-semibold muted mb-1">Prompt</div><Textarea rows={2} value={t.prompt} onChange={(e) => set({ tests: tests.map((x) => (x.id === t.id ? { ...x, prompt: e.target.value } : x)) })} placeholder="What a user would ask" /></div>
+                        <div><div className="text-[11px] font-semibold muted mb-1">A good answer must…</div><Textarea rows={2} value={t.expect} onChange={(e) => set({ tests: tests.map((x) => (x.id === t.id ? { ...x, expect: e.target.value } : x)) })} placeholder="e.g. cite the handbook and offer to escalate" /></div>
+                      </div>
+                      <div className="flex items-center gap-2 text-[12px]">
+                        {busy ? <span className="inline-flex items-center gap-1.5 muted"><Loader2 size={12} className="animate-spin" /> Running…</span> : r ? <span className={cx('inline-flex items-center gap-1.5 font-semibold', r.pass ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>{r.pass ? <Check size={13} /> : <X size={13} />} {r.pass ? 'Pass' : 'Fail'}<span className="muted font-normal">· {r.reason}</span></span> : <span className="muted">Not run yet</span>}
+                        <div className="flex-1" />
+                        {r && !busy && <details className="text-[11.5px]"><summary className="cursor-pointer muted hover:text-[var(--text)]">Answer · {(r.ms / 1000).toFixed(1)}s · ${r.cost.toFixed(4)}</summary><div className="flat p-2 mt-1 max-h-[200px] overflow-auto whitespace-pre-wrap muted">{r.output}</div></details>}
+                        <Button type="button" size="sm" onClick={() => runOne(t)} disabled={!apiKey || busy || !t.prompt.trim() || !t.expect.trim()}><Play size={12} /> Run</Button>
+                        <button type="button" onClick={() => saveTests(tests.filter((x) => x.id !== t.id))} className="btn btn-ghost btn-sm btn-icon" title="Remove test" aria-label="Remove test"><Trash2 size={13} /></button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 text-[12px]">
-                      {busy ? <span className="inline-flex items-center gap-1.5 muted"><Loader2 size={12} className="animate-spin" /> Running…</span> : r ? <span className={cx('inline-flex items-center gap-1.5 font-semibold', r.pass ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>{r.pass ? <Check size={13} /> : <X size={13} />} {r.pass ? 'Pass' : 'Fail'}<span className="muted font-normal">· {r.reason}</span></span> : <span className="muted">Not run yet</span>}
-                      <div className="flex-1" />
-                      {r && !busy && <details className="text-[11.5px]"><summary className="cursor-pointer muted hover:text-[var(--text)]">Answer · {(r.ms / 1000).toFixed(1)}s · ${r.cost.toFixed(4)}</summary><div className="flat p-2 mt-1 max-h-[200px] overflow-auto whitespace-pre-wrap muted">{r.output}</div></details>}
-                      <Button type="button" size="sm" onClick={() => runOne(t)} disabled={!apiKey || busy || !t.prompt.trim() || !t.expect.trim()}><Play size={12} /> Run</Button>
-                      <button type="button" onClick={() => saveTests(tests.filter((x) => x.id !== t.id))} className="btn btn-ghost btn-sm btn-icon" title="Remove test" aria-label="Remove test"><Trash2 size={13} /></button>
-                    </div>
-                  </div>
-                ) })}
+                  )
+                })}
                 <button type="button" onClick={() => saveTests([...tests, { id: `t${Date.now().toString(36)}`, prompt: '', expect: '' }])} className="flat p-3 text-[12.5px] font-medium muted hover:text-[var(--text)] inline-flex items-center gap-1.5 justify-center border-dashed"><Plus size={13} /> Add a test</button>
               </div>
             </>}

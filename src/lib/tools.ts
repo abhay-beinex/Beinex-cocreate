@@ -76,7 +76,12 @@ export async function runTool(name: string, rawArgs: string, ctx: ToolContext): 
       const url = fill(custom.url, args)
       let hdrs: Record<string, string> = {}
       try { hdrs = custom.headers ? JSON.parse(custom.headers) : {} } catch { return 'Tool misconfigured: headers must be JSON.' }
-      const res = await fetch(url, { method: custom.method, headers: hdrs, body: custom.method === 'POST' ? custom.body.replace(/\{(\w+)\}/g, (_, k) => String(args[k] ?? '')) : undefined })
+      const isJsonBody = custom.body.trim().startsWith('{') || custom.body.trim().startsWith('[')
+      const bodyStr = custom.method === 'POST' ? custom.body.replace(/\{(\w+)\}/g, (_, k) => {
+        const raw = String(args[k] ?? '')
+        return isJsonBody ? JSON.stringify(raw).slice(1, -1) : raw
+      }) : undefined
+      const res = await fetch(url, { method: custom.method, headers: hdrs, body: bodyStr })
       const text = await res.text()
       return `HTTP ${res.status}\n${text.length > 12000 ? text.slice(0, 12000) + '\n…[truncated]' : text}`
     }
