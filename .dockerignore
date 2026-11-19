@@ -5,9 +5,12 @@
 node_modules
 dist
 .git
+.gitlab
+.gitlab-ci.yml
 .claude
-PRD
-design
+docs
+*.md
+*.zip
 *.tsbuildinfo
 Dockerfile
 .dockerignore

@@ -117,26 +117,4 @@ Councils (several agents deciding together) appear under **Agents › Councils**
 
 ## 7. For developers
 
-The full source is in this package. See **README.md** for the feature list.
-
-**Run it locally**
-
-```bash
-npm install
-cp .env.example .env    # put your own model key in VITE_OPENROUTER_API_KEY
-npm run dev             # http://localhost:5173
-```
-
-Never commit `.env`, and never build a release with `VITE_OPENROUTER_API_KEY` set; it would ship inside the JavaScript.
-
-**Release and hosting**
-- **SECURITY.md:** how the release build keeps the model key on the server, the required security headers and the go-live checklist.
-- **DEPLOY.md:** the Azure setup (registry `beinexailabs`, Container App `beinex-co-create` in `AI_Labs`, UAE North), the release, rollback and key-rotation commands, and the post-release checks.
-
-**Known limits of this build**
-- No shared database. Data is per browser.
-- No Microsoft SSO yet.
-- Schedules and watchers only run while a tab is open.
-- Inbound webhooks and email triggers need a server and aren't included.
-
-Next steps for a wider roll-out are Microsoft sign-in, a small backend with a shared database, and a server-side runner for schedules.
+Start with the [README](../README.md) for the quick start, then [architecture.md](architecture.md), [development.md](development.md) and [troubleshooting.md](troubleshooting.md). Releases are covered in [deployment.md](deployment.md) and [SECURITY.md](../SECURITY.md).

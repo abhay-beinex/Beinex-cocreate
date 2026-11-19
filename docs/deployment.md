@@ -11,7 +11,7 @@ Live: https://beinex-co-create.happyflower-19a0f2b7.uaenorth.azurecontainerapps.
 | Size | 0.5 vCPU, 1 GiB, 1–3 replicas (min 1 so the app never cold-starts) |
 | Ingress | external, HTTPS only (HTTP redirects), target port 8080 |
 
-The image runs `server/proxy.mjs` (see [SECURITY.md](SECURITY.md)): it serves `dist/` with the security headers and proxies the three model endpoints, holding the key server-side.
+The image runs `server/proxy.mjs` (see [SECURITY.md](../SECURITY.md)): it serves `dist/` with the security headers and proxies the three model endpoints, holding the key server-side.
 
 ## Configuration (Container App)
 
