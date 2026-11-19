@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+﻿import { useEffect, useRef, useState } from 'react'
 import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Home, MessageSquare, Sparkles, Workflow, Wrench, BookOpen, ListChecks, Cpu, Settings, Sun, Moon, Languages, PanelLeftClose, PanelLeftOpen, LogOut, Bell, ShieldCheck, Clock, Info, CheckCheck, ChevronUp, Check } from 'lucide-react'
@@ -7,6 +7,7 @@ import { BRAND, roleLabel } from '@/lib/data'
 import { tickSchedules, watchDocuments, reconcileRuns } from '@/lib/runner'
 import { BeinexMark } from './Logo'
 import { currentHoliday, holidayById } from '@/lib/holidays'
+import { Emoji } from '@/components/Emoji'
 import { Avatar, cx } from './ui'
 
 const groups: { title?: string; items: { to: string; label: string; icon: typeof Home; end?: boolean }[] }[] = [
@@ -59,7 +60,7 @@ export default function Shell() {
         {/* brand + collapse */}
         <div className={cx('flex items-center gap-2.5 h-12 mb-2', collapsed ? 'justify-center' : 'px-1.5')}>
           <button onClick={() => nav('/')} className="flex items-center gap-2.5 text-left min-w-0">
-            <div className="relative w-9 h-9 rounded-[12px] grid place-items-center shrink-0" style={{ background: 'linear-gradient(145deg,#1a4a73,#10385b)', boxShadow: 'inset 2px 2px 5px rgba(255,255,255,.18), inset -3px -4px 8px rgba(0,0,0,.35), 0 8px 16px -10px rgba(16,56,91,.7)' }}><BeinexMark size={20} />{holiday && <span className="holiday-badge" title={`${holiday.name} · ${holiday.greeting}`} aria-label={holiday.name} role="img">{holiday.emoji}</span>}</div>
+            <div className="relative w-9 h-9 rounded-[12px] grid place-items-center shrink-0" style={{ background: 'linear-gradient(145deg,#1a4a73,#10385b)', boxShadow: 'inset 2px 2px 5px rgba(255,255,255,.18), inset -3px -4px 8px rgba(0,0,0,.35), 0 8px 16px -10px rgba(16,56,91,.7)' }}><BeinexMark size={20} />{holiday && <span className="holiday-badge" title={`${holiday.name} · ${holiday.greeting}`} ><Emoji label={holiday.name} size={16}>{holiday.emoji}</Emoji></span>}</div>
             {!collapsed && <div className="leading-tight min-w-0"><div className="display font-extrabold text-[14.5px] truncate">{BRAND.name}</div><div className="text-[10.5px] muted font-medium">by {BRAND.company}</div></div>}
           </button>
           {!collapsed && <button className="btn btn-ghost btn-sm btn-icon ml-auto" title="Collapse sidebar" onClick={() => setCollapsed(true)}><PanelLeftClose size={15} /></button>}
